@@ -124,7 +124,7 @@ type Options = {
   isSessionClosing?: (session: AppSession) => boolean
   onError: (cause: unknown) => void
 }
-type ManagedSession = AppSession & { pinnedRuntimeKey?: string }
+type ManagedSession = AppSession & { pinnedRuntimeKey?: string; managedDraft?: boolean }
 
 type Pending = {
   clientId?: string
@@ -1014,6 +1014,7 @@ export async function createAppControl(options: Options) {
     ])
     const projected: ManagedSession = structuredClone(session)
     delete projected.pinnedRuntimeKey
+    delete projected.managedDraft
     return {
       ...projected,
       pinned: Boolean(
@@ -1264,9 +1265,10 @@ export async function createAppControl(options: Options) {
           const cwd =
             input.project !== undefined ? getProject(input.project).cwd : await projects.createStandaloneDirectory()
           pi.assertWorkspaceAvailable(cwd)
-          const session: AppSession = {
+          const session: ManagedSession = {
             hostId,
             sessionId: randomUUID(),
+            managedDraft: true,
             project: input.project && { hostId, projectId: input.project.projectId },
             cwd,
             createdAt: new Date().toISOString(),
@@ -2392,8 +2394,32 @@ export async function createAppControl(options: Options) {
     subscribe: store.subscribe.bind(store),
     store,
     async restoreManagedDrafts() {
+      const pinnedPaths = options.lifecycle.getPinnedPaths()
+      const previouslyManaged = new Set(
+        Object.values(store.state.operations).flatMap(({ status, result }) => {
+          if (status !== 'completed' || !result || typeof result !== 'object') return []
+          const session = result as Partial<AppSession>
+          return session.hostId === hostId &&
+            typeof session.sessionId === 'string' &&
+            typeof session.createdAt === 'string' &&
+            session.configuration
+            ? [session.sessionId]
+            : []
+        }),
+      )
       for (const session of [...store.state.sessions]) {
         if (session.temporary || session.sessionFile || runtime.has(session.sessionId)) continue
+        const managed = session as ManagedSession
+        // 旧客户端为尚未发送的输入框也登记过控制记录；没有历史文件不代表需要恢复的草稿。
+        // 兼容旧版 API 操作日志、命名和置顶，不删除其余控制记录。
+        if (
+          managed.managedDraft !== true &&
+          !previouslyManaged.has(session.sessionId) &&
+          !session.name?.trim() &&
+          !pinnedPaths.includes(`session:${session.sessionId}`) &&
+          !(managed.pinnedRuntimeKey && pinnedPaths.includes(managed.pinnedRuntimeKey))
+        )
+          continue
         try {
           await resolveSession(session)
         } catch (cause) {
