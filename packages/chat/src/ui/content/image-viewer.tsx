@@ -42,8 +42,8 @@ export function ImageViewer({
     <Dialog open={Boolean(image)} onOpenChange={(open) => !open && onActiveIndexChange(null)}>
       <DialogContent
         className={cn(
-          'w-[calc(100vw-2rem)] h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-2 overflow-hidden border-0 bg-background p-4',
-          '[&>button:last-child]:inline-flex [&>button:last-child]:size-8 [&>button:last-child]:items-center [&>button:last-child]:justify-center',
+          'w-[calc(100vw-2rem)] h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-2 overflow-hidden rounded-none border-0 bg-transparent p-4 shadow-none',
+          '[&>button:last-child]:inline-flex [&>button:last-child]:size-8 [&>button:last-child]:items-center [&>button:last-child]:justify-center [&>button:last-child]:rounded-full [&>button:last-child]:bg-secondary/80 [&>button:last-child]:opacity-100 [&>button:last-child]:hover:bg-secondary',
         )}
         onCloseAutoFocus={(event) => {
           event.preventDefault()
@@ -92,7 +92,7 @@ export function nextImageZoom(current: number, factor: number) {
 
 const zoomOptions = [25, 50, 75, 100, 125, 150, 200, 300, 400, 500]
 const controlClass =
-  'flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30 disabled:cursor-default cursor-pointer'
+  'flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary/80 hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30 disabled:cursor-default cursor-pointer'
 
 /** 非模态图片舞台；聊天预览仍由 ImageViewer 的 Dialog 管理焦点。 */
 export function ImagePreviewStage({
@@ -161,7 +161,7 @@ export function ImagePreviewStage({
         aria-label={isDiagram ? '缩小图表' : '缩小图片'}
         disabled={zoom !== null && zoom <= 0.01}
         onClick={() => changeZoom(1 / 1.25)}
-        className={controlClass}
+        className={cn(controlClass, 'hidden sm:flex')}
       >
         <ZoomOut className="size-4" />
       </button>
@@ -169,10 +169,13 @@ export function ImagePreviewStage({
         value={zoom === null ? 'fit' : String(zoom)}
         onValueChange={(value) => setZoom(value === 'fit' ? null : Number(value))}
       >
-        <SelectTrigger aria-label={isDiagram ? '图表缩放比例' : '图片缩放比例'} className="h-8 w-32 bg-card">
+        <SelectTrigger
+          aria-label={isDiagram ? '图表缩放比例' : '图片缩放比例'}
+          className="h-8 w-28 shrink-0 gap-1 rounded-full border-0 bg-secondary/80 shadow-none enabled:hover:bg-secondary"
+        >
           <SelectValue />
         </SelectTrigger>
-        <SelectContent align="end">
+        <SelectContent side="bottom" align="end">
           <SelectItem value="fit">适应窗口</SelectItem>
           {zoom !== null && !zoomOptions.includes(zoom) && <SelectItem value={String(zoom)}>{zoom}%</SelectItem>}
           {zoomOptions.map((value) => (
@@ -187,7 +190,7 @@ export function ImagePreviewStage({
         aria-label={isDiagram ? '放大图表' : '放大图片'}
         disabled={zoom === 500}
         onClick={() => changeZoom(1.25)}
-        className={controlClass}
+        className={cn(controlClass, 'hidden sm:flex')}
       >
         <ZoomIn className="size-4" />
       </button>
@@ -196,11 +199,14 @@ export function ImagePreviewStage({
 
   return (
     <>
-      <div className="flex min-h-8 min-w-0 items-center justify-end gap-2 pr-10">{actions}</div>
+      <div className="flex min-h-8 min-w-0 items-center justify-end gap-2 pr-10">
+        {zoomControls}
+        {actions}
+      </div>
       <div
         ref={viewportRef}
         tabIndex={0}
-        className="h-full min-h-0 overflow-auto rounded-md bg-secondary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="h-full min-h-0 overflow-auto rounded-md bg-transparent focus-visible:outline-none"
         aria-label={isDiagram ? '图表预览区域' : '图片预览区域'}
       >
         <div
@@ -268,7 +274,10 @@ export function ImagePreviewStage({
             >
               <ChevronLeft className="size-4" />
             </button>
-            <span aria-live="polite" className="text-sm text-muted-foreground">
+            <span
+              aria-live="polite"
+              className="min-w-12 rounded-full bg-secondary/80 px-3 py-1.5 text-center text-sm text-foreground"
+            >
               {index + 1} / {count}
             </span>
             <button
@@ -282,7 +291,6 @@ export function ImagePreviewStage({
             </button>
           </>
         )}
-        {zoomControls}
       </div>
     </>
   )
