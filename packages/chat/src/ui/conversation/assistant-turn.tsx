@@ -11,6 +11,7 @@ import { MarkdownContent } from '../content/markdown-content'
 import { ActivityElapsedTime, ActivityGroup } from './activity-group'
 import { groupAgentActivities } from '../model/agent-collaboration'
 import { AgentCollaborationRow } from './agent-collaboration-row'
+import { AgentStatusRow } from './agent-status-row'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { MessageActions } from './message-actions'
 import { MessageTime } from './message-time'
@@ -24,12 +25,14 @@ export const AssistantTurnView = React.memo(AssistantTurnContent)
 function AssistantTurnContent({
   turn,
   isFinalReply = !turn.isLive,
+  hideAgentOperations = turn.hideAgentOperations,
   className,
   isPaused = false,
   pauseIntervals,
   canFork,
   onFork,
   onCopyError,
+  onOpenAgent,
   retry,
   onActivityToggle,
   reply,
@@ -38,12 +41,14 @@ function AssistantTurnContent({
 }: {
   turn: Extract<TurnChunk, { type: 'assistant_turn' }>
   isFinalReply?: boolean
+  hideAgentOperations?: boolean
   className?: string
   isPaused?: boolean
   pauseIntervals?: PiPauseInterval[]
   canFork?: boolean
   onFork?: (timestamp: number) => void
   onCopyError?: (message: string) => void
+  onOpenAgent?: (agentId: string) => void
   retry?: PiRetryState
   onActivityToggle?: () => void
   reply?: React.ReactNode
@@ -63,9 +68,15 @@ function AssistantTurnContent({
   const segments = React.useMemo(
     () =>
       insertTurnVisualizations(
-        groupAgentActivities(turn.activities, turn.finalText, turn.collaboration, turn.hideAgentOperations),
+        groupAgentActivities(
+          turn.activities,
+          turn.finalText,
+          turn.collaboration,
+          hideAgentOperations,
+          turn.agentStatuses,
+        ),
       ),
-    [turn.activities, turn.finalText, turn.collaboration, turn.hideAgentOperations],
+    [turn.activities, turn.finalText, turn.collaboration, hideAgentOperations, turn.agentStatuses],
   )
   const visualizationKeys = React.useMemo(
     () =>
@@ -76,11 +87,12 @@ function AssistantTurnContent({
       ),
     [segments],
   )
-  const hasTrailingText = segments.at(-1)?.type === 'text'
-  const replyIndex = !turn.isLive && turn.finalText.trim() ? segments.length - 1 : -1
+  const firstReplyIndex = segments.findIndex((segment) => segment.type === 'text' && segment.finalReply)
+  const lastTextIndex = segments.findLastIndex((segment) => segment.type === 'text')
+  const lastActivityIndex = segments.findLastIndex((segment) => segment.type === 'activity')
   const processId = React.useId()
   const processIds = segments.flatMap((segment, index) =>
-    index === replyIndex || segment.type === 'collaboration' || segment.type === 'visualization'
+    (segment.type === 'text' && segment.finalReply) || segment.type === 'visualization'
       ? []
       : [`${processId}-${index}`],
   )
@@ -104,9 +116,9 @@ function AssistantTurnContent({
       className={cn('group flex w-full py-1 text-sm select-text justify-start', className)}
     >
       <div className="flex flex-col min-w-0 w-full items-start">
-        <div className="text-sm text-foreground leading-relaxed bg-transparent px-0 py-0.5 w-full">
-          {(turn.activities.length > 0 || turn.isLive || (turn.durationMs ?? 0) > 0) && (
-            <div className="my-2 border-b border-border/50 pb-2 text-xs text-muted-foreground">
+        <div className="text-foreground bg-transparent px-0 py-0.5 w-full">
+          {(processIds.length > 0 || turn.isLive || (turn.durationMs ?? 0) > 0) && (
+            <div className="conversation-process-header text-muted-foreground">
               {processIds.length > 0 ? (
                 <button
                   type="button"
@@ -117,13 +129,13 @@ function AssistantTurnContent({
                     onActivityToggle?.()
                     setProcess((previous) => ({ ...previous, open: !previous.open }))
                   }}
-                  className="group/process-toggle inline-flex items-center gap-1.5 rounded-sm text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+                  className="group/process-toggle inline-flex min-h-6 items-center gap-1.5 rounded-sm text-left hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
                 >
-                  {elapsedTime}
+                  <span>工作过程 · {elapsedTime}</span>
                   <span
                     aria-hidden="true"
                     className={cn(
-                      'inline-flex size-3.5 shrink-0 opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none group-hover/process-toggle:opacity-100 group-focus-visible/process-toggle:opacity-100',
+                      'inline-flex size-3.5 shrink-0 transition-transform duration-200 ease-out motion-reduce:transition-none',
                       !process.open && '-rotate-90',
                     )}
                   >
@@ -135,43 +147,62 @@ function AssistantTurnContent({
               )}
             </div>
           )}
-          {segments.map((segment, index) =>
-            segment.type === 'collaboration' ? (
-              <AgentCollaborationRow key={`collaboration-${segment.item.id}`} item={segment.item} />
-            ) : segment.type === 'visualization' ? (
-              <div
-                key={`visualization-${segment.reference.id}:${segment.reference.revision}`}
-                className="my-3"
-                aria-label="生成的草图"
-              >
-                <VisualizationRenderer reference={segment.reference} />
-              </div>
-            ) : (
+          {segments.map((segment, index) => {
+            if (segment.type === 'visualization')
+              return (
+                <div
+                  key={`visualization-${segment.reference.id}:${segment.reference.revision}`}
+                  className="conversation-block"
+                  aria-label="生成的草图"
+                >
+                  <VisualizationRenderer reference={segment.reference} />
+                </div>
+              )
+            const finalReply = segment.type === 'text' && Boolean(segment.finalReply)
+            if (finalReply && reply && index !== firstReplyIndex) return null
+            const open = finalReply || process.open
+            const key =
+              segment.type === 'activity'
+                ? `activity-${segment.items[0]!.id}`
+                : segment.type === 'collaboration'
+                  ? `collaboration-${segment.item.id}`
+                  : segment.type === 'agent_status'
+                    ? segment.item.key
+                    : `text-${index}`
+            return (
               <RetainedDisclosure
-                open={index === replyIndex || process.open}
-                key={segment.type === 'activity' ? `activity-${segment.items[0]!.id}` : `text-${index}`}
+                open={open}
+                key={key}
                 id={`${processId}-${index}`}
-                aria-hidden={index !== replyIndex && !process.open}
-                inert={index !== replyIndex && !process.open}
+                aria-hidden={!open}
+                inert={!open}
                 className={cn(
-                  'grid transition-[grid-template-rows,opacity] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)]',
-                  index === replyIndex || process.open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+                  'grid transition-[grid-template-rows,opacity] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                  open ? 'conversation-block grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
                 )}
               >
                 <div className="min-h-0 overflow-hidden">
-                  {index === segments.length - 1 && hasTrailingText && turn.images.length > 0 && (
-                    <AttachmentPreview images={turn.images} />
-                  )}
-                  {segment.type === 'text' && index === replyIndex && reply ? (
-                    reply
+                  {index === firstReplyIndex && turn.images.length > 0 && <AttachmentPreview images={turn.images} />}
+                  {segment.type === 'collaboration' ? (
+                    <AgentCollaborationRow item={segment.item} onOpenAgent={onOpenAgent} />
+                  ) : segment.type === 'agent_status' ? (
+                    <AgentStatusRow
+                      agents={segment.item.agents}
+                      status={segment.item.status}
+                      onOpenAgent={onOpenAgent}
+                    />
                   ) : segment.type === 'text' ? (
-                    <MarkdownContent isStreaming={turn.isLive && index === segments.length - 1}>
-                      {segment.text}
-                    </MarkdownContent>
+                    finalReply && reply ? (
+                      reply
+                    ) : (
+                      <MarkdownContent isStreaming={turn.isLive && index === lastTextIndex}>
+                        {segment.text}
+                      </MarkdownContent>
+                    )
                   ) : (
                     <ActivityGroup
                       items={segment.items}
-                      isLive={turn.isLive && index === segments.length - 1}
+                      isLive={turn.isLive && index === lastActivityIndex}
                       isPaused={isPaused}
                       showElapsedTime={false}
                       collapsed={!process.open}
@@ -180,10 +211,14 @@ function AssistantTurnContent({
                   )}
                 </div>
               </RetainedDisclosure>
-            ),
+            )
+          })}
+          {firstReplyIndex === -1 && reply && <div className="conversation-block">{reply}</div>}
+          {firstReplyIndex === -1 && turn.images.length > 0 && (
+            <div className="conversation-block">
+              <AttachmentPreview images={turn.images} />
+            </div>
           )}
-          {!hasTrailingText && reply}
-          {!hasTrailingText && turn.images.length > 0 && <AttachmentPreview images={turn.images} />}
           <TurnImageGallery generations={generated} isLive={turn.isLive} isPaused={isPaused} />
           {(retry?.errorMessage || turn.errorMessage) && (
             <ErrorLine

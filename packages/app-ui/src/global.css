@@ -16,7 +16,14 @@
   /* 普通文字跟随界面字号，代码保留独立字号设置。 */
   --text-xs: var(--text-ui);
   --text-sm: var(--text-ui);
+  --conversation-line-height: 1.72;
+  --conversation-block-gap: 1em;
+  font-family: var(--font-content);
+  font-weight: var(--font-content-weight);
+  font-style: var(--font-content-style);
   font-size: var(--text-ui);
+  line-height: var(--conversation-line-height);
+  letter-spacing: 0.01em;
   container-type: inline-size;
 }
 
@@ -46,13 +53,61 @@
 }
 
 .chat-content-column {
-  width: min(48rem, calc(100cqw - 6rem));
+  width: min(48rem, calc(100cqw - clamp(2rem, 8cqw, 6rem)));
   max-width: 100%;
   margin-inline: auto;
 }
 
-.side-chat-panel .chat-content-column {
-  width: calc(100% - 1.5rem);
+.chat-surface .conversation-event,
+.chat-surface .conversation-activity-toggle,
+.chat-surface .conversation-process-header {
+  font-size: inherit;
+  line-height: var(--conversation-line-height);
+}
+
+.conversation-block ~ .conversation-block {
+  margin-top: var(--conversation-block-gap, 1em);
+}
+
+.conversation-process-header {
+  margin-bottom: var(--conversation-block-gap, 1em);
+}
+
+.conversation-agent-link {
+  display: inline;
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  transition:
+    color 120ms ease-out,
+    text-decoration-color 120ms ease-out;
+}
+
+.conversation-agent-link:hover {
+  color: color-mix(in srgb, var(--muted-foreground) 65%, var(--foreground));
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+}
+
+.conversation-agent-link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+  border-radius: 2px;
+  text-decoration-color: currentColor;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-reduced-motion]) .conversation-agent-link {
+    transition: none;
+  }
 }
 
 .scroll-fade {

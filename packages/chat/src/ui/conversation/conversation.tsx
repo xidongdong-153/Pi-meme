@@ -21,7 +21,6 @@ import { PluginMessageActions } from '@pi-meme/ui/components/plugin-message-acti
 import { messageText } from '../model/message-text'
 import { AgentStatusRow } from './agent-status-row'
 import { ErrorLine } from '@pi-meme/ui/components/error-line'
-import { cn } from '@pi-meme/ui/lib/utils'
 import { MessageImageLoaderContext, type MessageImageLoader } from '../content/message-image'
 import { modelChangesForConversation } from '../model/model-changes'
 import { ModelChangeRow } from './model-change-row'
@@ -79,6 +78,7 @@ export const Conversation = React.memo(
     onEditMessage,
     onForkReply,
     onCopyError,
+    onOpenAgent,
     editor,
     sessionKey,
     scrollResetVersion,
@@ -107,6 +107,7 @@ export const Conversation = React.memo(
     onEditMessage: (message: Extract<TurnChunk, { type: 'user' }>['message']) => void
     onForkReply: (timestamp: number) => void
     onCopyError: (message: string) => void
+    onOpenAgent?: (agentId: string) => void
     /** 正在原位置编辑的用户消息，命中该原生 entry ID时用编辑器替换消息气泡。 */
     editor?: MessageEditorState
     /** 当前会话标识，用于按会话恢复滚动位置。 */
@@ -178,7 +179,7 @@ export const Conversation = React.memo(
             )
       const finalReplyKeys = new Set<string>()
       let canBeFinal = !chat.running && !chat.live
-      // 子代理状态只切分展示段，每条用户输入仅最后一个已完成的助手段保留消息操作。
+      // 压缩与模型变更等边界可能切分展示段，每条用户输入仅最后一个已完成的助手段保留消息操作。
       for (let index = grouped.length - 1; index >= 0; index--) {
         const turn = grouped[index]!
         if (turn.type === 'user') canBeFinal = true
@@ -431,19 +432,11 @@ export const Conversation = React.memo(
             ref={containerRef}
             onScroll={handleScroll}
             data-overflow-top={showScrollTop}
-            className={cn(
-              'scroll-fade flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto py-6 text-sm select-text [scrollbar-gutter:stable_both-edges]',
-              agentOnly && 'px-4',
-            )}
+            className="scroll-fade flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto py-6 text-sm select-text [scrollbar-gutter:stable_both-edges]"
             aria-label="对话消息流"
             tabIndex={0}
           >
-            <div
-              className={cn(
-                'space-y-3 [overflow-wrap:anywhere]',
-                agentOnly ? 'max-w-3xl mx-auto' : 'chat-content-column',
-              )}
-            >
+            <div className="space-y-3 [overflow-wrap:anywhere] chat-content-column">
               {(historyLoading || historyError) && (
                 <div
                   className="flex min-h-11 items-center justify-center gap-2 py-2 text-xs text-muted-foreground"
@@ -465,7 +458,14 @@ export const Conversation = React.memo(
                   if (turn.type === 'model_change')
                     return <ModelChangeRow key={turn.key} from={turn.from} to={turn.to} models={models} />
                   if (turn.type === 'agent_status')
-                    return <AgentStatusRow key={turn.key} agents={turn.agents} status={turn.status} />
+                    return (
+                      <AgentStatusRow
+                        key={turn.key}
+                        agents={turn.agents}
+                        status={turn.status}
+                        onOpenAgent={onOpenAgent}
+                      />
+                    )
                   if (turn.type === 'compaction') {
                     return (
                       <CompactionCard
@@ -525,6 +525,7 @@ export const Conversation = React.memo(
                     <AssistantConversationTurn
                       key={turn.key}
                       turn={turn}
+                      hideAgentOperations={!readOnly || agentOnly || turn.hideAgentOperations}
                       imageGenerations={imageGenerations.get(turn.key)}
                       isFinalReply={finalReplyKeys.has(turn.key)}
                       retry={turn.isLive && chat.retry?.kind === 'model' ? chat.retry : undefined}
@@ -533,6 +534,7 @@ export const Conversation = React.memo(
                       canFork={canForkReplies}
                       onFork={readOnly ? undefined : onForkReply}
                       onCopyError={onCopyError}
+                      onOpenAgent={onOpenAgent}
                       onActivityToggle={handleActivityToggle}
                       renderReply={!agentOnly && !turn.isLive && renderPlan ? planReply : undefined}
                       changes={

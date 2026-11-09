@@ -18,10 +18,8 @@ const terminalLabels = {
   stopped: '已停止',
 } as const
 type AgentStatusTurn = Extract<TurnChunk, { type: 'agent_status' }>
-const messageViews = new WeakMap<PiMessage, PiMessage>()
 const aliasedLiveViews = new WeakMap<PiMessage, ChatState['live']>()
 const messageLists = new WeakMap<PiMessage[], PiMessage[]>()
-const toolViews = new WeakMap<ChatState['tools'], ChatState['tools']>()
 const statusViews = new WeakMap<
   PiMessage[],
   { agents: ChatState['agents']; messages: ChatState['agentMessages']; statuses: AgentStatusTurn[] }
@@ -38,21 +36,7 @@ export function mainMessage(message: PiMessage): PiMessage | undefined {
   )
     return
   if (message.role === 'toolResult' && collaborationTools.has(message.toolName)) return
-  if (message.role === 'assistant') {
-    const cached = messageViews.get(message)
-    if (cached) return cached
-    const hidden = message.content.some((part) => part.type === 'toolCall' && collaborationTools.has(part.name))
-    const projected: PiMessage = hidden
-      ? {
-          ...message,
-          content: message.content.map((part) =>
-            part.type === 'toolCall' && collaborationTools.has(part.name) ? { type: 'text', text: '' } : part,
-          ),
-        }
-      : message
-    messageViews.set(message, projected)
-    return projected
-  }
+  // 协作调用保留在聚合输入中以界定过程与最终回复，渲染阶段再隐藏调用详情。
   return message
 }
 
@@ -78,22 +62,6 @@ export function projectMainConversation(
     }
     live = isolated
   }
-  let tools = toolViews.get(chat.tools)
-  if (!tools) {
-    const hiddenTools = new Set(
-      Object.values(chat.tools)
-        .filter((tool) => collaborationTools.has(tool.name ?? ''))
-        .map((tool) => tool.id),
-    )
-    tools = hiddenTools.size
-      ? Object.fromEntries(
-          Object.entries(chat.tools).filter(
-            ([id, tool]) => !hiddenTools.has(id) && !hiddenTools.has(tool.parentToolCallId ?? ''),
-          ),
-        )
-      : chat.tools
-    toolViews.set(chat.tools, tools)
-  }
   let cached = statusViews.get(chat.messages)
   if (!cached || cached.agents !== chat.agents || cached.messages !== chat.agentMessages) {
     cached = {
@@ -103,7 +71,7 @@ export function projectMainConversation(
     }
     statusViews.set(chat.messages, cached)
   }
-  return { messages, live, tools, agentStatuses: cached.statuses }
+  return { messages, live, tools: chat.tools, agentStatuses: cached.statuses }
 }
 
 function mainAgentStatuses(chat: Pick<ChatState, 'messages' | 'agents' | 'agentMessages'>): AgentStatusTurn[] {

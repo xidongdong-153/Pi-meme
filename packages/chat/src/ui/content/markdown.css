@@ -8,7 +8,7 @@
   font-weight: var(--font-content-weight);
   font-style: var(--font-content-style);
   font-size: var(--text-ui);
-  line-height: 1.72;
+  line-height: var(--conversation-line-height, 1.72);
   color: var(--color-text);
   letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
@@ -102,7 +102,7 @@
 
 /* ---- 段落 ---- */
 .pi-p {
-  margin: 0 0 0.9em;
+  margin: 0 0 var(--conversation-block-gap, 0.9em);
   hanging-punctuation: first allow-end last;
 }
 
@@ -297,7 +297,7 @@
 /* ---- 列表 ---- */
 .pi-ul,
 .pi-ol {
-  margin: 0 0 0.9em;
+  margin: 0 0 var(--conversation-block-gap, 0.9em);
   padding-left: 1.6em;
 }
 
@@ -311,7 +311,7 @@
 
 .pi-li {
   margin-bottom: 0.3em;
-  line-height: 1.65;
+  line-height: inherit;
 }
 
 .pi-li::marker {
@@ -340,7 +340,7 @@
 
 /* ---- 引用块 ---- */
 .pi-blockquote {
-  margin: 0 0 0.9em;
+  margin: 0 0 var(--conversation-block-gap, 0.9em);
   padding: 0.55em 1.1em;
   border-left: 3px solid var(--color-accent);
   background: color-mix(in srgb, var(--color-surface) 60%, transparent);
@@ -355,7 +355,7 @@
 
 /* ---- GitHub-style Alerts ---- */
 .pi-alert {
-  margin: 0 0 0.9em;
+  margin: 0 0 var(--conversation-block-gap, 0.9em);
   padding: 0.7em 1em;
   border-radius: var(--radius);
   border-left: 4px solid;
@@ -488,7 +488,7 @@
 .pi-table-wrapper {
   max-width: 100%;
   overflow-x: auto;
-  margin: 0 0 0.9em;
+  margin: 0 0 var(--conversation-block-gap, 0.9em);
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
 }

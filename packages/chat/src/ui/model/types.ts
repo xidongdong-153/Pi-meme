@@ -101,7 +101,8 @@ export type ActivityItem =
 
 export type ActionItemData = ActivityItem
 
-export type RenderSegment = { type: 'text'; text: string } | { type: 'activity'; items: ActivityItem[] }
+export type RenderSegment =
+  { type: 'text'; text: string; finalReply?: true } | { type: 'activity'; items: ActivityItem[] }
 
 export type AgentCollaborationStatus = {
   id: string
@@ -109,6 +110,21 @@ export type AgentCollaborationStatus = {
   kind: 'wait' | 'feedback'
   status: 'running' | 'success' | 'inactive' | 'error'
   text: string
+  /** 文案生成时绑定稳定身份；普通文字（含主代理与未知身份）不带点击目标。 */
+  textParts?: Array<string | { agentId: string; text: string }>
+}
+
+export type AgentStatusEvent = {
+  type: 'agent_status'
+  phase: 'started' | 'finished'
+  agents: Array<Pick<AgentSummary, 'agentId' | 'name' | 'avatar'>>
+  status: '开始工作' | '已完成' | '失败' | '已中断' | '已停止' | '已结束'
+  timestamp: number
+  key: string
+  /** 位于对应工作项之后；没有锚点时位于这一段过程的开头。 */
+  afterActivityId?: string
+  /** 位于最终正文的消息边界；晚到的状态可以位于整段正文之后。 */
+  afterFinalTextLength?: number
 }
 
 export type TurnChunk =
@@ -120,14 +136,7 @@ export type TurnChunk =
       timestamp: number
       key: string
     }
-  | {
-      type: 'agent_status'
-      phase: 'started' | 'finished'
-      agents: Array<Pick<AgentSummary, 'agentId' | 'name' | 'avatar'>>
-      status: '开始工作' | '已完成' | '失败' | '已中断' | '已停止' | '已结束'
-      timestamp: number
-      key: string
-    }
+  | AgentStatusEvent
   | {
       type: 'user'
       message: PiMessage
@@ -137,6 +146,7 @@ export type TurnChunk =
       type: 'assistant_turn'
       activities: ActivityItem[]
       collaboration?: AgentCollaborationStatus[]
+      agentStatuses?: AgentStatusEvent[]
       finalText: string
       sourceMessages?: PiMessage[]
       finalReplyMessages?: PiMessage[]
@@ -145,7 +155,7 @@ export type TurnChunk =
       durationMs?: number
       /** 展示段起点，用于计算这一段的用时，不是分叉位置。 */
       startedAt?: number
-      /** 打开这轮的用户消息时间。子代理状态、压缩和可见自定义消息只切展示段，分叉仍用它定位整轮。 */
+      /** 打开这轮的用户消息时间。压缩和可见自定义消息只切展示段，分叉仍用它定位整轮。 */
       userTimestamp?: number
       userEntryId?: string
       /** 最终回复落定的本地时间。优先用完成时间，没有则用消息时间。 */

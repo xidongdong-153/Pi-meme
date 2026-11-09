@@ -1,9 +1,12 @@
 import { nestedTools, toolTreeIndex } from './nested-tools'
 import { retainTurns, sameItems } from './stable-turns'
 import type { PiImage, PiMessage, PiRunInterval } from '@pi-meme/contracts/pi'
-import type { ActivityItem, ChatState, TurnChunk } from './types'
+import type { ActivityItem, AgentStatusEvent, ChatState, TurnChunk } from './types'
 
-type RawTurnItem = { kind: 'activity'; item: ActivityItem } | { kind: 'text'; text: string; message?: PiMessage }
+type RawTurnItem =
+  | { kind: 'activity'; item: ActivityItem }
+  | { kind: 'text'; text: string; message?: PiMessage }
+  | { kind: 'agent_status'; item: AgentStatusEvent }
 type GroupBoundary = { last: boolean; timestamp?: number; assigned: ReadonlySet<string> }
 const emptyCompleted: Record<number, boolean> = {}
 const emptyIntervals: readonly PiRunInterval[] = []
@@ -60,7 +63,7 @@ export function groupConversationTurns(
   let turnStartTimestamp: number | undefined
   let turnEndTimestamp: number | undefined
   let turnKey = ''
-  // 展示段会被子代理状态、压缩和可见自定义消息切开；分叉要保留打开这轮的用户消息，不能随段重置。
+  // 压缩、模型变更和可见自定义消息仍切开展示段；分叉始终保留打开这轮的用户消息。
   let userMessageTimestamp: number | undefined
   let userEntryId: string | undefined
 
@@ -81,35 +84,33 @@ export function groupConversationTurns(
 
     const activities: ActivityItem[] = []
     const finalTextParts: string[] = []
-
-    if (lastWorkIdx === -1) {
-      for (const item of turnItems) {
-        if (item.kind === 'text' && item.text) {
-          finalTextParts.push(item.text)
-        }
-      }
-    } else {
-      for (let i = 0; i <= lastWorkIdx; i++) {
-        const item = turnItems[i]!
-        if (item.kind === 'activity') {
-          activities.push(item.item)
-        } else if (item.kind === 'text' && item.text.trim()) {
-          activities.push({
-            id: `narration-${i}`,
-            type: 'narration',
-            text: item.text.trim(),
-          })
-        }
-      }
-      for (let i = lastWorkIdx + 1; i < turnItems.length; i++) {
-        const item = turnItems[i]!
-        if (item.kind === 'text' && item.text) {
-          finalTextParts.push(item.text)
-        }
+    const inlineStatuses: AgentStatusEvent[] = []
+    const textBoundaries = new Map<AgentStatusEvent, number>()
+    let finalTextLength = 0
+    for (let i = 0; i < turnItems.length; i++) {
+      const item = turnItems[i]!
+      if (item.kind === 'activity') {
+        activities.push(item.item)
+      } else if (item.kind === 'agent_status') {
+        const status: AgentStatusEvent = { ...item.item }
+        // 锚点来自本轮原始时序，不能让迟到状态把最后的正文变成工作项。
+        if (finalTextParts.length) textBoundaries.set(status, finalTextLength)
+        else if (activities.length) status.afterActivityId = activities.at(-1)!.id
+        inlineStatuses.push(status)
+      } else if (i <= lastWorkIdx) {
+        if (item.text.trim()) activities.push({ id: `narration-${i}`, type: 'narration', text: item.text.trim() })
+      } else if (item.text) {
+        if (finalTextParts.length) finalTextLength += 2
+        finalTextParts.push(item.text)
+        finalTextLength += item.text.length
       }
     }
 
-    const finalText = finalTextParts.join('\n\n').trim()
+    const untrimmedFinalText = finalTextParts.join('\n\n')
+    const finalText = untrimmedFinalText.trim()
+    const trimmedStart = untrimmedFinalText.length - untrimmedFinalText.trimStart().length
+    for (const [status, offset] of textBoundaries)
+      status.afterFinalTextLength = Math.max(0, Math.min(finalText.length, offset - trimmedStart))
     const finalReplyMessages = [
       ...new Set(
         turnItems
@@ -118,7 +119,8 @@ export function groupConversationTurns(
       ),
     ]
     const isLive = isLastTurn && (isAgentRunning || Boolean(liveMessage))
-    const hasWorkOrText = activities.length > 0 || Boolean(finalText) || Boolean(turnErrorMessage)
+    const hasWorkOrText =
+      activities.length > 0 || inlineStatuses.length > 0 || Boolean(finalText) || Boolean(turnErrorMessage)
 
     if (hasWorkOrText || isLive) {
       const run = runIntervals.findLast(
@@ -146,6 +148,7 @@ export function groupConversationTurns(
       chunks.push({
         type: 'assistant_turn',
         activities,
+        ...(inlineStatuses.length ? { agentStatuses: inlineStatuses } : {}),
         finalText,
         sourceMessages,
         finalReplyMessages,
@@ -182,8 +185,9 @@ export function groupConversationTurns(
   for (let i = 0; i < timeline.length; i++) {
     const item = timeline[i]!
     if (item.type === 'status') {
-      flushTurn(false, item.timestamp)
-      chunks.push(item.status)
+      // 没有可归属的用户轮次或助手内容时保留独立历史事件；正常状态融入这一轮过程。
+      if (!turnKey && !turnItems.length && userMessageTimestamp === undefined) chunks.push(item.status)
+      else turnItems.push({ kind: 'agent_status', item: item.status })
       continue
     }
     if (item.type === 'model_change') {

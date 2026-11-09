@@ -1,4 +1,4 @@
-import type { ActivityItem, ToolRun, TurnChunk } from './types'
+import type { ActivityItem, AgentCollaborationStatus, AgentStatusEvent, ToolRun, TurnChunk } from './types'
 
 export function sameItems<T>(left: readonly T[], right: readonly T[]) {
   return left === right || (left.length === right.length && left.every((item, index) => item === right[index]))
@@ -55,6 +55,51 @@ function retainActivities(previous: ActivityItem[], next: ActivityItem[]) {
   return retainItems(previous, items)
 }
 
+function retainAgentStatus(previous: AgentStatusEvent, next: AgentStatusEvent): AgentStatusEvent {
+  const agents = next.agents.map((agent, index) => {
+    const old = previous.agents[index]
+    return old && sameFields(old, agent) ? old : agent
+  })
+  const candidate = { ...next, agents: retainItems(previous.agents, agents) }
+  return sameFields(previous, candidate) ? previous : candidate
+}
+
+function retainAgentStatuses(previous: AgentStatusEvent[] | undefined, next: AgentStatusEvent[]) {
+  if (!previous || previous === next) return next
+  const lookup = new Map(previous.map((item) => [item.key, item]))
+  const statuses = next.map((item) => {
+    const old = lookup.get(item.key)
+    return old ? retainAgentStatus(old, item) : item
+  })
+  return retainItems(previous, statuses)
+}
+
+function retainTextParts(
+  previous: AgentCollaborationStatus['textParts'],
+  next: NonNullable<AgentCollaborationStatus['textParts']>,
+) {
+  if (!previous || previous === next) return next
+  const parts = next.map((part, index) => {
+    const old = previous[index]
+    return typeof part !== 'string' && old && typeof old !== 'string' && sameFields(old, part) ? old : part
+  })
+  return retainItems(previous, parts)
+}
+
+function retainCollaboration(previous: AgentCollaborationStatus[] | undefined, next: AgentCollaborationStatus[]) {
+  if (!previous || previous === next) return next
+  const lookup = byIdentity(previous)
+  return retainItems(
+    previous,
+    next.map((item) => {
+      const old = lookup.get(item.id)?.next().value
+      if (!old) return item
+      const candidate = item.textParts ? { ...item, textParts: retainTextParts(old.textParts, item.textParts) } : item
+      return sameFields(old, candidate) ? old : candidate
+    }),
+  )
+}
+
 /** 全量回退和增量路径共享同一个等价标准，不忽略来源、终态或后补字段。 */
 export function retainTurns(previous: TurnChunk[], next: TurnChunk[]): TurnChunk[] {
   const lookup = new Map(previous.map((turn) => [turn.key, turn]))
@@ -66,6 +111,8 @@ export function retainTurns(previous: TurnChunk[], next: TurnChunk[]): TurnChunk
         ...turn,
         activities: retainActivities(old.activities, turn.activities),
         images: retainItems(old.images, turn.images),
+        ...(turn.agentStatuses ? { agentStatuses: retainAgentStatuses(old.agentStatuses, turn.agentStatuses) } : {}),
+        ...(turn.collaboration ? { collaboration: retainCollaboration(old.collaboration, turn.collaboration) } : {}),
         ...(turn.sourceMessages ? { sourceMessages: retainItems(old.sourceMessages, turn.sourceMessages) } : {}),
         ...(turn.finalReplyMessages
           ? { finalReplyMessages: retainItems(old.finalReplyMessages, turn.finalReplyMessages) }
@@ -73,14 +120,7 @@ export function retainTurns(previous: TurnChunk[], next: TurnChunk[]): TurnChunk
       }
       return sameFields(old, candidate) ? old : candidate
     }
-    if (turn.type === 'agent_status' && old.type === 'agent_status') {
-      const agents = turn.agents.map((agent, index) => {
-        const previousAgent = old.agents[index]
-        return previousAgent && sameFields(previousAgent, agent) ? previousAgent : agent
-      })
-      const candidate = { ...turn, agents: retainItems(old.agents, agents) }
-      return sameFields(old, candidate) ? old : candidate
-    }
+    if (turn.type === 'agent_status' && old.type === 'agent_status') return retainAgentStatus(old, turn)
     return sameFields(old, turn) ? old : turn
   })
   return retainItems(previous, turns)

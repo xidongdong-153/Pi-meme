@@ -152,9 +152,8 @@ function ToolActivityRowContent({
                 if (hasDetail) onToggle()
               }
             }}
-
             className={cn(
-              'group/tool-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
+              'conversation-activity-toggle group/tool-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded cursor-pointer transition-colors',
               'text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               !hasDetail && 'cursor-default',
             )}

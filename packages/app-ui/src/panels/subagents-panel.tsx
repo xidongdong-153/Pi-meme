@@ -69,10 +69,19 @@ export function orderAgents(agents: AgentSummary[], opened: boolean) {
 function noop() {}
 
 type FileScope = { files: HostApi['files']; fileSession?: SessionRef }
-type AgentConversationProps = FileScope & { bridge: DesktopBridge; id: string; onBack: () => void }
-type SubagentsPanelProps = FileScope & { bridge: DesktopBridge; sessionKey?: string }
+type AgentConversationProps = FileScope & {
+  bridge: DesktopBridge
+  id: string
+  onBack: () => void
+  onOpenAgent: (agentId: string) => void
+}
+type SubagentsPanelProps = FileScope & {
+  bridge: DesktopBridge
+  sessionKey?: string
+  openRequest?: { agentId: string; revision: number }
+}
 
-const AgentConversation = memo(({ bridge, id, onBack, files, fileSession }: AgentConversationProps) => {
+const AgentConversation = memo(({ bridge, id, onBack, onOpenAgent, files, fileSession }: AgentConversationProps) => {
   const [store] = useState(() => new AgentConversationStore(bridge, id))
   const view = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const [copyError, setCopyError] = useState('')
@@ -94,7 +103,7 @@ const AgentConversation = memo(({ bridge, id, onBack, files, fileSession }: Agen
   const thinking = view.agent?.thinkingLevel ? THINKING_LEVEL_LABELS[view.agent.thinkingLevel] : '强度未知'
   return (
     <>
-      <header className="flex min-h-12 min-w-0 shrink-0 items-center gap-2 border-b border-border px-2 py-2">
+      <header className="pi-content flex min-h-12 min-w-0 shrink-0 items-center gap-2 border-b border-border px-2 py-2 text-[length:calc(var(--text-ui)*0.92)] leading-[1.5]">
         <TooltipHint content="返回子代理列表">
           <Button size="icon-sm" variant="ghost" className="shrink-0" onClick={onBack} aria-label="返回子代理列表">
             <ArrowLeft />
@@ -104,9 +113,9 @@ const AgentConversation = memo(({ bridge, id, onBack, files, fileSession }: Agen
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <OverflowTooltip content={name}>
-              <p className="min-w-0 flex-1 truncate text-xs font-medium">{name}</p>
+              <p className="min-w-0 flex-1 truncate font-medium">{name}</p>
             </OverflowTooltip>
-            <div className="ml-auto flex min-w-0 max-w-[55%] items-center gap-1 text-xs text-muted-foreground">
+            <div className="ml-auto flex min-w-0 max-w-[55%] items-center gap-1 text-muted-foreground">
               <OverflowTooltip content={model}>
                 <span className="min-w-0 truncate">{model}</span>
               </OverflowTooltip>
@@ -116,8 +125,10 @@ const AgentConversation = memo(({ bridge, id, onBack, files, fileSession }: Agen
               <span className="shrink-0">{thinking}</span>
             </div>
           </div>
-          <p className="mt-0.5 flex flex-wrap gap-x-2 text-[0.6875rem] leading-4 text-muted-foreground">
-            <span role="status">{status}</span>
+          <p className="mt-0.5 flex flex-wrap gap-x-2 text-muted-foreground">
+            <span role="status" className={view.agent?.status === 'failed' ? 'text-destructive' : undefined}>
+              {status}
+            </span>
             {view.agent && !agentRunning(view.agent) && view.agent.runStartedAt && (
               <span className="tabular-nums">用时 {agentElapsed(view.agent, Date.now())}</span>
             )}
@@ -125,11 +136,13 @@ const AgentConversation = memo(({ bridge, id, onBack, files, fileSession }: Agen
         </div>
       </header>
       {view.loading && (
-        <p role="status" className="p-3 text-xs">
+        <p role="status" className="pi-content p-3 text-[length:var(--text-ui)] leading-[1.72]">
           正在读取对话…
         </p>
       )}
-      {(view.error || copyError) && <ErrorLine message={view.error || copyError} className="p-3 text-xs" />}
+      {(view.error || copyError) && (
+        <ErrorLine message={view.error || copyError} className="pi-content p-3 text-[length:var(--text-ui)]" />
+      )}
       <Conversation
         chat={view.chat}
         agent={view.agent}
@@ -143,14 +156,33 @@ const AgentConversation = memo(({ bridge, id, onBack, files, fileSession }: Agen
         onEditMessage={noop}
         onForkReply={noop}
         onCopyError={setCopyError}
+        onOpenAgent={(agentId) => {
+          if (
+            agentId !== view.agent?.rootAgentId &&
+            view.chat.agents?.some(
+              (candidate) =>
+                candidate.agentId === agentId &&
+                candidate.parentAgentId &&
+                candidate.rootSessionKey === view.agent?.rootSessionKey,
+            )
+          )
+            onOpenAgent(agentId)
+        }}
       />
     </>
   )
 })
 
-const SubagentsContent = memo(({ bridge, sessionKey, files, fileSession }: SubagentsPanelProps) => {
+const SubagentsContent = memo(({ bridge, sessionKey, openRequest, files, fileSession }: SubagentsPanelProps) => {
   const [agents, setAgents] = useState<AgentSummary[]>([])
-  const [selected, setSelected] = useState<string>()
+  const [selection, setSelection] = useState(() => ({
+    revision: openRequest?.revision,
+    agentId: openRequest?.agentId,
+  }))
+  const pendingRequest = openRequest && openRequest.revision !== selection.revision
+  if (pendingRequest) setSelection({ revision: openRequest.revision, agentId: openRequest.agentId })
+  const selected = pendingRequest ? openRequest.agentId : selection.agentId
+  const selectAgent = (agentId?: string) => setSelection({ revision: openRequest?.revision, agentId })
   const [error, setError] = useState('')
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
@@ -208,7 +240,8 @@ const SubagentsContent = memo(({ bridge, sessionKey, files, fileSession }: Subag
         id={selected}
         files={files}
         fileSession={fileSession}
-        onBack={() => setSelected(undefined)}
+        onBack={() => selectAgent()}
+        onOpenAgent={selectAgent}
       />
     )
   return (
@@ -237,7 +270,7 @@ const SubagentsContent = memo(({ bridge, sessionKey, files, fileSession }: Subag
                   marginLeft: Math.max(0, agent.depth - 1) * 8,
                   width: `calc(100% - ${Math.max(0, agent.depth - 1) * 8}px)`,
                 }}
-                onClick={() => setSelected(agent.agentId)}
+                onClick={() => selectAgent(agent.agentId)}
               >
                 <AgentAvatar seed={agent.agentId} name={agent.name} avatar={agent.avatar} className="size-6 shrink-0" />
                 <OverflowTooltip content={formatAgentName(agent.name)}>
@@ -261,11 +294,12 @@ const SubagentsContent = memo(({ bridge, sessionKey, files, fileSession }: Subag
   )
 })
 
-export const SubagentsPanel = memo(({ bridge, sessionKey, files, fileSession }: SubagentsPanelProps) => (
+export const SubagentsPanel = memo(({ bridge, sessionKey, openRequest, files, fileSession }: SubagentsPanelProps) => (
   <SubagentsContent
-    key={sessionKey || ''}
+    key={JSON.stringify([fileSession?.hostId, sessionKey])}
     bridge={bridge}
     sessionKey={sessionKey}
+    openRequest={openRequest}
     files={files}
     fileSession={fileSession}
   />

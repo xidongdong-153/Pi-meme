@@ -1,7 +1,8 @@
 import { validateVisualizationRef, type VisualizationRef } from '@pi-meme/contracts/visualize'
-import type { ActivityItem, AgentCollaborationStatus, RenderSegment } from './types'
+import type { ActivityItem } from './types'
+import type { AgentActivitySegment } from './agent-collaboration'
 
-type TurnSegment = RenderSegment | { type: 'collaboration'; item: AgentCollaborationStatus }
+type TurnSegment = AgentActivitySegment
 type VisualizationSegment = { type: 'visualization'; reference: VisualizationRef }
 
 export function insertTurnVisualizations(segments: TurnSegment[]): Array<TurnSegment | VisualizationSegment> {

@@ -268,6 +268,8 @@ function AppContent({
     }
   }, [host])
   const [planRequest, setPlanRequest] = useState<{ sessionKey?: string; id: string; revision: number }>()
+  const [agentRequest, setAgentRequest] = useState<{ sessionKey: string; agentId: string; revision: number }>()
+  const agentRequestRevision = useRef(0)
   const chat = useAppSession(bridge, {
     host,
     hostId: hostId ?? hostAddress,
@@ -1560,6 +1562,7 @@ function AppContent({
             onEditMessage: chat.editMessage,
             onForkReply: (timestamp) => void chat.forkReply(timestamp),
             onCopyError: chat.setError,
+            onOpenAgent: openAgent,
             editor,
             sessionKey: chat.connection.sessionKey,
             models: chat.models,
@@ -1646,6 +1649,13 @@ function AppContent({
   )
   function openTool(id: string) {
     setSystemRequest({ id, revision: Date.now(), target: pluginProps.target })
+  }
+  function openAgent(agentId: string) {
+    if (!runtimeSessionKey) return
+    const revision = Math.max(Date.now(), agentRequestRevision.current + 1)
+    agentRequestRevision.current = revision
+    setAgentRequest({ sessionKey: runtimeSessionKey, agentId, revision })
+    setSystemRequest({ id: 'builtin:subagents', revision, target: pluginProps.target, intent: 'message' })
   }
   const historyPanels = historyPanelsAvailable(chat.chat, chat.historyDetailsDeferred, sources.length)
   const hasHistory = (chat.chat.totalMessages ?? 0) > 0 || chat.chat.messages.length > 0
@@ -1967,6 +1977,7 @@ function AppContent({
           key={chat.connection.sessionKey}
           bridge={bridge}
           sessionKey={chat.connection.sessionKey}
+          openRequest={agentRequest?.sessionKey === chat.connection.sessionKey ? agentRequest : undefined}
           files={host.files}
           fileSession={props.target.session}
         />

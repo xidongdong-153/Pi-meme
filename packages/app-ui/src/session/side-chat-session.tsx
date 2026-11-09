@@ -75,6 +75,8 @@ export function SideChatSession({
   const chat = useAppSession(bridge, { host, hostId, workspaceEnabled: false, persistDrafts: false })
   const session = chat.appSession
   const [view, setView] = useState<'chat' | 'plan' | 'agents'>('chat')
+  const [agentRequest, setAgentRequest] = useState<{ sessionKey: string; agentId: string; revision: number }>()
+  const agentRequestRevision = useRef(0)
   const [focused, setFocused] = useState(false)
   const [openModelsVersion, setOpenModelsVersion] = useState(0)
   const [dismissedPlan, setDismissedPlan] = useState('')
@@ -356,6 +358,12 @@ export function SideChatSession({
       onEditMessage={chat.editMessage}
       onForkReply={() => {}}
       onCopyError={chat.setError}
+      onOpenAgent={(agentId) => {
+        if (!chat.connection.sessionKey) return
+        const revision = ++agentRequestRevision.current
+        setAgentRequest({ sessionKey: chat.connection.sessionKey, agentId, revision })
+        setView('agents')
+      }}
       editor={editor}
       sessionKey={chat.connection.sessionKey}
       models={chat.models}
@@ -511,6 +519,7 @@ export function SideChatSession({
                 <SubagentsPanel
                   bridge={bridge}
                   sessionKey={chat.connection.sessionKey}
+                  openRequest={agentRequest?.sessionKey === chat.connection.sessionKey ? agentRequest : undefined}
                   files={host.files}
                   fileSession={session ?? undefined}
                 />

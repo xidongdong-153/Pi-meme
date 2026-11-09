@@ -55,9 +55,9 @@ function ActivityGroupContent({
   const segments = React.useMemo(() => groupAdjacentActivities(items), [items])
 
   return (
-    <div className={cn('my-2 w-full min-w-0', className)}>
+    <div className={cn('flex w-full min-w-0 flex-col gap-[var(--conversation-block-gap,1em)]', className)}>
       {showElapsedTime && (
-        <div className="mb-2 border-b border-border/50 pb-2 text-xs text-muted-foreground">
+        <div className="conversation-event text-muted-foreground">
           <ActivityElapsedTime
             isLive={isLive}
             isPaused={isPaused}
@@ -135,7 +135,7 @@ function ActivityDisclosureContent({
   )
 
   return (
-    <div className="min-w-0 py-1">
+    <div className="min-w-0">
       <div className="flex min-w-0 items-center gap-1">
         <button
           type="button"
@@ -143,11 +143,13 @@ function ActivityDisclosureContent({
           aria-expanded={open}
           aria-controls={detailsId}
           onClick={toggle}
-
-          className="group/activity-toggle flex min-h-7 max-w-full items-center gap-2 rounded-sm py-0.5 pr-1 text-xs leading-5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+          className="conversation-activity-toggle group/activity-toggle flex min-h-6 max-w-full items-start gap-2 rounded-sm pr-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
         >
-          <span aria-hidden="true" className="inline-flex size-4 shrink-0">
-            <IconComponent className="size-4" />
+          <span
+            aria-hidden="true"
+            className="mt-[0.16em] inline-flex size-[1.4em] shrink-0 items-center justify-center"
+          >
+            <IconComponent className="size-[1.15em]" />
           </span>
           <OverflowTooltip content={meta.summary}>
             <span
@@ -160,7 +162,7 @@ function ActivityDisclosureContent({
           <span
             aria-hidden="true"
             className={cn(
-              'inline-flex size-3.5 shrink-0 opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none group-hover/activity-toggle:opacity-100 group-focus-visible/activity-toggle:opacity-100',
+              'mt-[0.16em] inline-flex size-[1.4em] shrink-0 opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none group-hover/activity-toggle:opacity-100 group-focus-visible/activity-toggle:opacity-100',
               !open && '-rotate-90',
             )}
           >

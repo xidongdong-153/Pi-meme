@@ -110,7 +110,7 @@ export function ChatMessage({
           <div
             data-message-body=""
             className={cn(
-              'text-sm text-foreground leading-relaxed',
+              'text-sm text-foreground leading-[var(--conversation-line-height,1.72)]',
               isUser
                 ? 'rounded-2xl px-4 py-2.5 bg-[#183d6e] text-white whitespace-pre-wrap shadow-xs'
                 : 'bg-transparent px-0 py-0.5 w-full',

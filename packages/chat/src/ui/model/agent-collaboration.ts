@@ -4,11 +4,20 @@ import { formatAgentName } from '@pi-meme/ui/lib/agent-name'
 import { groupAdjacentActivities } from './activity-summary'
 import { groupConversationTurns } from './conversation-turns'
 import { modelChangesForConversation } from './model-changes'
-import type { ActivityItem, AgentCollaborationStatus, ChatState, RenderSegment, TurnChunk } from './types'
+import type {
+  ActivityItem,
+  AgentCollaborationStatus,
+  AgentStatusEvent,
+  ChatState,
+  RenderSegment,
+  TurnChunk,
+} from './types'
 
 type ToolResult = Extract<PiMessage, { role: 'toolResult' }>
 type ToolActivity = Exclude<ActivityItem, { type: 'thinking' | 'narration' }>
 type CollaborationSegment = { type: 'collaboration'; item: AgentCollaborationStatus }
+export type AgentActivitySegment =
+  RenderSegment | CollaborationSegment | { type: 'agent_status'; item: AgentStatusEvent }
 type AgentName = Pick<AgentSummary, 'agentId' | 'taskPath' | 'name'>
 type ToolRun = NonNullable<ToolActivity['children']>[number]
 
@@ -108,12 +117,42 @@ export function projectAgentConversation(chat: ChatState, agent: AgentSummary): 
     for (const part of message.content) if (part.type === 'toolCall') calledAt.set(part.id, message.timestamp)
   }
   const resolve = (target: string) => resolveAgentTarget([...identities.values()], agent, target)
-  const label = (id: string) =>
-    id === agent.rootAgentId ? '主代理' : formatAgentName(identities.get(id)?.name ?? '其他代理')
-  const names = (ids: string[]) => [...new Set(ids.map(label))].join('、') || '其他代理'
-  const targetText = (ids: string[]) => {
-    const text = names(ids)
-    return /[a-z0-9]/i.test(text) ? ` ${text} ` : text
+  const clickableIds = new Set(
+    (chat.agents ?? [])
+      .filter(
+        (identity) =>
+          identity.parentAgentId &&
+          identity.rootSessionKey === agent.rootSessionKey &&
+          identity.agentId !== agent.rootAgentId,
+      )
+      .map((identity) => identity.agentId),
+  )
+  type TextPart = NonNullable<AgentCollaborationStatus['textParts']>[number]
+  const partText = (part: TextPart) => (typeof part === 'string' ? part : part.text)
+  const targetParts = (ids: string[], padded: boolean): TextPart[] => {
+    const parts: TextPart[] = []
+    const seen = new Set<string>()
+    for (const id of ids) {
+      const identity = identities.get(id)
+      const text = id === agent.rootAgentId ? '主代理' : formatAgentName(identity?.name ?? '其他代理')
+      // 姓名可以重复，去重依据是身份；没有稳定身份的通用占位只保留一次。
+      const key = identity || id === agent.rootAgentId ? id : 'unknown'
+      if (seen.has(key)) continue
+      seen.add(key)
+      if (parts.length) parts.push('、')
+      parts.push(identity && clickableIds.has(id) ? { agentId: id, text } : text)
+    }
+    if (!parts.length) parts.push('其他代理')
+    return padded && /[a-z0-9]/i.test(parts.map(partText).join('')) ? [' ', ...parts, ' '] : parts
+  }
+  const statusText = (
+    prefix: string,
+    ids: string[],
+    suffix: string,
+    padded = true,
+  ): Pick<AgentCollaborationStatus, 'text' | 'textParts'> => {
+    const textParts: TextPart[] = [prefix, ...targetParts(ids, padded), suffix]
+    return { text: textParts.map(partText).join(''), textParts }
   }
   const runStartedAt = Date.parse(agent.runStartedAt ?? '')
   const current = (item: ToolActivity) =>
@@ -140,7 +179,6 @@ export function projectAgentConversation(chat: ChatState, agent: AgentSummary): 
         ),
       ),
     ]
-    const targetNames = targetText(ids)
     const waiting = item.name === 'wait_agent'
     const failed = result?.isError ?? item.status === 'error'
     const pending = !result && !['success', 'error'].includes(chat.tools[item.id]?.status ?? '')
@@ -156,18 +194,24 @@ export function projectAgentConversation(chat: ChatState, agent: AgentSummary): 
     let retryable = false
     if (active) {
       row.status = paused ? 'inactive' : 'running'
-      row.text = waiting
-        ? `${paused ? '已暂停等待' : '正在等待'}${targetNames}的反馈…`
-        : `${paused ? '已暂停向' : '正在向'}${targetNames}反馈…`
+      Object.assign(
+        row,
+        statusText(
+          waiting ? (paused ? '已暂停等待' : '正在等待') : paused ? '已暂停向' : '正在向',
+          ids,
+          waiting ? '的反馈…' : '反馈…',
+        ),
+      )
     } else if (failed || pending) {
       const interrupted = pending || ['interrupted', 'stopped'].includes(agent.status)
       row.status = interrupted ? 'inactive' : 'error'
-      row.text = waiting
-        ? `等待${targetNames}的反馈${interrupted ? '已中断' : '失败'}`
-        : `向${targetNames}反馈${interrupted ? '已中断' : '失败'}`
+      Object.assign(
+        row,
+        statusText(waiting ? '等待' : '向', ids, `${waiting ? '的反馈' : '反馈'}${interrupted ? '已中断' : '失败'}`),
+      )
     } else if (!waiting) {
       row.status = 'success'
-      row.text = `已向${targetNames}反馈`
+      Object.assign(row, statusText('已向', ids, '反馈'))
     } else {
       const feedback = Array.isArray(details.messages)
         ? details.messages.map(object).filter((message) => typeof message.fromAgentId === 'string')
@@ -180,9 +224,9 @@ export function projectAgentConversation(chat: ChatState, agent: AgentSummary): 
       ]
       if (senders.length) {
         row.status = 'success'
-        row.text = `已收到${targetText(senders)}的反馈`
+        Object.assign(row, statusText('已收到', senders, '的反馈'))
       } else if (details.timedOut === true) {
-        row.text = `尚未收到${targetNames}的反馈`
+        Object.assign(row, statusText('尚未收到', ids, '的反馈'))
         retryable = true
       } else {
         const ended = Array.isArray(details.agents)
@@ -194,9 +238,17 @@ export function projectAgentConversation(chat: ChatState, agent: AgentSummary): 
                   ['completed', 'failed', 'interrupted', 'stopped'].includes(String(identity.status)),
               )
           : []
-        row.text = ended.length
-          ? `${names(ended.map((identity) => String(identity.agentId)))} 已结束，等待结束`
-          : `已结束等待${targetNames}的反馈`
+        Object.assign(
+          row,
+          ended.length
+            ? statusText(
+                '',
+                ended.map((identity) => String(identity.agentId)),
+                ' 已结束，等待结束',
+                false,
+              )
+            : statusText('已结束等待', ids, '的反馈'),
+        )
       }
     }
     const signature = JSON.stringify(
@@ -274,7 +326,7 @@ export function projectAgentConversation(chat: ChatState, agent: AgentSummary): 
         id: `report-${agent.runId}`,
         kind: 'feedback',
         status: 'success',
-        text: `已向${targetText([agent.parentAgentId])}反馈`,
+        ...statusText('已向', [agent.parentAgentId], '反馈'),
         ...(completedTool ? { afterActivityId: completedTool.id } : {}),
       }
       const index = projected.indexOf(reportTurn)
@@ -289,44 +341,54 @@ export function groupAgentActivities(
   finalText: string,
   collaboration: AgentCollaborationStatus[] = [],
   hideAgentOperations = false,
-): Array<RenderSegment | CollaborationSegment> {
+  agentStatuses: AgentStatusEvent[] = [],
+): AgentActivitySegment[] {
   const shown = (item: ActivityItem): ActivityItem | undefined => {
     if (!hideAgentOperations) return item
     if (isAgentOperation(item)) return undefined
     return presentActivity(item)
   }
-  if (!collaboration.length) {
-    if (!hideAgentOperations) return groupAdjacentActivities(items, finalText)
-    return groupAdjacentActivities(
-      items.flatMap((item) => {
-        const next = shown(item)
-        return next ? [next] : []
-      }),
-      finalText,
-    )
+  const groups: AgentActivitySegment[] = []
+  const anchors = new Map<string, AgentActivitySegment[]>()
+  const addAnchor = (id: string, segment: AgentActivitySegment) => {
+    const entries = anchors.get(id)
+    if (entries) entries.push(segment)
+    else anchors.set(id, [segment])
   }
-  const groups: Array<RenderSegment | CollaborationSegment> = []
-  const anchors = new Map(
-    collaboration.filter((item) => item.afterActivityId).map((item) => [item.afterActivityId, item]),
-  )
+  const reports: CollaborationSegment[] = []
+  for (const item of collaboration) {
+    const segment: CollaborationSegment = { type: 'collaboration', item }
+    if (item.afterActivityId) addAnchor(item.afterActivityId, segment)
+    else reports.push(segment)
+  }
+  const textStatuses: AgentStatusEvent[] = []
+  for (const item of agentStatuses) {
+    const segment: AgentActivitySegment = { type: 'agent_status', item }
+    if (item.afterFinalTextLength !== undefined) textStatuses.push(item)
+    else if (item.afterActivityId) addAnchor(item.afterActivityId, segment)
+    else groups.push(segment)
+  }
   let pending: ActivityItem[] = []
-  const flush = (text = '') => {
-    if (pending.length || text) groups.push(...groupAdjacentActivities(pending, text))
+  const flush = () => {
+    if (pending.length) groups.push(...groupAdjacentActivities(pending))
     pending = []
   }
   for (const item of items) {
     const next = shown(item)
     if (next) pending.push(next)
-    const status = anchors.get(item.id)
-    if (!status) continue
+    const statuses = anchors.get(item.id)
+    if (!statuses) continue
     flush()
-    groups.push({ type: 'collaboration', item: status })
+    groups.push(...statuses)
+    anchors.delete(item.id)
   }
-  const reports = collaboration.filter((item) => !item.afterActivityId)
-  if (reports.length) {
-    flush()
-    groups.push(...reports.map((item) => ({ type: 'collaboration' as const, item })))
-    flush(finalText)
-  } else flush(finalText)
+  flush()
+  // 无锚点的报告属于过程末尾；找不到的旧锚点同样保留，不能静默丢失事件。
+  groups.push(...[...anchors.values()].flat(), ...reports)
+  // 最终回复保持完整 Markdown：消息之间也可能延续代码块、列表或引用。
+  // 正文内部发生的事件保留原时间与锚点，但统一在完整正文之后呈现。
+  for (const item of textStatuses) if (item.afterFinalTextLength! <= 0) groups.push({ type: 'agent_status', item })
+  if (finalText.trim()) groups.push({ type: 'text', text: finalText, finalReply: true })
+  for (const item of textStatuses) if (item.afterFinalTextLength! > 0) groups.push({ type: 'agent_status', item })
   return groups
 }

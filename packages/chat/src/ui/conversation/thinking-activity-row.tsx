@@ -59,7 +59,7 @@ export function ThinkingActivityRow({
           }
         }}
         className={cn(
-          'group/thinking-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
+          'conversation-activity-toggle group/thinking-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded cursor-pointer transition-colors',
           'text-muted-foreground hover:text-foreground',
         )}
       >
@@ -127,7 +127,7 @@ export function ThinkingActivityRow({
           <div className="max-h-[min(20rem,50vh)] overflow-auto overscroll-contain">
             <div className="mt-1 pb-1 select-text">
               <div className="py-0.5">
-                <pre className="pi-content whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground/75">
+                <pre className="pi-content whitespace-pre-wrap text-xs leading-[var(--conversation-line-height,1.72)] text-muted-foreground/75">
                   {item.thinking.trimEnd() || '正在梳理思路…'}
                 </pre>
               </div>
