@@ -84,6 +84,8 @@ pnpm start:web
 
 Linux/WSL2 环境、自定义端口和源码构建见[快速开始](docs/getting-started.md#源码开发)。
 
+独立个人助理 Bots 使用自己的 Web、服务和 `~/.pi-meme-bot/` 数据目录，不需要启动工作台。需要 Node.js 24.14.0 或更高版本；在根目录运行 `pnpm build:bot`、`pnpm serve:bot` 后打开 `http://127.0.0.1:4310`，开发入口为 `pnpm start:bot` 与 `pnpm dev:bot`。配置、QQ、多 Host、计划、生图和 API 说明见[独立 Bots](docs/bots.md)。
+
 ## 开发与扩展
 
 | 想做什么                 | 从这里开始                                                                |

@@ -95,6 +95,7 @@ out/
 # Workspace 构建产物
 apps/web/dist/
 apps/server/dist/
+apps/bot/dist/
 packages/*/dist/
 plugins/*/dist/
 pi/skills/plugin-creator/dist/

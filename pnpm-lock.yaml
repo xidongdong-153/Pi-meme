@@ -68,6 +68,97 @@ importers:
         specifier: 2.9.1
         version: 2.9.1
 
+  apps/bot:
+    dependencies:
+      '@earendil-works/chord':
+        specifier: 1.5.0
+        version: 1.5.0(esbuild@0.28.2)(ws@8.22.1)
+      '@earendil-works/pi-ai':
+        specifier: 1.5.0
+        version: 1.5.0(@aws-sdk/credential-provider-node@3.972.92)(@smithy/signature-v4@5.7.5)(undici@8.12.3)(ws@8.22.1)
+      '@earendil-works/pi-durable':
+        specifier: 1.5.0
+        version: 1.5.0(@aws-sdk/credential-provider-node@3.972.92)(@smithy/signature-v4@5.7.5)(esbuild@0.28.2)(undici@8.12.3)(ws@8.22.1)
+      '@earendil-works/pi-schema':
+        specifier: 1.5.0
+        version: 1.5.0
+      '@hono/node-server':
+        specifier: 2.1.5
+        version: 2.1.5(hono@4.13.13)
+      '@pi-meme/assets':
+        specifier: workspace:*
+        version: link:../../packages/assets
+      '@pi-meme/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@pi-meme/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@pi-meme/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+      '@radix-ui/react-dialog':
+        specifier: ^1.1.23
+        version: 1.1.23(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      hono:
+        specifier: 4.13.13
+        version: 4.13.13
+      ipaddr.js:
+        specifier: 2.2.0
+        version: 2.2.0
+      lucide-react:
+        specifier: ^1.48.0
+        version: 1.48.0(react@19.3.0)
+      proper-lockfile:
+        specifier: 4.1.2
+        version: 4.1.2
+      react:
+        specifier: ^19.3.0
+        version: 19.3.0
+      react-dom:
+        specifier: ^19.3.0
+        version: 19.3.0(react@19.3.0)
+      react-markdown:
+        specifier: ^10.1.0
+        version: 10.1.0(@types/react@19.3.0)(react@19.3.0)
+      remark-gfm:
+        specifier: ^4.0.1
+        version: 4.0.1
+      ws:
+        specifier: ^8.18.3
+        version: 8.22.1
+    devDependencies:
+      '@tailwindcss/vite':
+        specifier: ^4.3.3
+        version: 4.3.3(vite@8.3.1(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+      '@types/proper-lockfile':
+        specifier: ^4.1.4
+        version: 4.1.4
+      '@types/react':
+        specifier: ^19.2.14
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: ^19.2.3
+        version: 19.3.0(@types/react@19.3.0)
+      '@types/ws':
+        specifier: ^8.18.1
+        version: 8.18.2
+      '@vitejs/plugin-react':
+        specifier: ^6.1.1
+        version: 6.1.1(vite@8.3.1(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+      tw-animate-css:
+        specifier: ^1.4.0
+        version: 1.4.0
+      vite:
+        specifier: ^8.3.1
+        version: 8.3.1(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
+
   apps/desktop:
     dependencies:
       '@pi-meme/browser':
@@ -1851,6 +1942,18 @@ packages:
     resolution: {integrity: sha512-gsHzKfyQ3t0ZIQ3cLBjJ5Vqy1TYnFyruHIV3g3BwmulCDYe5BW4yT9vaJk9QzN6YANILIO75uzuq+Gdxtzz1og==}
     engines: {node: '>=22.19.0'}
 
+  '@earendil-works/chord@1.5.0':
+    resolution: {integrity: sha512-jf555zbCM21E03DVBDPD/Tuae0lz64YjaHx/athUxNZ/H7phVVb0dWfZsaYnxaXPQ1odW8iHEoVLOlE/prvUPg==}
+    engines: {node: '>=22.19.0'}
+    peerDependencies:
+      esbuild: 0.28.2
+      ws: 8.21.0
+    peerDependenciesMeta:
+      esbuild:
+        optional: true
+      ws:
+        optional: true
+
   '@earendil-works/pi-agent-core@1.5.0':
     resolution: {integrity: sha512-FOj+jXj48DbzMycR/ghNa2KcsqWmvOln24e0FnQOVgnd8vn5H79g335WdHaZUVdRo+zCeogb40/qPPlCWFuvmA==}
     engines: {node: '>=22.19.0'}
@@ -1868,6 +1971,10 @@ packages:
     resolution: {integrity: sha512-xNDZ5kqowO6Z03FS2gwAkPEGk1ssxVcYKQ6qZId84mFEvwACvvyc2l0vAMOS+c5zvxLRMLBE9r4y44IGYkMJaQ==}
     engines: {node: '>=22.19.0'}
     hasBin: true
+
+  '@earendil-works/pi-durable@1.5.0':
+    resolution: {integrity: sha512-xeBP2vIo5NvsCMQ4Y/V+Z164xQEi9JWiBWHdjn4Z15EnFqV3c0FxJAX26FqyyyintrYyk+Enre94GNcvRlBA5g==}
+    engines: {node: '>=22.19.0'}
 
   '@earendil-works/pi-mcp@1.5.0':
     resolution: {integrity: sha512-DURw3IwHCTMHV8CzUJWVp9css27NowsCWfXt4xg2r09IZ+P1O/Uq58hp0hb9WJO0dbkaKGXKBIkV4LVXcu2nlg==}
@@ -3099,6 +3206,9 @@ packages:
 
   '@silvia-odwyer/photon-node@0.3.4':
     resolution: {integrity: sha512-bnly4BKB3KDTFxrUIcgCLbaeVVS8lrAkri1pEzskpmxu9MdfGQTy8b8EgcD83ywD3RPMsIulY8xJH5Awa+t9fA==}
+
+  '@silvia-odwyer/photon@0.3.3':
+    resolution: {integrity: sha512-8BhUjEch4slwRe8uXnaA4vcA5uiiOTT90UMsxulOj2gN98X1p0q9Z4Ysk4DkD05uNgbR9XoSqtZ37w+33w4QKQ==}
 
   '@sindresorhus/base62@1.0.0':
     resolution: {integrity: sha512-TeheYy0ILzBEI/CO55CP6zJCSdSWeRtGnHy8U8dWSUH4I68iqTsy7HkMktR4xakThc9jotkPQUXT4ITdbV7cHA==}
@@ -7724,6 +7834,14 @@ snapshots:
     dependencies:
       esbuild: 0.28.2
 
+  '@earendil-works/chord@1.5.0(esbuild@0.28.2)(ws@8.22.1)':
+    dependencies:
+      '@earendil-works/pi-schema': 1.5.0
+      '@earendil-works/pi-telemetry': 1.5.0
+    optionalDependencies:
+      esbuild: 0.28.2
+      ws: 8.22.1
+
   '@earendil-works/pi-agent-core@1.5.0':
     dependencies:
       '@earendil-works/pi-ai': 1.5.0
@@ -8000,6 +8118,29 @@ snapshots:
       - bufferutil
       - kerberos
       - supports-color
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@earendil-works/pi-durable@1.5.0(@aws-sdk/credential-provider-node@3.972.92)(@smithy/signature-v4@5.7.5)(esbuild@0.28.2)(undici@8.12.3)(ws@8.22.1)':
+    dependencies:
+      '@earendil-works/chord': 1.5.0(esbuild@0.28.2)(ws@8.22.1)
+      '@earendil-works/pi-ai': 1.5.0(@aws-sdk/credential-provider-node@3.972.92)(@smithy/signature-v4@5.7.5)(undici@8.12.3)(ws@8.22.1)
+      '@earendil-works/pi-codemode': 1.5.0
+      '@earendil-works/pi-schema': 1.5.0
+      '@earendil-works/pi-telemetry': 1.5.0
+      '@silvia-odwyer/photon': 0.3.3
+      diff: 8.0.4
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - bufferutil
+      - esbuild
+      - kerberos
+      - supports-color
+      - undici
       - utf-8-validate
       - ws
       - zod
@@ -9418,6 +9559,8 @@ snapshots:
   '@shikijs/vscode-textmate@10.0.2': {}
 
   '@silvia-odwyer/photon-node@0.3.4': {}
+
+  '@silvia-odwyer/photon@0.3.3': {}
 
   '@sindresorhus/base62@1.0.0': {}
 
