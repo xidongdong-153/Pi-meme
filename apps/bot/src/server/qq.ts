@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import WebSocket from 'ws'
 import type { BotApp, BotServices, ChannelAdapter } from './contracts.js'
-import type { Conversation, Delivery, Message, QqConfig } from '../shared/types.js'
+import type { Conversation, Delivery, Message, QqConfig, TaskResponse } from '../shared/types.js'
 import { queueQqDeliveries } from './qq-outbox.js'
 import { BotError } from './errors.js'
 
@@ -238,16 +238,17 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
         }, 5000)
       })
     } catch (error) {
-      await setStatus('offline', 'QQ 连接或认证失败，请核对凭据、权限和网络')
+      if (generation === connectionGeneration) await setStatus('offline', 'QQ 连接或认证失败，请核对凭据、权限和网络')
       throw error
     }
   }
   async function conversationFor(appId: string, userId: string): Promise<Conversation> {
     const state = store.read()
     const routeId = state.inboundIds[`qq-route:${appId}:${userId}`] ?? state.qq.defaultBotId
-    const bot = state.bots[routeId]
-    if (!bot?.enabled)
-      throw new BotError(409, 'capability-unavailable', '当前 QQ 接待角色不可用，请在 Web 配置默认角色')
+    const bot = [state.bots[routeId], state.bots[state.qq.defaultBotId], ...Object.values(state.bots)].find(
+      (bot) => bot?.enabled,
+    )
+    if (!bot) throw new BotError(409, 'capability-unavailable', '当前 QQ 接待角色不可用，请在 Web 配置默认角色')
     const existing = Object.values(state.conversations).find(
       (c) => c.kind === 'qq' && c.qqAppId === appId && c.qqUserId === userId,
     )
@@ -287,6 +288,12 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
   async function reply(conversation: Conversation, platformMessageId: string, content: string, dedupe: string) {
     await store.update((draft) => {
       if (draft.inboundIds[dedupe]) return
+      if (
+        !draft.qq.enabled ||
+        draft.qq.appId !== conversation.qqAppId ||
+        draft.qq.boundUserId !== conversation.qqUserId
+      )
+        return
       const conv = draft.conversations[conversation.id]
       const message: Message = {
         ...resource(),
@@ -413,9 +420,75 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
       await reply(
         conversation,
         event.id,
-        tasks.length ? '已提交停止请求；Host 任务以实际停止回执为准，可在 Web 查看。' : '没有进行中的任务。',
+        tasks.length ? '已提交停止请求；Pi meme 任务以实际停止回执为准，可在 Web 查看。' : '没有进行中的任务。',
         key,
       )
+      return
+    }
+    const pending = Object.values(store.read().tasks)
+      .filter((task) => task.conversationId === conversation.id && ['running', 'waiting'].includes(task.status))
+      .flatMap((task) =>
+        (task.interactions ?? []).filter((item) => item.status === 'pending').map((item) => ({ task, item })),
+      )
+    const explicitReply = content.match(/^\/(?:回复|reply)\s+(\S+)\s+(\S[\s\S]*)$/)
+    if (pending.length || explicitReply) {
+      const target = explicitReply
+        ? pending.find(({ item }) => item.id === explicitReply[1])
+        : pending.length === 1
+          ? pending[0]
+          : undefined
+      if (!target) {
+        await reply(
+          conversation,
+          event.id,
+          pending.length
+            ? pending
+                .map(({ task, item }) => `${task.config.name} · ${item.question}\n/回复 ${item.id} 答案`)
+                .join('\n\n')
+            : '这个问题已处理或已失效。',
+          key,
+        )
+        return
+      }
+      const answer = (explicitReply?.[2] ?? content).trim()
+      const { task, item } = target
+      const response: TaskResponse = { interactionId: item.id, revision: item.revision }
+      if (item.kind === 'confirmation') {
+        const decision = answer.toLowerCase().replace(/[。！!.]$/, '')
+        if (['确认', '确定', '同意', '允许', '是', '继续', 'yes', 'confirm', 'approve'].includes(decision))
+          response.decision = 'approve'
+        else if (['取消', '拒绝', '否', '不同意', '不用了', 'no', 'cancel', 'deny'].includes(decision))
+          response.decision = 'deny'
+        else {
+          await reply(conversation, event.id, `${item.question}\n请回复“确认”或“取消”。`, key)
+          return
+        }
+      } else if (item.options?.length) {
+        const option = item.options.find(
+          (option, index) => option.label === answer || option.value === answer || String(index + 1) === answer,
+        )
+        if (!option) {
+          await reply(
+            conversation,
+            event.id,
+            `${item.question}\n${item.options.map((option, index) => `${index + 1}. ${option.label}`).join('\n')}\n请回复选项名称或序号。`,
+            key,
+          )
+          return
+        }
+        response.answer = option.value
+      } else response.answer = answer
+      try {
+        await services.respondToTask(task.id, response, requestId, {
+          appId,
+          userId,
+          inboundKey: key,
+          platformMessageId: event.id,
+        })
+      } catch (cause) {
+        if (!(cause instanceof BotError) || cause.status >= 500) throw cause
+        await reply(conversation, event.id, cause.message, key)
+      }
       return
     }
     const attachmentIds: string[] = []
@@ -693,41 +766,62 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
   app.get('/api/v1/channels/qq', (c) => c.json(configView(store.read().qq)))
   app.patch('/api/v1/channels/qq', async (c) => {
     const input = await readInput(c.req)
-    const old = store.read().qq
+    if (Object.keys(input).some((key) => !['revision', 'enabled', 'appId', 'appSecret', 'defaultBotId'].includes(key)))
+      throw new BotError(400, 'invalid-input', 'QQ 配置字段无效')
+    const state = store.read()
+    const old = state.qq
     if (input.revision !== old.revision)
       throw new BotError(409, 'revision-conflict', 'QQ 配置已修改', { revision: old.revision })
     const appId = input.appId === undefined ? old.appId : required(input.appId, 'AppID', 128)
-    const defaultBotId = input.defaultBotId === undefined ? old.defaultBotId : required(input.defaultBotId, '默认 Bot')
-    if (!store.read().bots[defaultBotId]?.enabled)
-      throw new BotError(400, 'invalid-input', '默认接待 Bot 不存在或未启用')
+    const defaultBotId =
+      input.defaultBotId === undefined
+        ? old.defaultBotId ||
+          state.modelSettings.defaultAssistantId ||
+          Object.values(state.bots).find((bot) => bot.enabled)?.id ||
+          ''
+        : required(input.defaultBotId, '默认 Bot')
+    if (!state.bots[defaultBotId]?.enabled) throw new BotError(400, 'invalid-input', '默认接待 Bot 不存在或未启用')
     if (input.enabled !== undefined && typeof input.enabled !== 'boolean')
       throw new BotError(400, 'invalid-input', 'enabled 必须为布尔值')
-    const credentialRef = input.appSecret
-      ? await store.writeSecret(required(input.appSecret, 'AppSecret', 8192))
-      : old.credentialRef
-    const config = await store.update((draft) => {
-      if (draft.qq.revision !== input.revision) throw new BotError(409, 'revision-conflict', 'QQ 配置已修改')
-      draft.qq = {
-        ...draft.qq,
-        revision: old.revision + 1,
-        appId,
-        defaultBotId,
-        enabled: typeof input.enabled === 'boolean' ? input.enabled : old.enabled,
-        credentialRef,
-        status: 'disabled',
-        error: undefined,
-        sessionId: undefined,
-        gatewaySequence: undefined,
-        ...(appId !== old.appId
-          ? { boundUserId: undefined, bindingCodeHash: undefined, bindingExpiresAt: undefined }
-          : {}),
-      }
-      return draft.qq
-    })
+    const enabled = input.enabled === undefined ? (old.appId ? old.enabled : true) : input.enabled
+    const credentialRef =
+      input.appSecret === undefined
+        ? old.credentialRef
+        : await store.writeSecret(required(input.appSecret, 'AppSecret', 8192))
+    let committed = false
+    try {
+      if (enabled && (!appId || !credentialRef)) throw new BotError(400, 'invalid-input', '请输入 AppID 和 AppSecret')
+      await store.update((draft) => {
+        if (draft.qq.revision !== input.revision) throw new BotError(409, 'revision-conflict', 'QQ 配置已修改')
+        if (!draft.bots[defaultBotId]?.enabled) throw new BotError(409, 'conflict', '默认接待 Bot 已停用')
+        draft.qq = {
+          ...draft.qq,
+          revision: old.revision + 1,
+          appId,
+          defaultBotId,
+          enabled,
+          credentialRef,
+          status: enabled ? 'connecting' : 'disabled',
+          error: undefined,
+          sessionId: undefined,
+          gatewaySequence: undefined,
+          ...(appId !== old.appId
+            ? { boundUserId: undefined, bindingCodeHash: undefined, bindingExpiresAt: undefined }
+            : {}),
+        }
+      })
+      committed = true
+    } finally {
+      if (!committed && old.credentialRef !== credentialRef) await store.deleteSecret(credentialRef)
+    }
     disconnect()
     tokenCache = undefined
     if (old.credentialRef !== credentialRef) await store.deleteSecret(old.credentialRef)
-    return c.json(configView(config))
+    if (enabled)
+      await connect().catch((cause: unknown) => {
+        if (c.req.raw.signal.aborted) throw cause
+      })
+    return c.json(configView(store.read().qq))
   })
   app.post('/api/v1/channels/qq/connect', async (c) => {
     configured()
@@ -744,6 +838,8 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
     const code = randomBytes(12).toString('hex')
     const expiresAt = new Date(Date.now() + 5 * 60000).toISOString()
     await store.update((draft) => {
+      if (draft.qq.revision !== config.revision || draft.qq.boundUserId)
+        throw new BotError(409, 'revision-conflict', 'QQ 配置已修改，请重新生成绑定码')
       draft.qq.bindingCodeHash = digest(code)
       draft.qq.bindingExpiresAt = expiresAt
       draft.qq.revision++

@@ -360,6 +360,7 @@ export function Chats({
               bots={snapshot.bots}
               models={snapshot.models}
               defaultModelId={snapshot.modelSettings.defaultModelId}
+              timezone={snapshot.settings.timezone}
               configureModels={() => configure('models')}
               attachments={snapshot.attachments}
               online={online}
@@ -521,7 +522,6 @@ export function Chats({
         <TaskDetails
           task={snapshot.tasks.find((task) => task.id === taskSelection.id && task.conversationId === selectedId)}
           tasks={snapshot.tasks}
-          snapshot={snapshot}
           settings={configure}
           refresh={refresh}
           close={closeTask}
@@ -772,7 +772,7 @@ function MessageList({
                 <MessageMemory message={message} {...{ snapshot, refresh }} />
                 <TaskInteractionCards
                   tasks={tasks.filter((task) => task.sourceMessageId === message.id)}
-                  {...{ snapshot, refresh, settings }}
+                  {...{ refresh, settings }}
                 />
                 {tasks
                   .filter((task) => task.sourceMessageId === message.id && task.parentTaskId)
@@ -1042,6 +1042,7 @@ function Composer({
   bots,
   models,
   defaultModelId,
+  timezone,
   configureModels,
   attachments,
   online,
@@ -1053,6 +1054,7 @@ function Composer({
   bots: Bot[]
   models: ModelConfig[]
   defaultModelId: string | null
+  timezone: string
   configureModels: () => void
   attachments: Attachment[]
   online: boolean
@@ -1256,6 +1258,27 @@ function Composer({
   }
   return (
     <div className="composer-wrap">
+      {conversation.sequence === 0 && !draft.text && !draft.ids.length && !missingModel && !unavailable && (
+        <div className="bot-setup-actions">
+          {[
+            ['连接 Pi meme', '帮我连接 Pi meme'],
+            ['接入 QQ', '帮我接入 QQ 机器人'],
+            ['调整外观', '帮我调整外观'],
+          ].map(([label, prompt]) => (
+            <Button
+              key={label}
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                updateDraft(id, (value) => ({ ...value, text: prompt }))
+                textarea.current?.focus()
+              }}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
+      )}
       <div id="chat-composer-feedback">
         <ErrorText error={error} />
         {staleTarget[id] && (
@@ -1271,7 +1294,7 @@ function Composer({
         {unavailable && <p className="error">所选 Bot 已停用，请先启用。</p>}
         {missingModel && (
           <p className="composer-model-notice">
-            当前对话模型需要检查连接、图片输入与工具调用。
+            请先连通对话模型。
             <button
               className="text-link"
               onClick={() => {
@@ -1354,7 +1377,7 @@ function Composer({
               ? 'chat-composer-feedback'
               : undefined
           }
-          placeholder={`给 ${conversation.name} 发消息`}
+          placeholder={`告诉 ${conversation.name} 你想做什么`}
           value={draft.text}
           rows={1}
           maxLength={32000}
@@ -1421,7 +1444,7 @@ function Composer({
                     persistChatState('bots.schedule.new', {
                       conversationId: conversation.id,
                       botId: targetIds.length === 1 ? targetIds[0] : conversation.coordinatorId,
-                      timezone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
+                      timezone,
                       notification: 'web',
                     })
                     openSettings('schedules')
@@ -1924,7 +1947,6 @@ function HostInteraction({
 function TaskDetails({
   task,
   tasks,
-  snapshot,
   settings,
   refresh,
   close,
@@ -1932,7 +1954,6 @@ function TaskDetails({
 }: {
   task?: Task
   tasks: Task[]
-  snapshot: Snapshot
   settings: (tab: string) => void
   refresh: () => Promise<void>
   close: () => void
@@ -1950,7 +1971,7 @@ function TaskDetails({
           </div>
           <p className="task-prompt">{task.prompt}</p>
           <ErrorText error={task.error} />
-          <TaskInteractionCards tasks={[task]} {...{ snapshot, refresh, settings }} />
+          <TaskInteractionCards tasks={[task]} {...{ refresh, settings }} />
           {task.result && (
             <div className="markdown">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{task.result}</ReactMarkdown>
@@ -1958,7 +1979,7 @@ function TaskDetails({
           )}
           {task.hostDelegation && (
             <div className="record">
-              <h3>Host 执行</h3>
+              <h3>Pi meme 执行</h3>
               <p>
                 {task.hostDelegation.hostId} / {task.hostDelegation.projectId}
               </p>
@@ -1976,7 +1997,7 @@ function TaskDetails({
                     )
                   }
                 >
-                  核对 Host 回执
+                  核对 Pi meme 回执
                 </Button>
               )}
               <Form
@@ -1987,7 +2008,7 @@ function TaskDetails({
                   setArtifactPath('')
                 }}
               >
-                <Field label="Host 产物路径">
+                <Field label="Pi meme 产物路径">
                   <Input required value={artifactPath} onChange={(event) => setArtifactPath(event.target.value)} />
                 </Field>
               </Form>

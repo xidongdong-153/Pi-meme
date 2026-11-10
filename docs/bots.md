@@ -1,5 +1,5 @@
 ---
-description: '独立 Bots 应用的启动部署、独立存储、角色对话、QQ、多 Host 与认证 API'
+description: '独立 Bots 应用的启动部署、对话配置、Pi meme 连接、QQ 与认证 API'
 status: implemented
 paths:
   - 'apps/bot/**'
@@ -9,9 +9,9 @@ paths:
 
 # 独立 Bots
 
-Bots 是独立部署的个人助理服务与 Web，内核为 Pi Durable。主界面参考 `~/Code/DS-Bot`，采用左侧 Bot/群组列表与右侧聊天，每个 Bot 对应固定 Web 私聊。左下头像菜单打开设置弹窗，任务协作、定时任务、资料、记忆、连接、认证 API 与 QQ 官方机器人 C2C 私聊由同一服务提供。[应用入口](../apps/bot/README.md) · [换手验收](#本轮换手验收)
+Bots 是独立部署的个人助理服务与 Web，内核为 Pi Durable。主界面参考 `~/Code/DS-Bot`，采用左侧 Bot/群组列表与右侧聊天，每个 Bot 对应固定 Web 私聊。首次连通模型后，用户通过对话管理 Bot、模型、Pi meme、QQ 和应用设置。左下头像菜单提供手动设置入口。[应用入口](../apps/bot/README.md) · [改造验收](#对话配置改造验收)
 
-本页描述当前源码与配置。真实模型聊天、图片生成与账单、QQ 收发与主动消息权限、两台 Host 的委派及远程服务器部署，须依据对应账号和环境中的实际行为验收。本轮独立 Hacker 已观察的路径及剩余边界列在文末。
+本页描述当前源码与配置。真实模型聊天、图片生成与账单、QQ 收发与主动消息权限、多台 Pi meme 委派及远程部署，按对应账号和环境中的实际行为验收。当前改造与早期版本的验收记录分别列在文末。
 
 ## 启动与部署
 
@@ -78,13 +78,15 @@ Bot 业务状态与模型上下文由同一个 durable SQLite 保存，二进制
 
 ## 配置与日常入口
 
-首次路径为访问密码 → 模型配置 → 默认助理私聊。密码至少 12 个字符。模型配置展示服务、模型和密钥，预置服务自动填写协议与地址，自定义兼容服务补充地址，名称与参数可在折叠区域调整。“验证并开始”依次保存候选、实际检查图片输入与安全工具往返、激活默认模型。检查会调用供应商并可能计费。首次激活在一个事务中创建默认助理及固定私聊，已有团队则选用现有角色。失败后保留候选和非敏感输入，检查结果可从原位查看。
+首次路径为访问密码 → 模型配置 → 默认助理私聊。密码至少 12 个字符。模型配置展示服务、模型和密钥，预置服务自动填写协议与地址，自定义兼容服务补充 URL，名称与参数可在折叠区域调整。“连接并开机”依次保存候选、实际检查工具调用往返、激活默认模型。检查会调用供应商并可能计费。首次激活在一个事务中创建默认助理及固定私聊，已有团队则选用现有角色。失败后可在原位调整候选配置。
 
-对话模型适配 OpenAI Responses、OpenAI 兼容 Chat Completions、Anthropic 和 Google，准入要求文字、图片输入和工具调用。`kind:"text"` 是 API v1 的序列化名称。输入/输出 token 可记录，缺少权威计价时费用为 `null`。图片生成使用独立的 OpenAI 或兼容图片模型，Host、QQ 和生图均为可选配置。
+对话模型适配 OpenAI Responses、OpenAI 兼容 Chat Completions、Anthropic 和 Google，开机检查要求完成文字与工具调用往返。图片输入能力依据模型目录或已有验证信息。`kind:"text"` 是 API 的序列化名称。输入/输出 token 可记录，缺少权威计价时费用为 `null`。图片生成使用独立的 OpenAI 或兼容图片模型，Pi meme、QQ 和生图可在开机后交给 Bot 配置。
+
+全部 Bot 统一拥有应用配置管理能力。Pi meme 连接覆盖全部项目及以后新增的项目，Bot 可读取项目、会话、消息和文件，也可委派实际项目工作。默认工具调用预算为 32，角色配置可调整到 1–128。普通配置按用户要求直接执行，删除、停用、撤销等重要操作提供确认。
 
 创建 Bot 只需名称和职责，`modelId:null` 或省略字段表示跟随默认模型，明确 ID 表示覆盖。有效模型在接纳新任务时解析并冻结，修改默认会影响后续任务，凭据撤销会阻断旧任务的后续调用。Web 默认助理由 `defaultAssistantId` 指定，QQ 接待角色由 QQ 配置管理。
 
-每个 Bot 由 `webConversationId` 指向固定 Web 私聊，创建或复制 Bot 时同事务建立记录。群聊有 2–16 个 Bot 和一名协调者，创建时确认的 `collaborationEnabled` 授权仅作用于本群成员。显式 `recipientIds` 使用稳定成员 ID，省略接收人时由协调者处理，旧名称 `@` 保留完整名称匹配兼容。
+每个 Bot 由 `webConversationId` 指向固定 Web 私聊，创建或复制 Bot 时同事务建立记录。群聊有 2–16 个 Bot 和一名协调者，`collaborationEnabled` 控制群内自动协作。Bot 可邀请其他已启用角色协作。显式 `recipientIds` 使用稳定成员 ID，省略接收人时由协调者处理。
 
 每项根任务使用独立 Durable runtime。上下文按来源消息 ID、发言身份、成员加入边界及附件引用构造，QQ 进一步限定为当前角色参与的消息。历史按有效模型 token 预算选择，超过预算时由同一模型生成滚动摘要，保留目标、决定、待办及来源引用，摘要失败时保留原始历史并显示错误。近期图片直接进入模型输入，较早的获准附件可通过 `read_attachment` 读取。协作子任务只取得显式传入的材料和附件，成员加入前的历史继续受范围校验。
 
@@ -94,7 +96,7 @@ Bot 业务状态与模型上下文由同一个 durable SQLite 保存，二进制
 
 “资料”提供附件预览、授权下载与复用到草稿。输入框支持选择、粘贴、拖拽、发送前缩略预览及移除。每条消息最多 10 个附件，单件上限 **20 MiB**，总 HTTP 请求体上限 **22 MiB**。上传格式为 PNG、JPEG、WebP、GIF、UTF-8 文本和 JSON，服务端校验 MIME、图片头、文件大小和内容摘要，浏览器解码失败时阻止发送。跨会话复用通过复制建立目标会话的独立附件引用。
 
-逐消息“记住这条”在私聊默认选择当前 Bot，在群聊默认选择当前群，保留 `sourceMessageId`，可继续编辑或撤销。设置页与消息旁共用记忆编辑器，支持 owner、Bot 和会话范围。模型也可提交记忆草稿，由用户确认保存。Host 自身记忆由 Host 管理。
+逐消息“记住这条”在私聊默认选择当前 Bot，在群聊默认选择当前群，保留 `sourceMessageId`，可继续编辑或撤销。设置页与消息旁共用记忆编辑器，支持 owner、Bot 和会话范围。Bot 根据用户要求直接保存或修改记忆。
 
 ### 模型配置与升级
 
@@ -102,21 +104,35 @@ Bot 业务状态与模型上下文由同一个 durable SQLite 保存，二进制
 
 `POST /settings/models/check` 接受 `{modelId,revision}`。验证结果为 `unverified`、`verified`、`unsupported`、`failed` 或 `unknown`，绑定有效模型、协议、地址、参数及凭据版本。模型检查在存储事务外执行，写回时再次核对配置，慢请求的旧结果遇到并发修改会被拒绝。显示名称调整可复用原有效验证，连接或模型参数改变后须重新检查。
 
-Doc 与业务 schema 从 v1 迁移至 v2。每个旧模型建立独立 service，保留原凭据引用、Bot 显式模型绑定、固定私聊与历史。旧对话模型标记 `unverified`，在原模型行重新验证后才能接纳新轮。迁移返回严格 JSON 数据，任务中的有效模型快照继续用于原轮恢复。
+Doc 与业务 schema 升至 v3。v1 模型先转为独立 service，再清理 Bot 与任务快照中的能力、协作对象、连接和项目授权字段。应用设置加入服务端主题和时区。旧待处理的授权或配置草稿任务标记为 blocked，提示用户重新发起。升级前后的数据由同一 Durable 存储维护。
 
-旧 `{models:[{provider,baseUrl,apiKey,...}]}` 写法保留薄转换，共享服务的旧式凭据、地址或协议修改返回 `409 shared-model-service`，客户端应改用带聚合 revision 的 `services` 更新。旧写法与 `/images/generations` 兼容别名的移除目标为 **Bots API v2**。当前 Web 使用 `/generations`，已知本地调用方已迁移，外部消费者清单仍待维护者确认。
+模型写入统一使用带聚合 revision 的 `services` 和 `models`，密钥、地址和协议属于服务字段。字段白名单拒绝旧式混合连接参数。活动任务持有模型配置快照，模型修改在后续任务生效，显式撤销服务密钥会阻断后续调用。删除模型前须结束引用它的活动任务。
 
-### 对话内交互与授权
+### 对话配置工具
 
-`discover_capabilities` 提供可申请能力和稳定资源 ID，`request_capability` 生成持久授权卡。问题、能力申请以及 Bot、群组、记忆、定时草稿都经由同一 `POST /tasks/:id/responses` 回应。请求必须绑定真实 `interactionId` 和交互 `revision`。同键恢复返回原消费结果，新键重复消费返回 409，停止任务会取消 pending 交互。
+`read_configuration` 返回可管理配置与稳定 ID，凭据以是否配置的状态展示。配置工具通过进程内请求复用 Web API 的字段校验、领域修改和幂等回执，发起任务身份在服务端上下文中传递。修改调用按真实 Durable tool call ID 保存参数摘要和结果，恢复时沿用原版本及动态默认值。
 
-单次授权绑定当前任务和 Bot 修订，长期授权保存到 Bot。Host 授权保存精确 `{hostId,projectId}`，协作授权指定目标 Bot，后续调用继续检查当前权限、祖先任务和服务配置。配置确认与领域写入在同一事务中消费，Web 表单、模型草稿和外部 API 复用相同领域校验。
+| 工具                                               | 管理内容                                           |
+| -------------------------------------------------- | -------------------------------------------------- |
+| `configure_bot`                                    | 创建、修改、复制、停用和删除角色，包括自己         |
+| `configure_model`                                  | 模型服务、密钥、模型参数、连通检查和默认模型       |
+| `configure_pi_meme`、`read_pi_meme`                | 连接管理及全部项目、会话、历史消息、文件和模型目录 |
+| `create_pi_meme_project`、`delegate_pi_meme`       | 登记项目和以完全权限执行项目工作                   |
+| `configure_qq`                                     | 保存并连接 QQ、生成绑定码、解绑                    |
+| `configure_preferences`                            | 主题、减少动态效果、时区和公开网页访问             |
+| `manage_group`、`manage_memory`、`manage_schedule` | 群组、记忆和定时任务                               |
+| `set_default_assistant`                            | Web 默认助理                                       |
+| `change_access_password`、`manage_api_token`       | 登录密码和 API 令牌                                |
+
+问题与重要操作确认通过 `POST /tasks/:id/responses` 回应，绑定真实 `interactionId` 和交互 `revision`。同键恢复返回原消费结果，新键重复消费返回 409，停止任务取消 pending 交互。QQ 会投递问题，用户可直接回复答案、选项序号或“确认”“取消”，多个待答问题使用 `/回复 <交互ID> <答案>`。QQ 绑定身份、入站去重及后续回复窗口在同一事务内核对并保存。
+
+删除当前 Bot 或归档当前会话会登记回复后的操作，最终回答与操作结果一起持久化。其他活动任务、配置并发修改及现有依赖会阻止删除或归档并返回具体错误。任务停止或失败时取消待执行操作。
 
 ### 定时任务
 
-聊天的“新建定时任务”自动带入来源会话、执行 Bot、设备时区和 Web 通知，在设置同层打开表单。名称最多 80 字符，内容最多 32000 字符，时区最多 100 字符。支持 `once`、`daily`、`weekly`，工作日可使用每周 `[1,2,3,4,5]`，保存前可预览后续执行时刻。单次 `at` 必须包含明确时区，周期按 IANA 时区的本地日历计算。
+聊天的“新建定时任务”自动带入来源会话、执行 Bot、应用时区和 Web 通知，在设置同层打开表单。名称最多 80 字符，内容最多 32000 字符，时区最多 100 字符。支持 `once`、`daily`、`weekly`，工作日可使用每周 `[1,2,3,4,5]`，保存前可预览后续执行时刻。单次 `at` 必须包含明确时区，周期按 IANA 时区的本地日历计算。
 
-用户保存或确认草稿时授权这一条具体规则，服务端生成 `executionGrant` 代次。规则更新、暂停、恢复会推进许可代次，实际消息接纳事务核对当前许可和运行快照，已接纳消息使用原幂等回执恢复。执行 Bot 必须启用且属于来源会话。旧规则没有许可代次时继续检查原 `schedules` 授权。模型的 `create_schedule` 生成一次性草稿，确认卡显示执行时刻、时区与授权语义，通知渠道继承来源任务。规则总数上限为 500。
+Bot 使用 `manage_schedule` 直接保存规则，通知渠道继承来源任务，规则总数上限为 500。服务端生成 `executionGrant` 代次，规则更新、暂停、恢复时推进，实际消息接纳事务核对当前代次和运行快照。执行 Bot 必须启用且属于来源会话。
 
 夏令时缺失时刻跳过，重复时刻取第一次。服务停机期间错过的安排记录为 `skipped`，不补跑；运行期间超过允许延迟同样跳过。服务必须运行，不会唤醒关机或休眠设备。同计划最多一个活跃运行，会话忙碌时不积队。手动立即运行使用独立运行记录，不改变周期。
 
@@ -130,17 +146,17 @@ Doc 与业务 schema 从 v1 迁移至 v2。每个旧模型建立独立 service�
 
 用户核对原供应商结果和账单后，可以明确创建新尝试。API 需 `previousGenerationId` 与 `confirmUnknown:true`，并使用新幂等键；原生成记录保留，重复费用风险不会被改写为零。
 
-公开网页探索需要全局启用联网和 Bot 的 `web` 授权。它只读取公开 HTTP(S) 内容，返回实际最终来源；没有搜索引擎、JavaScript 浏览器或登录账号。域名允许列表为空表示允许公开站点，填写后只接受列表中完全匹配的域名，跳转目标也受限制。读取阻止私网、回环、保留地址及 URL 账号信息，固定已检查的 DNS 地址连接，限制跳转、响应大小与时间。站点需登录、拒绝、限流、编码或内容类型不支持时，返回具体状态，不伪装成已取得社交账号内容。若部署环境的 DNS 将公开域名映射到 `198.18.0.0/15` 等保留地址（例如部分代理的 fake-IP 模式），同样会被阻止；需由部署者配置真实的公开 DNS/网络出口，不通过放开私网限制来绕过。
+公开网页访问默认启用，Bot 可通过 `configure_preferences` 调整开关和域名列表。读取公开 HTTP(S) 内容时返回实际最终来源。域名列表为空表示允许公开站点，填写后只接受列表中完全匹配的域名，跳转目标也受限制。读取阻止私网、回环、保留地址及 URL 账号信息，固定已检查的 DNS 地址连接，限制跳转、响应大小与时间。站点需要登录、拒绝访问、限流或返回不支持的内容时，提供具体错误。部署环境的 DNS 若将公开域名映射到 `198.18.0.0/15` 等保留地址，需要配置真实的公开 DNS 与网络出口。
 
-### Host 与 QQ
+### Pi meme 与 QQ
 
-Host 连接分别登记名称、地址、token 和允许项目。Bot 的 `hostIds` 表示整个已登记 Host 的项目范围，`hostGrants` 表示指定项目授权，后者最多 500 项并限制在 32 个 Host 内。授权还受连接的 `projectIds` 限制，撤销保存后约束后续委派、回执及产物读取。远程使用 HTTPS，回环地址可用 HTTP，地址由运行 Bots 的机器访问。连接检查保存 Host 身份，后续请求核对当前身份和凭据。项目创建接口登记 **Host 上已有目录**。
+Pi meme 连接只需 URL 和密钥，名称默认采用 URL 中的主机地址，保存后自动检查。失败配置保存为 offline，可在原连接重试。全部 Bot 可访问全部项目及后续新增项目。远程使用 HTTPS，回环地址可用 HTTP，URL 由运行 Bots 的机器访问。连接检查保存服务身份，后续请求核对身份和凭据。项目创建接口登记 **Pi meme 所在机器上的已有目录**。
 
-项目选择与委派复用 HostApi 的 `AppProject` 契约，以 `projectId` 保存项目身份。Host 的 `revision` 保护配置与授权修改，连接观测更新 `checkedAt`、`updatedAt` 和状态，读取项目后可继续保存原配置草稿。“检查连接”每次实际请求 Host 能力接口。
+项目选择与委派复用 HostApi 的 `AppProject` 契约，以 `projectId` 保存项目身份。连接的 `revision` 保护配置修改，连接观测更新 `checkedAt`、`updatedAt` 和状态。`read_pi_meme` 提供项目、会话、消息分页、文件列表、文件读取、文件搜索和模型目录。委派新会话使用 `full-access/default`。
 
 委派保留 Host、项目、会话、operation 和 submission 等稳定引用。断线后先核对原回执，不把重连等同再次提交；远端停止须以实际回执为准。Host 产物仅通过其允许的文件接口取得，不能读取任意路径或任意大小文件。
 
-QQ 使用官方机器人 C2C 私聊、一个入口路由多个 Bot。配置 AppID、AppSecret、默认 Bot 后，单独连接并生成一次性绑定码，在 QQ 向机器人发送 `/绑定 <绑定码>`。绑定码有效期 5 分钟。绑定完成后可用 `/角色` 列出角色、`/切换 <准确名称或ID>` 切换、`/状态` 查看当前角色任务、`/停止` 请求停止。入站去重和出站投递分别保存；Web 可查看 QQ 来源会话。
+QQ 使用官方机器人 C2C 私聊、一个入口路由多个 Bot。填写 AppID 与 AppSecret 后自动连接并选择接待 Bot，连接正常后自动生成本人绑定码。在 QQ 向机器人发送 `/绑定 <绑定码>`，有效期 5 分钟。绑定完成后可用 `/角色` 列出角色、`/切换 <准确名称或ID>` 切换、`/状态` 查看当前角色任务、`/停止` 请求停止。问题与配置确认可直接在 QQ 中回复。入站去重和出站投递分别保存，Web 可查看 QQ 来源会话。
 
 QQ WebSocket 由 Bots 主动连出，不提供家庭内网 Host 的穿透能力。主动消息、回复窗口、配额与富媒体上传仍受当前官方账号权限约束，需真实账号验证。生成成功与投递成功分别记录；投递 `unknown` 时不自动重发，显式再次发送只复用原结果，不重跑模型、生图或 Host 工作。
 
@@ -183,7 +199,7 @@ HTTP 400 表示输入错误，401 未认证，403 授权或来源被拒绝，404
 | 路由                                                             | 主要输入或返回                                                                                                                                          |
 | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `GET /snapshot`、`GET /capabilities`                             | 资源快照与游标；能力状态只表示配置/已知状态，不能证明外部调用成功                                                                                       |
-| `GET/POST /bots`、`GET/PATCH/DELETE /bots/:id`                   | 名称、头像、简介、指令、模型、能力、协作与 Host 授权、工具预算；更新/删除带 revision                                                                    |
+| `GET/POST /bots`、`GET/PATCH/DELETE /bots/:id`                   | 名称、头像、简介、指令、模型、启停和工具预算，更新与删除带 revision                                                                                     |
 | `POST /bots/:id/copy`                                            | 复制角色配置，副本默认停用，并拥有独立固定 Web 私聊                                                                                                     |
 | `POST /bots/:id/conversation`                                    | 无需业务 body，返回 200 `Conversation`；同事务获取或创建固定 Web 私聊，并发重复调用复用同一 ID                                                          |
 | `GET/POST /conversations`、`GET/PATCH/DELETE /conversations/:id` | `{name?,kind,memberIds,coordinatorId?,collaborationEnabled?,pinned?,archived?}`，群名与协调者可由成员生成默认值                                         |
@@ -192,16 +208,18 @@ HTTP 400 表示输入错误，401 未认证，403 授权或来源被拒绝，404
 | `GET /tasks`、`GET /tasks/:id`                                   | 可按 `?conversationId=` 筛选，查看来源、子任务、结果和执行状态                                                                                          |
 | `POST /tasks/:id/stop`                                           | 返回实际影响的任务 ID；远端停止可能仍待确认                                                                                                             |
 | `POST /tasks/:id/attempts`                                       | 已失败、停止或阻塞任务的新尝试；活动或 unknown 任务拒绝盲重做                                                                                           |
-| `POST /tasks/:id/responses`                                      | `{interactionId,revision,answer?}` 或 `{interactionId,revision,decision,scope?}`，仅处理任务当前交互                                                    |
+| `POST /tasks/:id/responses`                                      | `{interactionId,revision,answer?}` 或 `{interactionId,revision,decision}`，处理问题和重要操作确认                                                       |
+| `POST /tasks/:id/completion-action`                              | `{kind,revision}`，kind 为 `delete-bot` 或 `archive-conversation`，当前任务回复后执行                                                                   |
 | `GET/PATCH /settings/models`                                     | 聚合 `{revision,services?,models?,defaultModelId?,defaultAssistantId?,removedServiceIds?}`，按 ID 部分更新                                              |
-| `POST /settings/models/check`                                    | `{modelId,revision}`，实际验证图片输入与安全工具往返后返回配置及验证摘要                                                                                |
+| `POST /settings/models/check`                                    | `{modelId,revision}`，实际检查工具调用往返后返回配置及验证摘要                                                                                          |
 | `DELETE /models/:id`                                             | `{revision}`；先处理仍在引用该文本模型的 Bot                                                                                                            |
-| `GET/PATCH /settings`                                            | `{webEnabled?,allowedWebDomains?,reducedMotion?}`                                                                                                       |
+| `GET/PATCH /settings`                                            | `{theme?,timezone?,webEnabled?,allowedWebDomains?,reducedMotion?}`，主题与减少动态效果通过 SSE 同步页面                                                 |
+| `POST /settings/password`                                        | `{currentPassword,password}`，修改密码并注销已有网页登录                                                                                                |
 | `GET/POST /memories`、`PATCH/DELETE /memories/:id`               | `{scope:"owner"\|"bot"\|"conversation",targetId?,title,content,sourceMessageId?,revision?}`                                                             |
 | `GET/POST /attachments`                                          | POST 为 multipart `file` 与可选 `conversationId`，返回附件元信息                                                                                        |
 | `GET /attachments/:id`、`GET /attachments/:id/content`           | 元信息与鉴权下载；图片可内联，其他类型下载                                                                                                              |
 | `POST /attachments/:id/copy`                                     | `{conversationId}`；复制到另一会话以供显式复用                                                                                                          |
-| `GET/POST /tokens`、`DELETE /tokens/:id`                         | 创建 `{name,scopes:["read","write"]}`；仅 Cookie owner 可管理                                                                                           |
+| `GET/POST /tokens`、`DELETE /tokens/:id`                         | 创建 `{name,scopes:["read","write"]}`，由网页登录用户或 Bot 对话管理                                                                                    |
 
 固定私聊更新继续带 revision，但 `PATCH archived:true` 或 DELETE 返回 `409 fixed-conversation`；成员与类型校验禁止将其换成其他 Bot 或群组。`POST /bots/:id/conversation` 同样要求写权限与 `Idempotency-Key`，客户端使用 `openBotConversation(botId)`。兼容创建 direct 返回固定记录，不能据此创建额外会话；群组仍有独立 ID。
 
@@ -251,23 +269,24 @@ curl 'http://127.0.0.1:4310/api/v1/conversations/<conversationId>/messages' \
 
 单次用 `kind:"once"` 与带时区的 `at`；每周用 `kind:"weekly"`、`time` 和 `weekdays`，其中 `0` 为周日、`6` 为周六。保存不调用模型。生图提示词上限 16000 字符，不接受参考图编辑参数。
 
-### Host、QQ 与投递
+### Pi meme、QQ 与投递
 
-| 路由                                             | 主要输入或返回                                                                                |
-| ------------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| `GET/POST /hosts`、`GET/PATCH/DELETE /hosts/:id` | `{name,url,token?,projectIds?,revision?}`；凭据只写不回显                                     |
-| `POST /hosts/:id/check`                          | 显式检查身份和连接能力                                                                        |
-| `GET/POST /hosts/:id/projects`                   | GET 返回使用 `projectId` 的 `AppProject[]`，POST `{cwd,name?}` 登记远端已有目录               |
-| `POST /delegations`                              | `{botId,conversationId,hostId,projectId,prompt,sessionId?}`；202 `{taskId,status:"accepted"}` |
-| `GET /delegations/:id`                           | 查看任务与原远端 receipt、snapshot                                                            |
-| `POST /delegations/:id/reconcile`                | 有稳定 operation 后核对原委派，不重新创建不明远端工作                                         |
-| `POST /delegations/:id/interaction`              | `{requestId,response,agentId?}`；response 使用正式 Host interaction 契约                      |
-| `POST /delegations/:id/attachments`              | `{path}`；从允许的 Host 产物接口取得副本                                                      |
-| `GET/PATCH /channels/qq`                         | `{revision,enabled?,appId?,appSecret?,defaultBotId?}`                                         |
-| `POST /channels/qq/connect`                      | 显式连接官方网关                                                                              |
-| `POST/DELETE /channels/qq/binding`               | 生成一次性绑定码或显式解绑；删除带 revision                                                   |
-| `GET /deliveries`                                | 投递状态、目标、错误与官方回执                                                                |
-| `POST /deliveries/:id/attempts`                  | 复用原消息创建投递尝试；unknown 时须 `{confirmUnknown:true}`                                  |
+| 路由                                             | 主要输入或返回                                                                                                                 |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `GET/POST /hosts`、`GET/PATCH/DELETE /hosts/:id` | 新建只需 `{url,token}`，更新与删除带 revision，保存后自动检查                                                                  |
+| `POST /hosts/:id/check`                          | 显式检查身份和连接能力                                                                                                         |
+| `GET/POST /hosts/:id/projects`                   | GET 返回全部 `AppProject[]`，POST `{cwd,name?}` 登记远端已有目录                                                               |
+| `GET /hosts/:id/content`                         | `kind` 选择 projects、sessions、session、messages、files、read_file、search_files、models，messages 支持 offset、limit、cursor |
+| `POST /delegations`                              | `{botId,conversationId,hostId,projectId,prompt,sessionId?}`；202 `{taskId,status:"accepted"}`                                  |
+| `GET /delegations/:id`                           | 查看任务与原远端 receipt、snapshot                                                                                             |
+| `POST /delegations/:id/reconcile`                | 有稳定 operation 后核对原委派，不重新创建不明远端工作                                                                          |
+| `POST /delegations/:id/interaction`              | `{requestId,response,agentId?}`；response 使用正式 Host interaction 契约                                                       |
+| `POST /delegations/:id/attachments`              | `{path}`；从允许的 Host 产物接口取得副本                                                                                       |
+| `GET/PATCH /channels/qq`                         | `{revision,enabled?,appId?,appSecret?,defaultBotId?}`                                                                          |
+| `POST /channels/qq/connect`                      | 显式连接官方网关                                                                                                               |
+| `POST/DELETE /channels/qq/binding`               | 生成一次性绑定码或显式解绑；删除带 revision                                                                                    |
+| `GET /deliveries`                                | 投递状态、目标、错误与官方回执                                                                                                 |
+| `POST /deliveries/:id/attempts`                  | 复用原消息创建投递尝试；unknown 时须 `{confirmUnknown:true}`                                                                   |
 
 ### 事件与重新同步
 
@@ -285,27 +304,48 @@ Bots 的 Modal 保留自身焦点、遮罩与退场/Portal 生命周期，不直
 
 主界面以 Bot/群组列表和聊天两栏组织。左下头像菜单打开设置弹窗，分类为外观、模型、联网能力、记忆、定时任务、资料、连接、访问凭据。标题先打开只读详情，编辑替换同层内容，Bot 编辑可跳到所选模型的设置并原位返回。模型、记忆、定时任务编辑在设置同层展开，未保存时关闭会确认，保存期间保护相关关闭操作。分类切换与返回聊天保留草稿和阅读位置，系统或应用的减少动态效果设置控制局部动效。
 
-右上角任务记录按根任务组织协作，显示邀请关系、等待、结果及逐条取消入口。问题、授权和配置草稿卡出现在来源消息附近，配置缺失引导到对应设置。任务详情绑定来源会话，输入框在运行时提供明确目标的停止操作。
+右上角任务记录按根任务组织协作，显示邀请关系、等待、结果及逐条取消入口。问题与重要操作确认卡出现在来源消息附近，任务详情展示回复后配置操作的失败或取消结果。空私聊提供常用配置的对话入口。主题和减少动态效果取自服务端设置，Bot 修改后页面自动同步。
 
 聊天草稿、待核对发送及阅读位置按会话保存。待核对卡保留原幂等键、原正文、目标与附件，新编辑使用独立草稿代次，恢复原请求只清理原代次草稿。401 或连接结果未知时继续保留原请求。新增消息在底部时跟随，在查看上文时保留阅读位置并提供“跳到最新”，分页补读保持阅读锚点。真实流式草稿直接更新正文，最终消息完成替换。
 
 ## 实现位置与验收边界
 
-| 位置                                                                                                                                                 | 职责                                             |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| [server/main.ts](../apps/bot/src/server/main.ts)、[server/app.ts](../apps/bot/src/server/app.ts)                                                     | 监听、静态页面、认证 API 装配与生命周期          |
-| [server/store.ts](../apps/bot/src/server/store.ts)、[server/runtime.ts](../apps/bot/src/server/runtime.ts)                                           | 独立根目录、单 owner durable 状态与模型/工具任务 |
-| [shared/types.ts](../apps/bot/src/shared/types.ts)、[server/contracts.ts](../apps/bot/src/server/contracts.ts)                                       | 应用内类型及服务适配接口                         |
-| [src/client](../apps/bot/src/client)、[src/ui](../apps/bot/src/ui)                                                                                   | 同源 API、事件重连与独立 React 页面              |
-| [server/hosts.ts](../apps/bot/src/server/hosts.ts)、[server/qq.ts](../apps/bot/src/server/qq.ts)                                                     | HostApi v2 与 QQ 官方适配                        |
-| [server/capabilities.ts](../apps/bot/src/server/capabilities.ts)                                                                                     | 计划、生图和公开网页入口                         |
-| [server/model-settings.ts](../apps/bot/src/server/model-settings.ts)、[server/model-check.ts](../apps/bot/src/server/model-check.ts)                 | 服务/模型聚合配置、迁移、实际验证与激活          |
-| [server/domain-mutations.ts](../apps/bot/src/server/domain-mutations.ts)、[server/task-interactions.ts](../apps/bot/src/server/task-interactions.ts) | 共享领域提交、持久交互与范围授权                 |
-| [server/conversation-context.ts](../apps/bot/src/server/conversation-context.ts)、[server/live-events.ts](../apps/bot/src/server/live-events.ts)     | 获准历史、图片、摘要和实时草稿                   |
+| 位置                                                                                                                                                             | 职责                                             |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| [server/main.ts](../apps/bot/src/server/main.ts)、[server/app.ts](../apps/bot/src/server/app.ts)                                                                 | 监听、静态页面、认证 API 装配与生命周期          |
+| [server/store.ts](../apps/bot/src/server/store.ts)、[server/runtime.ts](../apps/bot/src/server/runtime.ts)                                                       | 独立根目录、单 owner durable 状态与模型/工具任务 |
+| [shared/types.ts](../apps/bot/src/shared/types.ts)、[server/contracts.ts](../apps/bot/src/server/contracts.ts)                                                   | 应用内类型及服务适配接口                         |
+| [src/client](../apps/bot/src/client)、[src/ui](../apps/bot/src/ui)                                                                                               | 同源 API、事件重连与独立 React 页面              |
+| [server/hosts.ts](../apps/bot/src/server/hosts.ts)、[server/qq.ts](../apps/bot/src/server/qq.ts)                                                                 | HostApi v2 与 QQ 官方适配                        |
+| [server/configuration-tools.ts](../apps/bot/src/server/configuration-tools.ts)、[server/configuration-access.ts](../apps/bot/src/server/configuration-access.ts) | 对话配置工具、任务身份与持久调用回执             |
+| [server/capabilities.ts](../apps/bot/src/server/capabilities.ts)                                                                                                 | 计划、生图和公开网页入口                         |
+| [server/model-settings.ts](../apps/bot/src/server/model-settings.ts)、[server/model-check.ts](../apps/bot/src/server/model-check.ts)                             | 服务/模型聚合配置、迁移、实际验证与激活          |
+| [server/domain-mutations.ts](../apps/bot/src/server/domain-mutations.ts)、[server/task-interactions.ts](../apps/bot/src/server/task-interactions.ts)             | 共享领域提交、持久交互与回复后配置操作           |
+| [server/conversation-context.ts](../apps/bot/src/server/conversation-context.ts)、[server/live-events.ts](../apps/bot/src/server/live-events.ts)                 | 获准历史、图片、摘要和实时草稿                   |
 
 页面、代码和类型检查均不能替代用户路径。验收需记录 **oracle 是哪条真实入口/行为、Hacker 是谁**，并区分公开 HTTP 读取、真实模型、真实图片账单、QQ、远端 Host 与服务器部署。没有对应外部账号或真实回执的部分应标“未验”，不能用假模型或模拟渠道宣称集成成功。
 
-## 本轮换手验收
+## 对话配置改造验收
+
+2026-11-10，本次改造由根代理实现，独立 Hacker 为 `/root/hacker`。用户指定 `pnpm start:bot` 与本机环境作为真实验收入口。
+
+| Oracle 真路径                                      | 实际观察                                                                                                                           |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| 本机仓库运行 `pnpm start:bot` → `/api/health`      | 使用 `/Users/wuwanzhu/.pi-meme-bot`，`http://127.0.0.1:4310` 就绪，返回 `ready:true`                                               |
+| 隔离 Bots HTTP 登录 → 保存闭端口模型 → 检查 → 激活 | 登录、保存和检查均返回 200，模型为 `verification.failed`，`initialized:false`、默认模型为 null，强制激活返回 409，响应隐藏占位密钥 |
+| 隔离 Bots API → 伪造配置任务请求头                 | `X-Configuration-Task-Id` 与 `X-Bot-Task-Id` 均无法取得内部身份，返回 401                                                          |
+
+Hacker 构造了真实 Hono `bodyLimit` 反例。无 Content-Length 的内部请求经过中间件后 Request 身份改变，原 WeakMap 记录失配，实际返回 `401` 与 `internalTask:null`。实现已改为在最前置中间件将身份保存到 Hono Context。Hacker 还指出模型检查或默认模型切换成功后、外层回执保存前中断会导致重放 revision 漂移，现已冻结初始模型与版本，各步骤沿原回执继续。
+
+本次新版浏览器交互、真实模型对话配置、Pi meme 全项目读取与委派、QQ 官方收发和确认、自删与当前会话归档、多步骤中断恢复均为 **未验**。本机服务已启动，真实对话验收尚需可用网页登录。原验收浏览器空间已失效，浏览器 skill 要求用户明确授权后才能重新创建或接管空间。早期版本的成功记录归入下一节。
+
+静态检查依次完成全仓 `pnpm type-check`、35 个变更 TypeScript 文件的 ESLint、38 个适用文件的 Prettier check，均通过。`pnpm build:bot` 已生成本轮 Web 与服务端构建，供 `pnpm start:bot` 展示最新页面。功能验收状态按上表及未验范围记录。
+
+最终重启时，终端在原 `pnpm start:bot` 退出后额外执行了依赖同步，输出移除 81 个包、下载 0、添加 0。随后重新执行上述静态检查与构建，均通过。Hacker 在本机服务核对首页引用 `/assets/index-BBcDCxqq.js`，该资源返回 200，4310 服务保持运行。
+
+## 早期版本换手验收
+
+以下为本次对话配置改造之前的历史记录，其中的逐 Bot 与逐项目授权描述对应当时的实现。
 
 2026-11-10，Hacker 为独立非作者代理 `/root/hacker`，使用 GPT-6.1 Sol · AgentRouter Linux、max。用户指定的 GPT-6 Sol 路由在本次工具中不可用，因此采用同路由的可用版本。实现由根代理完成，源码 Hack、浏览器和 HTTP 验收由 Hacker 执行。
 

@@ -31,7 +31,7 @@ export function modelMetadata(config: ModelConfig) {
   return {
     contextWindow: config.contextWindow ?? known?.contextWindow ?? 16384,
     maxTokens: config.maxTokens ?? known?.maxTokens ?? 2048,
-    reasoning: known?.reasoning ?? false,
+    reasoning: config.reasoning ?? known?.reasoning ?? false,
   }
 }
 

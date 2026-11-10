@@ -10,21 +10,23 @@ import type {
   MessageInput,
   Task,
   TaskLive,
-  TaskProposal,
   TaskResponse,
 } from '../shared/types.js'
-import type { BotServices, CapabilityAdapter, HostAdapter } from './contracts.js'
+import type { BotServices, CapabilityAdapter, HostAdapter, QqInteractionSource } from './contracts.js'
 import type { DurableBotStore } from './store.js'
 import { context } from './store.js'
 import { BotError, ids, requireItem, text, touch } from './errors.js'
 import { installModel, modelProviderId } from './models.js'
 import { queueQqDeliveries } from './qq-outbox.js'
-import { resolveBotModel } from './model-settings.js'
+import { releaseModelCredential, resolveBotModel } from './model-settings.js'
 import { allowedAttachmentIds, conversationInput } from './conversation-context.js'
 import { BotLiveEvents } from './live-events.js'
-import { assertTaskAuthorized, collaborationAllowed, hostAllowed, TaskInteractions } from './task-interactions.js'
+import { assertTaskAuthorized, collaborationAllowed, TaskInteractions } from './task-interactions.js'
 import { validateScheduleAdmission } from './schedules-runtime.js'
 import { readableAttachment } from '../shared/attachment-types.js'
+import { configurationTools } from './configuration-tools.js'
+import { botInstructions } from './bot-instructions.js'
+import { completeConfigurationAction } from './domain-mutations.js'
 
 const terminal = new Set(['completed', 'failed', 'stopped', 'unknown', 'blocked'])
 export const activeTask = (task: Task) => !terminal.has(task.status)
@@ -90,54 +92,12 @@ export class BotRuntime {
         },
       })
     const string = { type: 'string', minLength: 1, maxLength: 32000 }
-    const proposalDefinitions: {
-      name: string
-      kind: TaskProposal['kind']
-      description: string
-      fields: Record<string, object>
-      required: string[]
-    }[] = [
-      {
-        name: 'propose_bot',
-        kind: 'create-bot',
-        description: '草拟一个Bot，用户确认后创建。模型默认继承，不授予额外能力。',
-        fields: { name: string, instructions: string, description: string, modelId: string },
-        required: ['name', 'instructions'],
-      },
-      {
-        name: 'propose_group',
-        kind: 'create-group',
-        description: '草拟一个群组，用户确认成员和群内协作后创建。',
-        fields: {
-          name: string,
-          memberIds: { type: 'array', minItems: 2, maxItems: 16, items: string },
-          coordinatorId: string,
-          collaborationEnabled: { type: 'boolean' },
-        },
-        required: ['name', 'memberIds'],
-      },
-      {
-        name: 'create_schedule',
-        kind: 'create-schedule',
-        description:
-          '草拟一次定时工作，用户确认即授权这条规则执行。可在定时任务中暂停或删除。at为未来UTC ISO时刻，timezone为IANA时区。',
-        fields: { name: string, prompt: string, at: string, timezone: string },
-        required: ['name', 'prompt', 'at', 'timezone'],
-      },
-      {
-        name: 'propose_memory',
-        kind: 'remember',
-        description: '草拟需明确记住的信息，用户确认后保存。私聊默认当前Bot，群聊默认当前群。',
-        fields: { title: string, content: string, scope: { type: 'string', enum: ['bot', 'conversation', 'owner'] } },
-        required: ['title', 'content'],
-      },
-    ]
     this.extension = defineExtension({
       name: 'bots',
       tools: [
         tool(
           'discover_capabilities',
-          '读取可申请的能力、Bot和Host项目的稳定ID及配置状态。仅发现资源，实际调用仍须授权。',
+          '读取所有可用 Bot 和 Pi meme 连接。用 read_pi_meme 列出项目，用 read_configuration 读取和管理配置。',
           {},
           [],
           undefined,
@@ -158,18 +118,17 @@ export class BotRuntime {
                 id: host.id,
                 name: host.name,
                 status: host.status,
-                projectIds: host.projectIds,
                 configured: !!host.credentialRef,
               })),
               imagesConfigured: Object.values(state.models).some((model) => model.kind === 'image'),
               webConfigured: state.settings.webEnabled,
-              schedules: '每条定时规则由用户确认授权，可在定时任务中暂停或删除',
+              schedules: '可根据用户要求直接创建、修改、暂停或删除定时任务',
             })
           },
         ),
         tool(
           'collaborate',
-          '委派已获准的角色协作，结果回到当前任务；仅提供完成任务所需材料。',
+          '邀请其他已启用的 Bot 协作，结果回到当前任务。请提供完成任务所需材料。',
           {
             botId: string,
             prompt: string,
@@ -188,9 +147,9 @@ export class BotRuntime {
             let child: Task
             try {
               child = await this.store.update((state) => {
-                this.assertAuthorized(state, requireItem(state.tasks[parent.id], '父任务'), 'collaborate')
+                this.assertAuthorized(state, requireItem(state.tasks[parent.id], '父任务'))
                 if (!this.canCollaborate(state, parent, botId) || parent.depth >= 3)
-                  throw new BotError(403, 'forbidden', '协作角色未获授权，或已达到协作层数上限')
+                  throw new BotError(403, 'forbidden', '协作角色不可用，或已达到协作层数上限')
                 const existing = state.inboundIds[internalKey]
                 if (existing) return requireItem(state.tasks[existing], '协作任务')
                 this.checkTreeBudget(state, parent)
@@ -261,23 +220,21 @@ export class BotRuntime {
           async (args, _task, signal) => this.capabilities.explore({ url: text(args.url, '网页地址', 4000) }, signal),
         ),
         tool(
-          'delegate_host',
-          '在明确授权的Pi meme Host和项目中执行任务；projectId必须来自该连接的授权项目。',
-          { hostId: string, projectId: string, prompt: string },
-          ['hostId', 'projectId', 'prompt'],
+          'delegate_pi_meme',
+          '在 Pi meme 项目中以完全权限执行任务。先用 read_pi_meme 取得项目 ID，可处理代码、文件、终端和 Pi meme 设置。',
+          { connectionId: string, projectId: string, prompt: string },
+          ['connectionId', 'projectId', 'prompt'],
           'hosts',
           async (args, task, signal) => {
-            const hostId = text(args.hostId, 'Host', 128)
-            const state = this.store.read()
-            if (!hostAllowed(state, task, hostId, text(args.projectId, '项目', 128)))
-              throw new BotError(403, 'forbidden', 'Bot没有此Host的授权')
+            const hostId = text(args.connectionId, 'Pi meme 连接', 128)
+            requireItem(this.store.read().hosts[hostId], 'Pi meme')
             const internalKey = `host-tool:${task.id}:${createHash('sha256')
               .update(JSON.stringify([hostId, args.projectId, args.prompt]))
               .digest('hex')}`
             const child = await this.store.update((draft) => {
-              this.assertAuthorized(draft, requireItem(draft.tasks[task.id]), 'hosts')
+              this.assertAuthorized(draft, requireItem(draft.tasks[task.id]))
               const existing = draft.inboundIds[internalKey]
-              if (existing) return requireItem(draft.tasks[existing], 'Host任务')
+              if (existing) return requireItem(draft.tasks[existing], 'Pi meme 任务')
               this.checkTreeBudget(draft, task)
               const item = this.makeTask(
                 draft,
@@ -289,17 +246,13 @@ export class BotRuntime {
                 task,
               )
               item.status = 'waiting'
-              item.grants = task.grants?.filter(
-                (grant) =>
-                  grant.capability === 'hosts' && grant.hostId === hostId && grant.projectId === args.projectId,
-              )
               draft.tasks[item.id] = item
               draft.inboundIds[internalKey] = item.id
               return item
             })
             if (child.status === 'completed') return child.result ?? ''
             if (['unknown', 'failed', 'stopped'].includes(child.status))
-              throw new BotError(409, 'outcome-unknown', '已有Host委派结果待核对，不会由模型重复提交')
+              throw new BotError(409, 'outcome-unknown', '已有 Pi meme 委派结果待核对，不会由模型重复提交')
             try {
               const result = await this.hosts.delegate(
                 { hostId, projectId: text(args.projectId, '项目', 128), prompt: child.prompt, taskId: child.id },
@@ -323,7 +276,7 @@ export class BotRuntime {
                     cause instanceof BotError && ['outcome-unknown', 'upstream-unavailable'].includes(cause.code)
                       ? 'unknown'
                       : 'failed'
-                  item.error = cause instanceof BotError ? cause.message : 'Host委派未完成'
+                  item.error = cause instanceof BotError ? cause.message : 'Pi meme 委派未完成'
                   touch(item)
                 }
               })
@@ -400,56 +353,23 @@ export class BotRuntime {
             return JSON.stringify({ answer: item.response?.answer })
           },
         ),
-        tool(
-          'request_capability',
-          '请求本轮或此Bot的能力授权。Host必须给出已连接Host及其授权项目；协作给出目标Bot。等待用户明确批准后才能使用能力。',
-          {
-            capability: { type: 'string', enum: ['collaborate', 'hosts', 'images', 'web', 'schedules'] },
-            reason: string,
-            hostId: string,
-            projectId: string,
-            botId: string,
-          },
-          ['capability', 'reason'],
-          undefined,
-          async (args, task, signal, callId) => {
-            const capability = text(args.capability, '能力', 32) as Capability
-            const targetRefs = Object.fromEntries(
-              ['hostId', 'projectId', 'botId']
-                .filter((key) => args[key] !== undefined)
-                .map((key) => [key, text(args[key], key, 128)]),
-            )
-            const item = await this.interactions.wait(
-              task.id,
-              callId,
-              { kind: 'permission', question: text(args.reason, '授权原因', 4000), capability, targetRefs },
-              signal,
-            )
-            return JSON.stringify({ decision: item.response?.decision, scope: item.response?.scope })
-          },
-        ),
-        ...proposalDefinitions.map((definition) =>
+        ...configurationTools(this.services, async (task, callId, question, signal) => {
+          const previous = this.store.read().tasks[task.id]?.interactions?.find((item) => item.toolCallId === callId)
+          const item = await this.interactions.wait(
+            task.id,
+            callId,
+            { kind: 'confirmation', question: previous?.question ?? question },
+            signal,
+          )
+          return item.response?.decision === 'approve'
+        }).map((definition) =>
           tool(
             definition.name,
             definition.description,
-            definition.fields,
+            definition.properties,
             definition.required,
             undefined,
-            async (args, task, signal, callId) => {
-              const value: Record<string, unknown> = { ...args }
-              if (definition.kind === 'create-schedule')
-                Object.assign(value, { kind: 'once', enabled: true, notification: task.notification ?? 'web' })
-              const proposal = { kind: definition.kind, value }
-              const item = await this.interactions.wait(
-                task.id,
-                callId,
-                { kind: 'proposal', question: definition.description, proposal },
-                signal,
-              )
-              if (item.response?.decision !== 'approve') return '用户未批准此草稿，未执行任何更改。'
-              this.assertAuthorized(this.store.read(), requireItem(this.store.read().tasks[task.id]))
-              return JSON.stringify(await this.services.applyProposal(proposal, task, item.id))
-            },
+            async (args, task, signal, callId) => JSON.stringify(await definition.execute(args, task, signal, callId)),
           ),
         ),
       ],
@@ -658,8 +578,8 @@ export class BotRuntime {
     return accepted
   }
 
-  private assertAuthorized(state: AppState, task: Task, capability?: Capability) {
-    assertTaskAuthorized(state, task, capability)
+  private assertAuthorized(state: AppState, task: Task) {
+    assertTaskAuthorized(state, task)
   }
 
   private async authorizeTool(runtimeId: string, capability: Capability | undefined, callId: string) {
@@ -669,7 +589,7 @@ export class BotRuntime {
       )
       if (!task || task.stopRequested) throw new BotError(403, 'forbidden', '任务已停止')
       const bot = requireItem(state.bots[task.botId], 'Bot')
-      this.assertAuthorized(state, task, capability)
+      this.assertAuthorized(state, task)
       if (task.blocker?.capability === capability) delete task.blocker
       const budgetKey = `tool-budget:${task.id}:${callId}`
       if (!state.inboundIds[budgetKey]) {
@@ -689,8 +609,13 @@ export class BotRuntime {
   subscribeLive(listener: (value: TaskLive) => void): () => void {
     return this.live.subscribe(listener)
   }
-  async respond(taskId: string, response: TaskResponse, requestId: string): Promise<Task> {
-    const task = await this.interactions.respond(taskId, response, requestId)
+  async respond(
+    taskId: string,
+    response: TaskResponse,
+    requestId: string,
+    qqIdentity?: QqInteractionSource,
+  ): Promise<Task> {
+    const task = await this.interactions.respond(taskId, response, requestId, qqIdentity)
     this.pump()
     return task
   }
@@ -771,7 +696,7 @@ export class BotRuntime {
       lane = `${task.conversationId}:${task.botId}`
       if (!child && task.mode !== 'steer') this.lanes.add(lane)
       const currentBot = requireItem(this.store.read().bots[task.botId], 'Bot')
-      if (!currentBot.enabled) throw new BotError(403, 'forbidden', 'Bot已停用')
+      if (!currentBot.enabled && !task.finishOnDisable) throw new BotError(403, 'forbidden', 'Bot已停用')
       this.assertAuthorized(this.store.read(), task)
       const config = task.modelConfig ?? resolveBotModel(this.store.read(), task.config)
       installModel(this.models, config, this.store)
@@ -786,7 +711,7 @@ export class BotRuntime {
               model: { provider: modelProviderId(config), modelId: config.model },
               extensions: [this.extension],
               tools: this.extension.tools ?? [],
-              instructions: task.config.instructions,
+              instructions: botInstructions(task, this.store.read()),
               maxTurns: task.config.maxToolCalls + 1,
             },
           },
@@ -858,6 +783,7 @@ export class BotRuntime {
         current.finishedAt = new Date().toISOString()
         current.usage = { input: response.usage.input, output: response.usage.output, cost: null }
         touch(current)
+        completeConfigurationAction(state, current)
         if (
           current.publicReply &&
           !Object.values(state.messages).some((message) => message.assistantEntryId === String(settled.answer))
@@ -904,6 +830,7 @@ export class BotRuntime {
             touch(interaction)
           }
           task.finishedAt = new Date().toISOString()
+          completeConfigurationAction(state, task)
           touch(task)
         })
     } finally {
@@ -939,6 +866,7 @@ export class BotRuntime {
               })
           }
         }
+        if (finalTask && !this.closing) await releaseModelCredential(this.store, finalTask.modelConfig?.credentialRef)
       } finally {
         this.active.delete(id)
         this.controllers.delete(id)
@@ -1075,6 +1003,7 @@ export class BotRuntime {
             item.status = confirmed ? 'stopped' : 'unknown'
             item.error = confirmed ? undefined : '远端停止结果待确认'
             item.finishedAt = new Date().toISOString()
+            completeConfigurationAction(state, item)
             touch(item)
           }
         })
@@ -1097,7 +1026,7 @@ export class BotRuntime {
       const old = requireItem(state.tasks[id], '任务')
       if (!['failed', 'stopped', 'blocked'].includes(old.status))
         throw new BotError(409, 'outcome-unknown', '活动任务或结果未知的任务不能再次执行，请先核对')
-      if (old.hostDelegation) throw new BotError(409, 'outcome-unknown', 'Host任务请在连接详情核对后显式重新委派')
+      if (old.hostDelegation) throw new BotError(409, 'outcome-unknown', 'Pi meme 任务请在连接详情核对后显式重新委派')
       const tree = new Set([old.id])
       let added = true
       while (added) {
@@ -1123,7 +1052,7 @@ export class BotRuntime {
             ['pending', 'running', 'unknown'].includes(generation.status),
         )
       )
-        throw new BotError(409, 'outcome-unknown', '关联的Host或图片结果尚未确认，请先核对，不能重做整轮任务')
+        throw new BotError(409, 'outcome-unknown', '关联的 Pi meme 或图片结果尚未确认，请先核对，不能重做整轮任务')
       const conversation = requireItem(state.conversations[old.conversationId])
       if (!conversation.memberIds.includes(old.botId)) throw new BotError(403, 'forbidden', '该Bot已离开会话')
       const next = this.makeTask(state, old.botId, old.conversationId, old.sourceMessageId, old.prompt, old.publicReply)

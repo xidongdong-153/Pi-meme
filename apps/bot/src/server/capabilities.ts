@@ -177,8 +177,7 @@ export function registerCapabilityRoutes(app: BotApp, services: BotServices): Ca
     const input = await body(context)
     const botId = text(input.botId, 'Bot', 200)
     const bot = services.store.read().bots[botId]
-    if (!bot?.enabled || !bot.capabilities.includes('web'))
-      throw new BotError(403, 'forbidden', '该 Bot 未获公开网页探索授权')
+    if (!bot?.enabled) throw new BotError(403, 'forbidden', '该 Bot 已停用')
     return context.json({ content: await explore({ url: text(input.url, '网页地址', 4000) }, context.req.raw.signal) })
   })
 

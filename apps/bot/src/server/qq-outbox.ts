@@ -13,7 +13,7 @@ export function queueQqDeliveries(draft: AppState, message: Message): void {
     return
   const source = message.sourceMessageId ? draft.messages[message.sourceMessageId] : undefined
   const replyMessageId =
-    source?.platformMessageId ?? draft.inboundIds[`qq-reply:${message.sourceMessageId ?? message.id}`]
+    draft.inboundIds[`qq-reply:${message.sourceMessageId ?? message.id}`] ?? source?.platformMessageId
   const parts = [...(message.content ? [undefined] : []), ...message.attachmentIds]
   for (const [partIndex, attachmentId] of parts.entries()) {
     const id = `qq-${message.id}-${partIndex}`

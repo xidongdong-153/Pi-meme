@@ -53,10 +53,14 @@ export function Check({
     </label>
   )
 }
-export function Avatar({ name, user = false }: { name: string; avatar?: string; user?: boolean }) {
+export function Avatar({ name, avatar, user = false }: { name: string; avatar?: string; user?: boolean }) {
   return (
     <span className="avatar" aria-hidden="true">
-      <img src={user ? defaultUserAvatar : agentAvatars[0]} alt={name} draggable={false} />
+      {!user && avatar ? (
+        <span className="avatar-text">{avatar}</span>
+      ) : (
+        <img src={user ? defaultUserAvatar : agentAvatars[0]} alt={name} draggable={false} />
+      )}
     </span>
   )
 }

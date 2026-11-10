@@ -49,9 +49,19 @@ export function installModel(models: ReturnType<typeof createModels>, config: Mo
             const assertCurrent = () => {
               const state = store.read()
               const current = state.models[config.id]
-              if (!current || modelFingerprint(state, current) !== fingerprint)
-                throw new Error('模型连接或凭据已撤销或更新，请创建新任务')
-              return effectiveModel(state, current)
+              if (!current) throw new Error('模型已删除，请选择其他模型')
+              const latest = effectiveModel(state, current)
+              if (!latest.credentialRef && !localAnonymousModel(latest)) throw new Error('模型密钥已撤销')
+              if (modelFingerprint(state, current) === fingerprint) return latest
+              const inUse = Object.values(state.tasks).some(
+                (task) =>
+                  ['queued', 'running', 'waiting'].includes(task.status) &&
+                  !task.stopRequested &&
+                  task.modelConfig &&
+                  modelConfigFingerprint(task.modelConfig) === fingerprint,
+              )
+              if (!inUse) throw new Error('模型配置已更新，请创建新任务')
+              return config
             }
             const current = assertCurrent()
             const key = await store.secret(current.credentialRef)

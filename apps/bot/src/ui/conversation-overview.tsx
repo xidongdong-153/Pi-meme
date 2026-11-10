@@ -9,14 +9,6 @@ import { request } from '../client/api'
 import type { Bot, Conversation, Snapshot } from '../shared/types'
 import { Avatar, Button, Check, date, ErrorText, Status, useAction } from './common'
 
-const capabilityNames: Record<string, string> = {
-  collaborate: 'Bot 协作',
-  hosts: 'Host 任务',
-  images: '生图',
-  web: '公开网页',
-  schedules: '定时任务',
-}
-
 export function ConversationOverview({
   conversation,
   bot,
@@ -134,17 +126,6 @@ export function ConversationOverview({
           >
             允许成员在本群协作
           </Check>
-        </section>
-      )}
-      {bot && (
-        <section className="ds-details-section">
-          <h3>能力</h3>
-          <div className="detail-capabilities">
-            <span>对话</span>
-            {bot.capabilities.map((capability) => (
-              <span key={capability}>{capabilityNames[capability]}</span>
-            ))}
-          </div>
         </section>
       )}
       <section className="ds-details-section">

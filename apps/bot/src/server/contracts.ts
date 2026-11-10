@@ -1,5 +1,5 @@
 import type { Hono } from 'hono'
-import type { AcceptedMessage, AppState, Attachment, MessageInput, Task, TaskProposal } from '../shared/types.js'
+import type { AcceptedMessage, AppState, Attachment, MessageInput, Task, TaskResponse } from '../shared/types.js'
 
 export interface BotStore {
   directory: string
@@ -9,11 +9,31 @@ export interface BotStore {
   writeSecret: (value: string) => Promise<string>
   deleteSecret: (ref: string | undefined) => Promise<void>
 }
+export interface QqInteractionSource {
+  appId: string
+  userId: string
+  inboundKey: string
+  platformMessageId: string
+}
 export interface BotServices {
   store: BotStore
   acceptMessage: (input: MessageInput) => Promise<AcceptedMessage>
   stopTask: (id: string) => Promise<{ taskIds: string[] }>
-  applyProposal: (proposal: TaskProposal, task: Task, interactionId: string) => Promise<unknown>
+  respondToTask: (
+    taskId: string,
+    response: TaskResponse,
+    requestId: string,
+    qqIdentity?: QqInteractionSource,
+  ) => Promise<Task>
+  configure: (input: {
+    taskId: string
+    callId: string
+    step: string
+    method: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+    path: string
+    body?: Record<string, unknown>
+    signal: AbortSignal
+  }) => Promise<unknown>
   saveAttachment: (input: {
     name: string
     mime: string
@@ -47,4 +67,5 @@ export interface CapabilityAdapter {
   ) => Promise<{ attachmentIds: string[]; generationId: string }>
   explore: (input: { url: string }, signal?: AbortSignal) => Promise<string>
 }
-export type BotApp = Hono
+export type BotEnvironment = { Variables: { configurationTaskId?: string } }
+export type BotApp = Hono<BotEnvironment>

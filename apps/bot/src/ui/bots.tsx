@@ -1,16 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { request } from '../client/api'
-import type { Bot, Capability } from '../shared/types'
+import type { Bot } from '../shared/types'
 import { Avatar, Button, Check, ErrorText, Field, Form, Input, Modal, Select, Textarea, useAction } from './common'
 import type { PageProps } from './common'
 
-const capabilityNames: Record<Capability, string> = {
-  collaborate: 'Bot 协作',
-  hosts: 'Host 项目工作',
-  images: '图片生成',
-  web: '公开网页探索',
-  schedules: '定时任务',
-}
 type BotEditorProps = PageProps & {
   bot?: Bot
   close: () => void
@@ -116,11 +109,7 @@ export function BotEditor({
   const [modelId, setModelId] = useState(stored.modelId ?? bot?.modelId ?? '')
   const [enabled, setEnabled] = useState(stored.enabled ?? bot?.enabled ?? true)
   const [runningTasks, setRunningTasks] = useState('finish')
-  const [capabilities, setCapabilities] = useState<Capability[]>(stored.capabilities ?? bot?.capabilities ?? [])
-  const [collaboratorIds, setCollaborators] = useState(stored.collaboratorIds ?? bot?.collaboratorIds ?? [])
-  const [hostIds, setHosts] = useState(stored.hostIds ?? bot?.hostIds ?? [])
-  const [hostGrants, setHostGrants] = useState(stored.hostGrants ?? bot?.hostGrants ?? [])
-  const [maxToolCalls, setMaxTools] = useState(stored.maxToolCalls ?? bot?.maxToolCalls ?? 12)
+  const [maxToolCalls, setMaxTools] = useState(stored.maxToolCalls ?? bot?.maxToolCalls ?? 32)
   const action = useAction(refresh)
   const [draftError, setDraftError] = useState(false)
   const [dirty, setDirty] = useState(Object.keys(stored).length > 0)
@@ -144,10 +133,6 @@ export function BotEditor({
           instructions,
           modelId,
           enabled,
-          capabilities,
-          collaboratorIds,
-          hostIds,
-          hostGrants,
           maxToolCalls,
           revision: baseRevision,
         }),
@@ -166,10 +151,6 @@ export function BotEditor({
     instructions,
     modelId,
     enabled,
-    capabilities,
-    collaboratorIds,
-    hostIds,
-    hostGrants,
     maxToolCalls,
     baseRevision,
     dirty,
@@ -200,10 +181,6 @@ export function BotEditor({
               setInstructions(bot.instructions)
               setModelId(bot.modelId ?? '')
               setEnabled(bot.enabled)
-              setCapabilities(bot.capabilities)
-              setCollaborators(bot.collaboratorIds)
-              setHosts(bot.hostIds)
-              setHostGrants(bot.hostGrants ?? [])
               setMaxTools(bot.maxToolCalls)
               setBaseRevision(bot.revision)
               setDirty(false)
@@ -231,10 +208,6 @@ export function BotEditor({
               modelId: modelId || null,
               enabled,
               runningTasks,
-              capabilities,
-              collaboratorIds,
-              hostIds,
-              hostGrants,
               maxToolCalls,
               ...(bot ? { revision: baseRevision } : {}),
             }
@@ -346,95 +319,12 @@ export function BotEditor({
               </Field>
             )}
           <details className="bot-editor-advanced">
-            <summary>能力、授权与预算</summary>
-            <div className="choice-list">
-              {(Object.keys(capabilityNames) as Capability[]).map((cap) => (
-                <Check
-                  key={cap}
-                  checked={capabilities.includes(cap)}
-                  onChange={(checked) =>
-                    setCapabilities((values) => (checked ? [...values, cap] : values.filter((v) => v !== cap)))
-                  }
-                >
-                  {capabilityNames[cap]}
-                  {snapshot.capabilities[cap]?.available === false && (
-                    <small className="muted">{snapshot.capabilities[cap].reason}</small>
-                  )}
-                </Check>
-              ))}
-            </div>
-            {capabilities.includes('collaborate') && (
-              <Field label="允许邀请的角色">
-                <div className="choice-list">
-                  {snapshot.bots
-                    .filter((b) => b.id !== bot?.id)
-                    .map((b) => (
-                      <Check
-                        key={b.id}
-                        checked={collaboratorIds.includes(b.id)}
-                        onChange={(checked) =>
-                          setCollaborators((values) =>
-                            checked ? [...values, b.id] : values.filter((id) => id !== b.id),
-                          )
-                        }
-                      >
-                        {b.name}
-                      </Check>
-                    ))}
-                </div>
-              </Field>
-            )}
-            {capabilities.includes('hosts') && (
-              <Field label="允许访问的整个 Host">
-                <div className="choice-list">
-                  {snapshot.hosts.map((h) => (
-                    <Check
-                      key={h.id}
-                      checked={hostIds.includes(h.id)}
-                      onChange={(checked) =>
-                        setHosts((values) => (checked ? [...values, h.id] : values.filter((id) => id !== h.id)))
-                      }
-                    >
-                      {h.name}
-                    </Check>
-                  ))}
-                </div>
-              </Field>
-            )}
-            {hostGrants.length > 0 && (
-              <Field label="已授权的 Host 项目">
-                <div className="host-project-grants">
-                  {hostGrants.map((grant) => (
-                    <div className="host-project-grant" key={`${grant.hostId}:${grant.projectId}`}>
-                      <span>
-                        {snapshot.hosts.find((host) => host.id === grant.hostId)?.name ?? grant.hostId} ·{' '}
-                        {grant.projectId}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          markDirty()
-                          setHostGrants((values) =>
-                            values.filter(
-                              (value) => value.hostId !== grant.hostId || value.projectId !== grant.projectId,
-                            ),
-                          )
-                        }}
-                      >
-                        移除
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </Field>
-            )}
+            <summary>任务预算</summary>
             <Field label="每次任务工具调用上限">
               <Input
                 type="number"
                 min={1}
-                max={32}
+                max={128}
                 value={maxToolCalls}
                 onChange={(e) => setMaxTools(Number(e.target.value))}
               />

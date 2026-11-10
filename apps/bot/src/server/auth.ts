@@ -56,6 +56,30 @@ async function verify(password: string, stored: string) {
   return expected.length === derived.length && timingSafeEqual(expected, derived)
 }
 
+export async function changeOwnerPassword(store: BotStore, input: Record<string, unknown>) {
+  const currentPassword = text(input.currentPassword, '当前密码', 256)
+  const password = text(input.password, '新密码', 256)
+  const verifiedState = store.read()
+  if (
+    password.length < 12 ||
+    !verifiedState.ownerPasswordHash ||
+    !(await verify(currentPassword, verifiedState.ownerPasswordHash))
+  )
+    throw new BotError(400, 'invalid-input', '当前密码不正确，或新密码不足12个字符')
+  const digest = await passwordHash(password)
+  await store.update((state) => {
+    if (
+      state.ownerPasswordHash !== verifiedState.ownerPasswordHash ||
+      state.credentialGeneration !== verifiedState.credentialGeneration
+    )
+      throw new BotError(409, 'revision-conflict', '访问凭据已改变，请重新登录')
+    state.ownerPasswordHash = digest
+    state.credentialGeneration++
+    state.sessions = {}
+  })
+  return { digest, generation: verifiedState.credentialGeneration + 1 }
+}
+
 export function registerAuth(app: BotApp, store: BotStore, publicOrigin?: string) {
   const failures = new Map<string, { count: number; until: number }>()
   const session = async (c: Context, expectedHash: string, expectedGeneration: number) => {
@@ -130,26 +154,7 @@ export function registerAuth(app: BotApp, store: BotStore, publicOrigin?: string
     checkOrigin(c, publicOrigin)
     if (authenticate(c, store)?.kind !== 'cookie') throw new BotError(403, 'forbidden', '请使用网页登录修改密码')
     const input = await c.req.json<Record<string, unknown>>()
-    const currentPassword = text(input.currentPassword, '当前密码', 256)
-    const password = text(input.password, '新密码', 256)
-    const verifiedState = store.read()
-    if (
-      password.length < 12 ||
-      !verifiedState.ownerPasswordHash ||
-      !(await verify(currentPassword, verifiedState.ownerPasswordHash))
-    )
-      throw new BotError(400, 'invalid-input', '当前密码不正确，或新密码不足12个字符')
-    const digest = await passwordHash(password)
-    await store.update((state) => {
-      if (
-        state.ownerPasswordHash !== verifiedState.ownerPasswordHash ||
-        state.credentialGeneration !== verifiedState.credentialGeneration
-      )
-        throw new BotError(409, 'revision-conflict', '访问凭据已改变，请重新登录')
-      state.ownerPasswordHash = digest
-      state.credentialGeneration++
-      state.sessions = {}
-    })
-    return session(c, digest, verifiedState.credentialGeneration + 1)
+    const changed = await changeOwnerPassword(store, input)
+    return session(c, changed.digest, changed.generation)
   })
 }

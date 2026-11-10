@@ -218,7 +218,7 @@ function ScheduleEditor({
   const [botId, setBot] = useState(initial.botId ?? '')
   const [prompt, setPrompt] = useState(schedule?.prompt ?? '')
   const [kind, setKind] = useState(schedule?.kind ?? 'once')
-  const [timezone, setTimezone] = useState(initial.timezone ?? new Intl.DateTimeFormat().resolvedOptions().timeZone)
+  const [timezone, setTimezone] = useState(initial.timezone ?? snapshot.settings.timezone)
   const [at, setAt] = useState(
     schedule?.at
       ? new Date(new Date(schedule.at).getTime() - new Date(schedule.at).getTimezoneOffset() * 60000)
@@ -260,7 +260,7 @@ function ScheduleEditor({
   return (
     <div onChange={changed}>
       <Form
-        submit="保存并授权此定时任务"
+        submit="保存"
         onCancel={() => {
           if (!dirty || confirm('放弃尚未保存的定时任务修改？')) close()
         }}
@@ -412,7 +412,6 @@ function ScheduleEditor({
           预览下次运行
         </Button>
         {preview && <p role="status">下次执行 {preview}</p>}
-        <p className="muted">授权仅适用于这条定时规则，可在列表暂停或删除。</p>
         <ErrorText error={previewError} />
       </Form>
     </div>

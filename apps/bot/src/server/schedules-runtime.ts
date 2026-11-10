@@ -13,8 +13,7 @@ export function validateScheduleTarget(state: AppState, schedule: Schedule) {
   const bot = state.bots[schedule.botId]
   if (!conversation || conversation.archived || !conversation.memberIds.includes(schedule.botId))
     throw new BotError(400, 'invalid-input', '请选择有效会话及其成员 Bot')
-  if (!bot?.enabled || (!schedule.executionGrant && !bot.capabilities.includes('schedules')))
-    throw new BotError(403, 'forbidden', '执行 Bot 未启用或未获定时安排授权')
+  if (!bot?.enabled) throw new BotError(403, 'forbidden', '执行 Bot 未启用')
   if (
     schedule.notification === 'qq' &&
     (conversation.kind !== 'qq' ||

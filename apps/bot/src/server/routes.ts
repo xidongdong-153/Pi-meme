@@ -6,7 +6,7 @@ import { streamSSE } from 'hono/streaming'
 import type { Context } from 'hono'
 import type { AppState, Snapshot, TaskResponse } from '../shared/types.js'
 import type { BotApp, BotServices } from './contracts.js'
-import { authenticate, hash } from './auth.js'
+import { authenticate, changeOwnerPassword, hash } from './auth.js'
 import { BotError, ids, requireItem, revision, text, touch } from './errors.js'
 import type { BotRuntime } from './runtime.js'
 import { activeTask } from './runtime.js'
@@ -21,7 +21,17 @@ import {
 } from './model-settings.js'
 import { imageMimeTypes, readableAttachment } from '../shared/attachment-types.js'
 import { checkModelSettings } from './model-check.js'
-import { conversationFields, createBot, createConversation, saveMemory } from './domain-mutations.js'
+import {
+  archiveConversation,
+  conversationFields,
+  createBot,
+  createConversation,
+  deleteBot,
+  saveMemory,
+  validateBotRemoval,
+  validateConversationArchive,
+} from './domain-mutations.js'
+import { assertTaskAuthorized } from './task-interactions.js'
 
 export function resource() {
   const now = new Date().toISOString()
@@ -82,7 +92,7 @@ export function snapshot(state: AppState): Snapshot {
     capabilities: {
       chat: {
         available: textAvailable,
-        reason: textAvailable ? undefined : '请配置并验证支持图片与工具调用的对话模型',
+        reason: textAvailable ? undefined : '请配置并验证支持工具调用的对话模型',
       },
       images: { available: imagesAvailable, reason: imagesAvailable ? undefined : '请配置图片模型及凭据' },
       web: {
@@ -91,7 +101,7 @@ export function snapshot(state: AppState): Snapshot {
       },
       hosts: {
         available: Object.values(state.hosts).some((host) => host.status === 'online'),
-        reason: '需要登记并检查可达Host',
+        reason: '提供 Pi meme 的 URL 和密钥即可连接',
       },
       qq: { available: state.qq.status === 'online', reason: state.qq.error ?? '需要官方机器人凭据和本人绑定' },
       schedules: { available: true },
@@ -246,6 +256,10 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
       const updated = botFields(input, state, old)
       touch(updated)
       state.bots[updated.id] = updated
+      if (!updated.enabled) fallbackDefaultAssistant(state, updated.id)
+      if (input.enabled === false && input.runningTasks === 'finish')
+        for (const task of Object.values(state.tasks))
+          if (task.botId === updated.id && activeTask(task)) task.finishOnDisable = true
       ensureBotConversation(state, updated.id)
       return updated
     })
@@ -270,48 +284,7 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
   )
   app.delete('/api/v1/bots/:id', async (c) => {
     const input = await body(c)
-    await store.update((state) => {
-      const bot = requireItem(state.bots[c.req.param('id')], 'Bot')
-      revision(bot, input.revision)
-      if (Object.values(state.tasks).some((task) => task.botId === bot.id && activeTask(task)))
-        throw new BotError(409, 'active-tasks', '请先停止该角色的任务')
-      if (
-        Object.values(state.conversations).some(
-          (conversation) =>
-            !conversation.archived &&
-            conversation.kind === 'group' &&
-            conversation.memberIds.includes(bot.id) &&
-            conversation.memberIds.filter((id) => id !== bot.id).length < 2,
-        )
-      )
-        throw new BotError(409, 'resource-in-use', '删除后群组成员将少于2名Bot，请先处理群组成员或归档群组')
-      if (
-        state.qq.defaultBotId === bot.id ||
-        Object.values(state.schedules).some((schedule) => schedule.botId === bot.id && schedule.enabled) ||
-        Object.values(state.conversations).some(
-          (conversation) =>
-            !conversation.archived && conversation.kind !== 'direct' && conversation.coordinatorId === bot.id,
-        )
-      )
-        throw new BotError(409, 'resource-in-use', '请先替换默认接待/协调者、暂停计划或归档关联会话')
-      delete state.bots[bot.id]
-      fallbackDefaultAssistant(state, bot.id)
-      for (const remaining of Object.values(state.bots))
-        if (remaining.collaboratorIds.includes(bot.id)) {
-          remaining.collaboratorIds = remaining.collaboratorIds.filter((id) => id !== bot.id)
-          touch(remaining)
-        }
-      for (const conversation of Object.values(state.conversations))
-        if (conversation.memberIds.includes(bot.id)) {
-          if (conversation.archived && conversation.kind === 'group') continue
-          if (conversation.kind === 'direct') conversation.archived = true
-          else {
-            conversation.memberIds = conversation.memberIds.filter((id) => id !== bot.id)
-            delete conversation.memberSince[bot.id]
-          }
-          touch(conversation)
-        }
-    })
+    await store.update((state) => deleteBot(state, c.req.param('id'), input.revision))
     return c.json({ deleted: true })
   })
 
@@ -362,16 +335,7 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
   })
   app.delete('/api/v1/conversations/:id', async (c) => {
     const input = await body(c)
-    await store.update((state) => {
-      const conversation = requireItem(state.conversations[c.req.param('id')])
-      revision(conversation, input.revision)
-      if (state.bots[conversation.coordinatorId]?.webConversationId === conversation.id)
-        throw new BotError(409, 'fixed-conversation', 'Bot 的固定私聊不可归档；停用 Bot 可保留聊天记录')
-      if (Object.values(state.tasks).some((task) => task.conversationId === conversation.id && activeTask(task)))
-        throw new BotError(409, 'active-tasks', '请先停止关联任务')
-      conversation.archived = true
-      touch(conversation)
-    })
+    await store.update((state) => archiveConversation(state, c.req.param('id'), input.revision))
     return c.json({ archived: true })
   })
   app.get('/api/v1/conversations/:id/messages', (c) => {
@@ -435,6 +399,34 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
       ),
     ),
   )
+  app.post('/api/v1/tasks/:id/completion-action', async (c) => {
+    const input = await body(c)
+    if (
+      Object.keys(input).some((key) => !['kind', 'revision'].includes(key)) ||
+      !['delete-bot', 'archive-conversation'].includes(String(input.kind))
+    )
+      throw new BotError(400, 'invalid-input', '回复后的配置操作无效')
+    const action = await store.update((state) => {
+      const task = requireItem(state.tasks[c.req.param('id')], '任务')
+      assertTaskAuthorized(state, task)
+      if (c.get('configurationTaskId') && c.get('configurationTaskId') !== task.id)
+        throw new BotError(403, 'forbidden', '配置操作须绑定发起任务')
+      if (task.completionAction) throw new BotError(409, 'conflict', '本轮已安排回复后的配置操作')
+      const target =
+        input.kind === 'delete-bot'
+          ? validateBotRemoval(state, task.botId, input.revision, task.id)
+          : validateConversationArchive(state, task.conversationId, input.revision, task.id)
+      task.completionAction = {
+        kind: input.kind as 'delete-bot' | 'archive-conversation',
+        targetId: target.id,
+        revision: target.revision,
+        status: 'pending',
+      }
+      touch(task)
+      return task.completionAction
+    })
+    return c.json({ action, applyAfterReply: true })
+  })
   app.post('/api/v1/tasks/:id/stop', async (c) => c.json(await services.stopTask(c.req.param('id'))))
   app.post('/api/v1/tasks/:id/responses', async (c) => {
     const requestId = hash(`${authenticate(c, store)!.id}:${c.req.path}:${c.req.header('Idempotency-Key')}`)
@@ -450,16 +442,42 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
 
   app.get('/api/v1/settings/models', (c) => c.json(modelSettingsView(store.read())))
   app.patch('/api/v1/settings/models', async (c) => c.json(await patchModelSettings(store, await body(c))))
-  app.post('/api/v1/settings/models/check', async (c) => c.json(await checkModelSettings(store, await body(c))))
+  app.post('/api/v1/settings/models/check', async (c) =>
+    c.json(await checkModelSettings(store, await body(c), c.req.raw.signal)),
+  )
   app.delete('/api/v1/models/:id', async (c) => {
     const input = await body(c)
     await deleteModel(store, c.req.param('id'), input.revision)
     return c.json({ deleted: true })
   })
+  app.post('/api/v1/settings/password', async (c) => {
+    await changeOwnerPassword(store, await body(c))
+    return c.json({ updated: true, signInRequired: true })
+  })
   app.get('/api/v1/settings', (c) => c.json(store.read().settings))
   app.patch('/api/v1/settings', async (c) => {
     const input = await body(c)
     const settings = await store.update((state) => {
+      if (
+        Object.keys(input).some(
+          (key) => !['theme', 'timezone', 'webEnabled', 'reducedMotion', 'allowedWebDomains'].includes(key),
+        )
+      )
+        throw new BotError(400, 'invalid-input', '设置字段无效')
+      if (input.theme !== undefined) {
+        if (!['system', 'light', 'dark'].includes(String(input.theme)))
+          throw new BotError(400, 'invalid-input', '主题须为跟随系统、浅色或深色')
+        state.settings.theme = input.theme as AppState['settings']['theme']
+      }
+      if (input.timezone !== undefined) {
+        const timezone = text(input.timezone, '时区', 100)
+        try {
+          new Intl.DateTimeFormat('zh-CN', { timeZone: timezone }).format()
+        } catch {
+          throw new BotError(400, 'invalid-input', '时区无效，请使用 IANA 时区名称')
+        }
+        state.settings.timezone = timezone
+      }
       for (const key of ['webEnabled', 'reducedMotion'] as const)
         if (input[key] !== undefined) {
           if (typeof input[key] !== 'boolean') throw new BotError(400, 'invalid-input', '设置值无效')
@@ -550,7 +568,8 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
 
   app.get('/api/v1/tokens', (c) => c.json({ items: snapshot(store.read()).tokens }))
   app.post('/api/v1/tokens', async (c) => {
-    if (authenticate(c, store)?.kind !== 'cookie') throw new BotError(403, 'forbidden', '请在Web中管理API凭据')
+    if (!c.get('configurationTaskId') && authenticate(c, store)?.kind !== 'cookie')
+      throw new BotError(403, 'forbidden', '请登录后管理 API 凭据')
     const input = await body(c)
     const raw = `pib_${randomBytes(32).toString('base64url')}`
     const token = await store.update((state) => {
@@ -571,7 +590,8 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
     return c.json({ ...token, token: raw }, 201)
   })
   app.delete('/api/v1/tokens/:id', async (c) => {
-    if (authenticate(c, store)?.kind !== 'cookie') throw new BotError(403, 'forbidden', '请在Web中撤销API凭据')
+    if (!c.get('configurationTaskId') && authenticate(c, store)?.kind !== 'cookie')
+      throw new BotError(403, 'forbidden', '请登录后撤销 API 凭据')
     await store.update((state) => {
       const token = requireItem(state.tokens[c.req.param('id')])
       token.revokedAt = new Date().toISOString()

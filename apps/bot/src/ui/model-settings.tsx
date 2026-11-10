@@ -31,7 +31,7 @@ function verificationLabel(model: ModelConfig) {
   if (model.kind === 'image') return '图片生成'
   return {
     unverified: '尚未验证',
-    verified: '图片与工具已验证',
+    verified: '已连接',
     unsupported: '能力不满足',
     failed: '验证失败',
     unknown: '结果待确认',
@@ -101,7 +101,7 @@ export function ModelSettingsPanel({
     await refresh()
     const checked = result.models.find((item) => item.id === model.id)
     if (checked?.verification?.status !== 'verified')
-      throw new Error(checked?.verification?.error ?? '模型尚未通过图片输入与工具调用验证。请检查配置后重试。')
+      throw new Error(checked?.verification?.error ?? '模型尚未通过工具调用验证。请检查配置后重试。')
     return result
   }
   function openEditor(next: NonNullable<typeof editor>) {
@@ -175,7 +175,7 @@ export function ModelSettingsPanel({
   return (
     <div className="model-settings">
       <div className="model-default-setting">
-        <Field label="默认对话模型" hint="所有跟随默认的 Bot 都使用此模型。需要支持文字、图片输入和工具调用。">
+        <Field label="默认对话模型" hint="所有跟随默认的 Bot 都使用此模型。需要支持文字、工具调用。">
           <Select value={defaultId || currentDefault?.id || ''} onChange={setDefaultId}>
             <option value="">选择对话模型</option>
             {dialogueModels.map((model) => (
@@ -384,7 +384,7 @@ export function ModelConnectionEditor({
         </Button>
       )}
       <Form
-        submit={onboarding ? '验证并开始' : connectionOnly || kind === 'image' ? '保存' : '保存并验证'}
+        submit={onboarding ? '连接并开机' : connectionOnly || kind === 'image' ? '保存' : '保存并验证'}
         onCancel={close ? leaveEditor : undefined}
         onSubmit={async () => {
           setError(undefined)
@@ -428,7 +428,7 @@ export function ModelConnectionEditor({
               setSavedSignature(signature)
             }
             if (!connectionOnly && kind === 'text') {
-              setPhase('验证图片输入与工具调用')
+              setPhase('检查模型连接')
               result = await request<ModelSettings>('/settings/models/check', {
                 method: 'POST',
                 body: { modelId: ids.model, revision: result.revision },
@@ -523,7 +523,7 @@ export function ModelConnectionEditor({
             {!connectionOnly && (
               <Field label="用途">
                 <Select value={kind} disabled={Boolean(model)} onChange={(value) => setKind(value as 'text' | 'image')}>
-                  <option value="text">对话（图片输入与工具调用）</option>
+                  <option value="text">对话</option>
                   <option value="image">图片生成</option>
                 </Select>
               </Field>
@@ -638,7 +638,7 @@ export function ModelOnboarding(props: PageProps) {
       <div className="model-onboarding-content">
         <BrandMark />
         <h1>连接你的对话模型</h1>
-        <p className="muted">支持文字、图片输入和工具调用。验证成功后即可与默认助理聊天。</p>
+        <p className="muted">连通模型后，其余配置交给 Bot。</p>
         <ModelConnectionEditor settings={settings} service={service} model={model} onboarding refresh={props.refresh} />
         <div className="model-onboarding-note">
           <CheckCircle2 size={15} />

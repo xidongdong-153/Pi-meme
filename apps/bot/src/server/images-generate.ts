@@ -112,9 +112,8 @@ export function createImageGenerator(services: BotServices, shutdown: AbortSigna
       throw new BotError(403, 'forbidden', '任务已停止或不属于来源会话')
     const botId = task?.botId ?? conversation.coordinatorId
     const bot = state.bots[botId]
-    if (!bot?.enabled || (!task && !bot.capabilities.includes('images')))
-      throw new BotError(403, 'forbidden', '该 Bot 未获图片生成授权')
-    if (task) assertTaskAuthorized(state, task, 'images')
+    if (!bot || (!bot.enabled && !task?.finishOnDisable)) throw new BotError(403, 'forbidden', '该 Bot 已停用')
+    if (task) assertTaskAuthorized(state, task)
     const receiptKey = input.taskId && input.toolCallId ? `image-tool:${input.taskId}:${input.toolCallId}` : undefined
     const previousId = receiptKey && state.inboundIds[receiptKey]
     if (previousId) return generationReceipt(requireItem(state.generations[previousId], '生图回执'), input)
@@ -131,8 +130,7 @@ export function createImageGenerator(services: BotServices, shutdown: AbortSigna
       const currentTask = input.taskId ? latest.tasks[input.taskId] : undefined
       const currentModel = latest.models[model.id]
       if (
-        !currentBot?.enabled ||
-        (!currentTask && !currentBot.capabilities.includes('images')) ||
+        (!currentBot?.enabled && !currentTask?.finishOnDisable) ||
         !currentConversation ||
         currentConversation.archived
       )
@@ -147,7 +145,7 @@ export function createImageGenerator(services: BotServices, shutdown: AbortSigna
         throw new BotError(403, 'forbidden', '任务已停止或不属于来源会话')
       if ((!currentTask || currentTask.publicReply) && !currentConversation.memberIds.includes(botId))
         throw new BotError(403, 'forbidden', 'Bot 已不在来源会话中')
-      if (currentTask) assertTaskAuthorized(latest, currentTask, 'images')
+      if (currentTask) assertTaskAuthorized(latest, currentTask)
       if (!currentModel || modelFingerprint(latest, currentModel) !== fingerprint)
         throw new BotError(409, 'revision-conflict', '图片模型配置已变化，请重新发起')
     }

@@ -75,16 +75,16 @@ export function resolveBotModel(state: AppState, botOrModelId: Bot | string | nu
       : (botOrModelId ?? state.modelSettings.defaultModelId)
   if (!modelId) throw new BotError(409, 'model-unavailable', '请先配置并验证默认对话模型')
   const raw = requireItem(state.models[modelId], '对话模型')
-  if (raw.kind !== 'text') throw new BotError(409, 'model-unavailable', '请选择支持图片与工具的对话模型')
+  if (raw.kind !== 'text') throw new BotError(409, 'model-unavailable', '请选择支持工具调用的对话模型')
   if (!modelIsVerified(state, raw))
-    throw new BotError(409, 'model-unverified', '请先验证模型的图片输入和工具调用能力', { modelId })
+    throw new BotError(409, 'model-unverified', '请先验证模型的工具调用能力', { modelId })
   const config = effectiveModel(state, raw)
   if (!config.credentialRef && !localAnonymousModel(config))
     throw new BotError(409, 'model-unavailable', '模型凭据尚未配置或已撤销', { modelId })
   return config
 }
 
-function modelView(state: AppState, model: ModelConfig): ModelConfig {
+export function modelView(state: AppState, model: ModelConfig): ModelConfig {
   const copy = effectiveModel(state, model)
   copy.hasCredential = !!copy.credentialRef
   delete copy.credentialRef
@@ -243,6 +243,10 @@ function setModel(state: AppState, value: Record<string, unknown>, old?: ModelCo
   if (value.contextWindow !== undefined)
     model.contextWindow = boundedInteger(value.contextWindow, '上下文长度', 2048, 10_000_000)
   if (value.maxTokens !== undefined) model.maxTokens = boundedInteger(value.maxTokens, '输出上限', 128, 1_000_000)
+  if (value.reasoning !== undefined) {
+    if (typeof value.reasoning !== 'boolean') throw new BotError(400, 'invalid-input', '推理开关须为布尔值')
+    model.reasoning = value.reasoning
+  }
   Object.assign(model, modelMetadata(model))
   if (model.maxTokens! >= model.contextWindow!) throw new BotError(400, 'invalid-input', '输出上限须小于上下文长度')
   if (old) touch(model)
@@ -259,15 +263,21 @@ function refs(state: AppState) {
       ...Object.values(state.models).map((model) => model.credentialRef),
       ...Object.values(state.hosts).map((host) => host.credentialRef),
       state.qq.credentialRef,
+      ...Object.values(state.tasks)
+        .filter((task) => ['queued', 'running', 'waiting', 'stopping'].includes(task.status))
+        .map((task) => task.modelConfig?.credentialRef),
     ].filter((ref): ref is string => !!ref),
   )
+}
+
+export async function releaseModelCredential(store: BotStore, ref: string | undefined) {
+  if (ref && !refs(store.read()).has(ref)) await store.deleteSecret(ref)
 }
 function activateDefault(state: AppState) {
   if (state.modelSettings.initialized) return
   if (!state.modelSettings.defaultModelId) return
   const model = requireItem(state.models[state.modelSettings.defaultModelId], '默认模型')
-  if (!modelIsVerified(state, model))
-    throw new BotError(409, 'model-unverified', '请先验证默认模型的图片输入与工具调用能力')
+  if (!modelIsVerified(state, model)) throw new BotError(409, 'model-unverified', '请先验证默认模型的工具调用能力')
   const existing = Object.values(state.bots).sort(
     (a, b) =>
       Number(b.enabled) - Number(a.enabled) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
@@ -283,13 +293,10 @@ function activateDefault(state: AppState) {
     name: '默认助理',
     avatar: '🤖',
     description: '',
-    instructions: '你是用户的个人助理。清晰、可靠地回答问题；需要更多信息时询问用户，执行重要操作前先确认。',
+    instructions: '你是用户的个人助理。通过对话帮用户完成工作并管理 Bot 配置，遇到缺少的信息时提出具体问题。',
     modelId: null,
     enabled: true,
-    capabilities: [],
-    collaboratorIds: [],
-    hostIds: [],
-    maxToolCalls: 12,
+    maxToolCalls: 32,
   }
   state.bots[bot.id] = bot
   ensureBotConversation(state, bot.id)
@@ -298,26 +305,43 @@ function activateDefault(state: AppState) {
 }
 
 export async function patchModelSettings(store: BotStore, input: Record<string, unknown>): Promise<ModelSettings> {
+  if (
+    Object.keys(input).some(
+      (key) =>
+        !['revision', 'services', 'models', 'defaultModelId', 'defaultAssistantId', 'removedServiceIds'].includes(key),
+    )
+  )
+    throw new BotError(400, 'invalid-input', '模型设置字段无效')
   const serviceInputs = entries(input.services, '服务')
   const modelInputs = entries(input.models, '模型')
-  const legacy =
-    input.services === undefined &&
-    input.defaultModelId === undefined &&
-    input.defaultAssistantId === undefined &&
-    input.removedServiceIds === undefined &&
-    input.revision === undefined &&
-    modelInputs.length > 0
+  for (const value of serviceInputs)
+    if (
+      Object.keys(value).some(
+        (key) => !['id', 'revision', 'name', 'provider', 'protocol', 'baseUrl', 'apiKey'].includes(key),
+      )
+    )
+      throw new BotError(400, 'invalid-input', '模型服务字段无效')
+  for (const value of modelInputs)
+    if (
+      Object.keys(value).some(
+        (key) =>
+          !['id', 'revision', 'serviceId', 'name', 'kind', 'model', 'contextWindow', 'maxTokens', 'reasoning'].includes(
+            key,
+          ),
+      )
+    )
+      throw new BotError(400, 'invalid-input', '模型字段无效，请通过 services 配置连接')
   const secretWrites = new Map<Record<string, unknown>, string>()
   let committed = false
   let oldRefs: Set<string> = new Set()
   try {
-    for (const value of [...serviceInputs, ...modelInputs])
+    for (const value of serviceInputs)
       if (value.apiKey !== undefined) {
         const apiKey = text(value.apiKey, 'API key', 8000, true)
         if (apiKey) secretWrites.set(value, await store.writeSecret(apiKey))
       }
     await store.update((state) => {
-      if (!legacy) revision(state.modelSettings, input.revision)
+      revision(state.modelSettings, input.revision)
       oldRefs = refs(state)
       const before = new Map(Object.values(state.models).map((model) => [model.id, modelFingerprint(state, model)]))
       const seenServices = new Set<string>()
@@ -340,26 +364,8 @@ export async function patchModelSettings(store: BotStore, input: Record<string, 
         seenModels.add(id)
         const old = state.models[id]
         if (!old && value.revision !== undefined) throw new BotError(404, 'not-found', '模型已不存在')
-        if (old && (legacy || value.revision !== undefined)) revision(old, value.revision)
-        const oldService = old?.serviceId ? state.modelServices[old.serviceId] : undefined
-        const legacyConnection =
-          value.apiKey !== undefined ||
-          (value.provider !== undefined && value.provider !== oldService?.provider) ||
-          (value.baseUrl !== undefined && String(value.baseUrl).replace(/\/+$/, '') !== oldService?.baseUrl) ||
-          (value.protocol !== undefined && value.protocol !== oldService?.protocol)
-        let serviceId = value.serviceId ?? old?.serviceId
-        if (legacyConnection || !serviceId) {
-          if (oldService && Object.values(state.models).filter((model) => model.serviceId === oldService.id).length > 1)
-            throw new BotError(409, 'shared-model-service', '该连接由多个模型共享，请通过services修改服务连接', {
-              serviceId: oldService.id,
-            })
-          const service = serviceFields({ ...value, id: oldService?.id }, oldService)
-          if (value.apiKey !== undefined) service.credentialRef = secretWrites.get(value)
-          if (oldService) touch(service)
-          state.modelServices[service.id] = service
-          serviceId = service.id
-        }
-        setModel(state, { ...value, id, serviceId }, old)
+        if (old && value.revision !== undefined) revision(old, value.revision)
+        setModel(state, { ...value, id }, old)
       }
       if (Object.keys(state.models).length > 100 || Object.keys(state.modelServices).length > 100)
         throw new BotError(409, 'limit-exceeded', '最多100个模型或服务')
@@ -389,16 +395,18 @@ export async function patchModelSettings(store: BotStore, input: Record<string, 
         } else {
           const model = requireItem(state.models[text(input.defaultModelId, '默认模型', 128)], '默认模型')
           if (model.kind !== 'text' || !modelIsVerified(state, model))
-            throw new BotError(409, 'model-unverified', '请先验证默认模型的图片输入与工具调用能力')
+            throw new BotError(409, 'model-unverified', '请先验证默认模型的工具调用能力')
           state.modelSettings.defaultModelId = model.id
         }
       }
       activateDefault(state)
       if (input.defaultAssistantId !== undefined) {
-        state.modelSettings.defaultAssistantId =
+        const assistant =
           input.defaultAssistantId === null
-            ? null
-            : requireItem(state.bots[text(input.defaultAssistantId, '默认助理', 128)], '默认助理').id
+            ? undefined
+            : requireItem(state.bots[text(input.defaultAssistantId, '默认助理', 128)], '默认助理')
+        if (assistant && !assistant.enabled) throw new BotError(400, 'invalid-input', '请选择已启用的默认助理')
+        state.modelSettings.defaultAssistantId = assistant?.id ?? null
       }
       state.modelSettings.revision++
     })
@@ -421,6 +429,12 @@ export async function deleteModel(store: BotStore, id: string, expected: unknown
     if (state.modelSettings.defaultModelId === id) throw new BotError(409, 'resource-in-use', '请先更换默认模型')
     if (Object.values(state.bots).some((bot) => bot.modelId === id))
       throw new BotError(409, 'resource-in-use', '请先为关联Bot更换模型')
+    if (
+      Object.values(state.tasks).some(
+        (task) => task.modelConfig?.id === id && ['queued', 'running', 'waiting', 'stopping'].includes(task.status),
+      )
+    )
+      throw new BotError(409, 'active-tasks', '请等待使用此模型的任务结束后再删除')
     delete state.models[id]
     state.modelSettings.revision++
   })

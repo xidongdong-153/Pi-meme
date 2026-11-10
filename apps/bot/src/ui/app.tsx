@@ -54,7 +54,8 @@ export function App() {
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)')
     const apply = () => {
-      const preference = localStorage.getItem('bots.theme.v1')
+      const preference = snapshot?.settings.theme ?? localStorage.getItem('bots.theme.v1')
+      if (snapshot?.settings.theme) localStorage.setItem('bots.theme.v1', snapshot.settings.theme)
       document.documentElement.dataset.theme =
         preference === 'light' || preference === 'dark' ? preference : media.matches ? 'dark' : 'light'
     }
@@ -67,7 +68,7 @@ export function App() {
       window.removeEventListener('bots:theme', apply)
       window.removeEventListener('storage', apply)
     }
-  }, [])
+  }, [snapshot?.settings.theme])
   const initialCursor = useRef('')
   const refreshRef = useRef<Promise<void> | null>(null)
   const refreshQueued = useRef(false)
@@ -173,7 +174,7 @@ export function App() {
   const previousInitialized = useRef<boolean | undefined>(undefined)
   useEffect(() => {
     if (!snapshot) return
-    const activated = previousInitialized.current === false && snapshot.modelSettings.initialized
+    const activated = previousInitialized.current !== true && snapshot.modelSettings.initialized
     previousInitialized.current = snapshot.modelSettings.initialized
     if (!activated || location.id) return
     const assistant = snapshot.bots.find((bot) => bot.id === snapshot.modelSettings.defaultAssistantId)

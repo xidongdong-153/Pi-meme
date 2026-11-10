@@ -1,10 +1,11 @@
-import { createHash, randomUUID } from 'node:crypto'
-import type { AppState, Bot, Conversation, Memory, Schedule, Task, TaskProposal } from '../shared/types.js'
+import { randomUUID } from 'node:crypto'
+import type { AppState, Bot, Conversation, Memory, Schedule, Task } from '../shared/types.js'
 import { botFields } from './bot-fields.js'
 import { ensureBotConversation } from './bot-conversations.js'
 import { BotError, ids, requireItem, revision, text, touch } from './errors.js'
 import { validateScheduleTarget } from './schedules-runtime.js'
 import { nextOccurrence, validateRule } from './schedules-time.js'
+import { fallbackDefaultAssistant } from './model-settings.js'
 
 function resource() {
   const now = new Date().toISOString()
@@ -17,6 +18,99 @@ export function createBot(state: AppState, input: Record<string, unknown>): Bot 
   state.bots[bot.id] = bot
   ensureBotConversation(state, bot.id)
   return bot
+}
+
+export function validateBotRemoval(state: AppState, id: string, expected: unknown, completingTaskId?: string): Bot {
+  const bot = requireItem(state.bots[id], 'Bot')
+  revision(bot, expected)
+  if (
+    Object.values(state.tasks).some(
+      (task) =>
+        task.botId === id &&
+        task.id !== completingTaskId &&
+        ['queued', 'running', 'waiting', 'stopping'].includes(task.status),
+    )
+  )
+    throw new BotError(409, 'active-tasks', '请先结束该 Bot 的其他任务')
+  if (
+    Object.values(state.conversations).some(
+      (conversation) =>
+        !conversation.archived &&
+        conversation.kind === 'group' &&
+        conversation.memberIds.includes(id) &&
+        conversation.memberIds.filter((member) => member !== id).length < 2,
+    )
+  )
+    throw new BotError(409, 'resource-in-use', '请先调整成员不足两名的群组，或归档该群组')
+  if (
+    state.qq.defaultBotId === id ||
+    Object.values(state.schedules).some((schedule) => schedule.botId === id && schedule.enabled) ||
+    Object.values(state.conversations).some(
+      (conversation) => !conversation.archived && conversation.kind !== 'direct' && conversation.coordinatorId === id,
+    )
+  )
+    throw new BotError(409, 'resource-in-use', '请先替换默认接待和协调者，或暂停关联的定时任务')
+  return bot
+}
+
+export function deleteBot(state: AppState, id: string, expected: unknown) {
+  const bot = validateBotRemoval(state, id, expected)
+  delete state.bots[id]
+  fallbackDefaultAssistant(state, id)
+  for (const conversation of Object.values(state.conversations)) {
+    if (!conversation.memberIds.includes(bot.id) || (conversation.archived && conversation.kind === 'group')) continue
+    if (conversation.kind === 'direct') conversation.archived = true
+    else {
+      conversation.memberIds = conversation.memberIds.filter((member) => member !== id)
+      delete conversation.memberSince[id]
+    }
+    touch(conversation)
+  }
+}
+
+export function validateConversationArchive(
+  state: AppState,
+  id: string,
+  expected: unknown,
+  completingTaskId?: string,
+): Conversation {
+  const conversation = requireItem(state.conversations[id], '会话')
+  revision(conversation, expected)
+  if (state.bots[conversation.coordinatorId]?.webConversationId === id)
+    throw new BotError(409, 'fixed-conversation', '固定私聊随 Bot 管理，请停用或删除对应 Bot')
+  if (
+    Object.values(state.tasks).some(
+      (task) =>
+        task.conversationId === id &&
+        task.id !== completingTaskId &&
+        ['queued', 'running', 'waiting', 'stopping'].includes(task.status),
+    )
+  )
+    throw new BotError(409, 'active-tasks', '请先结束该会话的其他任务')
+  return conversation
+}
+
+export function archiveConversation(state: AppState, id: string, expected: unknown) {
+  const conversation = validateConversationArchive(state, id, expected)
+  conversation.archived = true
+  touch(conversation)
+}
+
+export function completeConfigurationAction(state: AppState, task: Task) {
+  const action = task.completionAction
+  if (!action || action.status !== 'pending') return
+  if (task.status !== 'completed' || task.stopRequested) {
+    action.status = 'cancelled'
+    return
+  }
+  try {
+    if (action.kind === 'delete-bot') deleteBot(state, action.targetId, action.revision)
+    else archiveConversation(state, action.targetId, action.revision)
+    action.status = 'completed'
+  } catch (cause) {
+    action.status = 'failed'
+    action.error = cause instanceof BotError ? cause.message : '回复后的配置更改未完成'
+  }
 }
 
 export function conversationFields(
@@ -142,83 +236,4 @@ export function createSchedule(state: AppState, input: Record<string, unknown>):
   if (Object.keys(state.schedules).length >= 500) throw new BotError(409, 'limit-exceeded', '最多保存 500 个定时任务')
   state.schedules[schedule.id] = schedule
   return schedule
-}
-
-function allowFields(value: Record<string, unknown>, keys: string[]) {
-  if (Object.keys(value).some((key) => !keys.includes(key)))
-    throw new BotError(400, 'invalid-input', '草稿包含不支持的字段，请重新提出')
-}
-
-export function applyTaskProposal(
-  state: AppState,
-  proposal: TaskProposal,
-  taskId: string,
-  interactionId: string,
-): unknown {
-  const task: Task = requireItem(state.tasks[taskId], '任务')
-  const interaction = requireItem(
-    task.interactions?.find((item) => item.id === interactionId),
-    '确认请求',
-  )
-  if (
-    interaction.taskId !== taskId ||
-    interaction.kind !== 'proposal' ||
-    interaction.status !== 'answered' ||
-    interaction.response?.decision !== 'approve' ||
-    JSON.stringify(interaction.proposal) !== JSON.stringify(proposal)
-  )
-    throw new BotError(409, 'interaction-conflict', '此草稿尚未确认或内容已经变化')
-  const operationId = `proposal:${taskId}:${interactionId}`
-  const hash = createHash('sha256').update(JSON.stringify(proposal)).digest('hex')
-  const receipt = state.operations[operationId]
-  if (receipt) {
-    if (receipt.hash !== hash) throw new BotError(409, 'idempotency-conflict', '草稿确认内容不一致')
-    return receipt.result
-  }
-  const bot = requireItem(state.bots[task.botId], 'Bot')
-  const conversation = requireItem(state.conversations[task.conversationId], '会话')
-  if (!bot.enabled || !conversation.memberIds.includes(bot.id) || !['running', 'waiting'].includes(task.status))
-    throw new BotError(409, 'task-unavailable', '任务已经停止或执行权限已变化')
-  const value = proposal.value
-  let result: unknown
-  switch (proposal.kind) {
-    case 'create-bot':
-      allowFields(value, ['name', 'description', 'instructions', 'modelId'])
-      result = createBot(state, value)
-      break
-    case 'create-group':
-      allowFields(value, ['name', 'memberIds', 'coordinatorId', 'collaborationEnabled'])
-      result = createConversation(state, { ...value, kind: 'group' })
-      break
-    case 'create-schedule':
-      allowFields(value, [
-        'name',
-        'botId',
-        'prompt',
-        'enabled',
-        'kind',
-        'timezone',
-        'at',
-        'time',
-        'weekdays',
-        'notification',
-      ])
-      result = createSchedule(state, { ...value, conversationId: conversation.id, botId: value.botId ?? bot.id })
-      break
-    case 'remember': {
-      allowFields(value, ['scope', 'targetId', 'title', 'content'])
-      const scope = value.scope ?? (conversation.kind === 'group' ? 'conversation' : 'bot')
-      result = saveMemory(state, {
-        ...value,
-        scope,
-        targetId: value.targetId ?? (scope === 'bot' ? bot.id : conversation.id),
-        sourceMessageId: task.sourceMessageId,
-      })
-      break
-    }
-    default:
-      throw new BotError(400, 'invalid-input', '草稿类型无效')
-  }
-  state.operations[operationId] = { hash, result, createdAt: new Date().toISOString() }
-  return result
 }

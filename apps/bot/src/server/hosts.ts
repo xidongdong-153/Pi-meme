@@ -6,7 +6,6 @@ import type { InteractionAnswer, SubmissionReceipt } from '@pi-meme/contracts/ap
 import type { BotApp, BotServices, HostAdapter } from './contracts.js'
 import type { HostConnection, Task } from '../shared/types.js'
 import { BotError, requireItem } from './errors.js'
-import { collaborationAllowed, hostAllowed } from './task-interactions.js'
 
 const active = new Set(['queued', 'running', 'waiting', 'stopping'])
 function text(value: unknown, label: string, max = 200): string {
@@ -17,9 +16,9 @@ function text(value: unknown, label: string, max = 200): string {
 function address(value: unknown): string {
   let url: URL
   try {
-    url = new URL(text(value, 'Host 地址', 2048))
+    url = new URL(text(value, 'Pi meme URL', 2048))
   } catch {
-    throw new BotError(400, 'invalid-input', 'Host 地址不是有效的 HTTP(S) URL')
+    throw new BotError(400, 'invalid-input', 'Pi meme URL不是有效的 HTTP(S) URL')
   }
   if (
     url.username ||
@@ -29,8 +28,8 @@ function address(value: unknown): string {
     (url.protocol !== 'https:' &&
       !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))
   )
-    throw new BotError(400, 'invalid-input', '远程 Host 使用 HTTPS，本机回环可使用 HTTP；地址不可含账号、查询或片段')
-  if (url.pathname !== '/') throw new BotError(400, 'invalid-input', 'Host 地址必须是服务根地址')
+    throw new BotError(400, 'invalid-input', '远程 Pi meme 使用 HTTPS，本机回环可使用 HTTP；地址不可含账号、查询或片段')
+  if (url.pathname !== '/') throw new BotError(400, 'invalid-input', 'Pi meme URL必须是服务根地址')
   return url.origin
 }
 function publicHost(host: HostConnection) {
@@ -45,11 +44,6 @@ function touch<T extends { revision: number; updatedAt: string }>(value: T): T {
 function revision(input: unknown, actual: number) {
   if (!Number.isInteger(input) || !Number.isInteger(actual) || input !== actual)
     throw new BotError(409, 'revision-conflict', '配置已修改，请重新读取', { revision: actual })
-}
-function ids(value: unknown): string[] {
-  if (!Array.isArray(value) || value.length > 500 || value.some((v) => typeof v !== 'string' || !v || v.length > 200))
-    throw new BotError(400, 'invalid-input', 'projectIds 必须是项目 ID 数组')
-  return [...new Set(value)]
 }
 function pause(signal?: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
@@ -81,7 +75,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
   const clients = new Map<string, { revision: number; value: NodeHostClient }>()
   let closed = false
   const hostFor = (id: string) => {
-    return requireItem(store.read().hosts[id], 'Host')
+    return requireItem(store.read().hosts[id], 'Pi meme')
   }
   const taskFor = (id: string) => {
     return requireItem(store.read().tasks[id], '任务')
@@ -91,15 +85,15 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
     clients.delete(id)
   }
   async function clientFor(id: string, checkConnection = false): Promise<NodeHostClient> {
-    if (closed) throw new BotError(503, 'upstream-unavailable', 'Host 适配器已关闭')
+    if (closed) throw new BotError(503, 'upstream-unavailable', 'Pi meme 连接已关闭')
     const host = hostFor(id)
     if (host.status === 'identity-changed')
-      throw new BotError(409, 'host-identity-changed', 'Host 身份发生变化，请移除后重新登记并授权')
+      throw new BotError(409, 'host-identity-changed', 'Pi meme 身份发生变化，请移除后重新连接')
     const cached = clients.get(id)
     if (cached?.revision === host.revision && host.status === 'online' && !checkConnection) return cached.value
     if (cached?.revision !== host.revision) invalidate(id)
     const token = await store.secret(host.credentialRef)
-    if (!token) throw new BotError(409, 'capability-unavailable', '尚未配置 Host 凭据')
+    if (!token) throw new BotError(409, 'capability-unavailable', '尚未配置 Pi meme 密钥')
     let identity: string | undefined
     let expectedHostId = host.expectedHostId
     try {
@@ -120,7 +114,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
                   (expectedHostId && current.expectedHostId !== expectedHostId) ||
                   current.status === 'identity-changed'
                 )
-                  throw new BotError(403, 'forbidden', 'Host 连接配置已改变，请重新检查连接')
+                  throw new BotError(403, 'forbidden', 'Pi meme 连接配置已改变，请重新检查连接')
                 return fetch(url, { ...init, signal: init?.signal ?? AbortSignal.timeout(30000) })
               },
             })
@@ -131,13 +125,13 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
         if (!current || current.url !== host.url || current.credentialRef !== host.credentialRef)
           throw new BotError(409, 'revision-conflict', '连接配置已变化')
         if (current.expectedHostId && current.expectedHostId !== identity)
-          throw new BotError(409, 'host-identity-changed', 'Host 身份发生变化')
+          throw new BotError(409, 'host-identity-changed', 'Pi meme 身份发生变化')
         current.expectedHostId = identity
         current.status = 'online'
         current.error = undefined
         current.checkedAt = new Date().toISOString()
         current.capabilities = capabilities.features
-        // 连接观测单独更新 checkedAt，配置与授权编辑才推进 revision。
+        // 连接观测单独更新 checkedAt，配置编辑才推进 revision。
         current.updatedAt = current.checkedAt
         return current
       })
@@ -150,7 +144,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
         const current = draft.hosts[id]
         if (current && current.url === host.url && current.credentialRef === host.credentialRef) {
           current.status = changed ? 'identity-changed' : 'offline'
-          current.error = changed ? 'Host 身份发生变化，已阻断' : '连接或认证失败，请核对地址、凭据和网络'
+          current.error = changed ? 'Pi meme 身份发生变化，已阻断' : '连接或认证失败，请核对地址、凭据和网络'
           current.checkedAt = new Date().toISOString()
           current.updatedAt = current.checkedAt
         }
@@ -158,11 +152,11 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
       throw new BotError(
         502,
         changed ? 'host-identity-changed' : 'upstream-unavailable',
-        changed ? 'Host 身份发生变化，已阻断连接' : 'Host 连接或认证失败',
+        changed ? 'Pi meme 身份发生变化，已阻断连接' : 'Pi meme 连接或认证失败',
       )
     }
   }
-  function authorize(taskId: string, hostId: string, projectId: string, allowFinished = false) {
+  function authorize(taskId: string, hostId: string, _projectId: string, allowFinished = false) {
     const state = store.read()
     const task = state.tasks[taskId]
     const bot = task && state.bots[task.botId]
@@ -180,18 +174,21 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
         !parent ||
         parent.stopRequested ||
         (!allowFinished && !active.has(parent.status)) ||
-        !parentBot?.enabled ||
-        (parent.botId !== memberTask.botId && !collaborationAllowed(state, parent, memberTask.botId))
+        (!parentBot?.enabled && !parent.finishOnDisable)
       )
         throw new BotError(403, 'forbidden', '后台协作授权已失效')
       memberTask = parent
     }
     if (!memberTask || !conversation.memberIds.includes(memberTask.botId))
       throw new BotError(403, 'forbidden', '来源角色已被移除')
-    if (!task || !bot?.enabled || task.stopRequested || (!allowFinished && !active.has(task.status)))
+    if (
+      !task ||
+      !bot ||
+      (!bot.enabled && !task.finishOnDisable) ||
+      task.stopRequested ||
+      (!allowFinished && !active.has(task.status))
+    )
       throw new BotError(403, 'forbidden', '任务或角色已停用')
-    if (!hostAllowed(state, task, hostId, projectId) || !host.projectIds.includes(projectId))
-      throw new BotError(403, 'forbidden', '当前 Bot 未获该 Host 或项目授权')
     return { task, host }
   }
   const adapter: HostAdapter = {
@@ -204,7 +201,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
       await store.update((draft) => {
         const key = `host-input:${input.taskId}`
         if (draft.inboundIds[key] && draft.inboundIds[key] !== fingerprint)
-          throw new BotError(409, 'idempotency-conflict', '同一 Host 委派任务不能更改输入，请建立新委派')
+          throw new BotError(409, 'idempotency-conflict', '同一 Pi meme 委派任务不能更改输入，请建立新委派')
         draft.inboundIds[key] = fingerprint
         draft.inboundIds[`host-prompt:${input.taskId}`] = prompt
       })
@@ -219,10 +216,10 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
             current.credentialRef !== host.credentialRef ||
             current.expectedHostId !== host.expectedHostId
           )
-            throw new BotError(403, 'forbidden', 'Host 连接配置已改变')
+            throw new BotError(403, 'forbidden', 'Pi meme 连接配置已改变')
         } catch (cause) {
           if (taskFor(input.taskId).hostDelegation?.operationId)
-            throw new BotError(409, 'outcome-unknown', '后续 Host 调用已停止，远端已有操作请通过回执核对')
+            throw new BotError(409, 'outcome-unknown', '后续 Pi meme 调用已停止，远端已有操作请通过回执核对')
           throw cause
         }
       }
@@ -233,9 +230,9 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
       if (input.sessionId && delegation?.sessionId && input.sessionId !== delegation.sessionId)
         throw new BotError(409, 'idempotency-conflict', '同一委派不能更改远端会话')
       if (delegation && (delegation.hostId !== input.hostId || delegation.projectId !== input.projectId))
-        throw new BotError(409, 'conflict', '该任务已关联另一项 Host 委派，请创建新任务')
+        throw new BotError(409, 'conflict', '该任务已关联另一项 Pi meme 委派，请创建新任务')
       if (delegation && !delegation.operationId && delegation.status !== 'prepared')
-        throw new BotError(409, 'outcome-unknown', '上次 Host 操作结果未确认，禁止自动重放')
+        throw new BotError(409, 'outcome-unknown', '上次 Pi meme 操作结果未确认，禁止自动重放')
       if (!delegation) {
         delegation = {
           hostId: input.hostId,
@@ -264,14 +261,14 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
           if (input.sessionId) {
             checkCurrent()
             session = await client.sessions.get({ hostId: project.hostId, sessionId: input.sessionId })
-            if (session.project?.projectId !== input.projectId || session.configuration.accessMode === 'full-access')
-              throw new BotError(403, 'forbidden', '目标会话不属于授权项目或权限高于工作区修改')
+            if (session.project?.projectId !== input.projectId)
+              throw new BotError(403, 'forbidden', '目标会话不属于该项目')
           } else {
             checkCurrent()
             session = await client.sessions.create(
               {
                 project,
-                configuration: { accessMode: 'workspace-write', mode: 'default' },
+                configuration: { accessMode: 'full-access', mode: 'default' },
                 name: `Bots · ${taskFor(input.taskId).config.name}`,
               },
               { idempotencyKey: `${delegation.idempotencyKey}-session` },
@@ -317,7 +314,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
         checkCurrent()
         const current = taskFor(input.taskId).hostDelegation!
         if (!current.operationId || !current.sessionId)
-          throw new BotError(409, 'outcome-unknown', 'Host 尚未返回稳定回执')
+          throw new BotError(409, 'outcome-unknown', 'Pi meme 尚未返回稳定回执')
         const receipt = await client.sessions.receipt(current.operationId)
         checkCurrent()
         await saveReceipt(input.taskId, receipt)
@@ -331,7 +328,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
             checkCurrent()
             const boundary = await client.sessions.messages(receipt.session, { offset: baseline.count - 1, limit: 1 })
             if (boundary.messages[0]?.id !== baseline.entryId)
-              throw new BotError(409, 'outcome-unknown', 'Host 消息分支已变化，请在正式会话核对结果')
+              throw new BotError(409, 'outcome-unknown', 'Pi meme 消息分支已变化，请在正式会话核对结果')
           }
           const messages = []
           let offset = baseline.count
@@ -342,20 +339,20 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
             if (page.nextOffset === undefined) break
             offset = page.nextOffset
             if (messages.length > 2000)
-              throw new BotError(409, 'outcome-unknown', '本次结果过长，请在 Host 正式会话查看')
+              throw new BotError(409, 'outcome-unknown', '本次结果过长，请在 Pi meme 正式会话查看')
           }
           const inputs = messages.filter((message) => message.role === 'user')
           if (inputs.length !== 1 || inputs[0].text.trim() !== prompt)
             throw new BotError(
               409,
               'outcome-unknown',
-              '提交边界后存在其他输入或正文不匹配，无法确定本次结果；请在 Host 核对',
+              '提交边界后存在其他输入或正文不匹配，无法确定本次结果；请在 Pi meme 核对',
             )
           const answer = messages
             .filter((message) => message.role === 'assistant' && message.state === 'complete')
             .map((message) => message.text)
             .join('\n\n')
-          const result = answer || 'Host 已完成任务；正式会话中没有可读取的文本结果。'
+          const result = answer || 'Pi meme 已完成任务；正式会话中没有可读取的文本结果。'
           checkCurrent()
           await store.update((draft) => {
             draft.tasks[input.taskId].hostDelegation!.result = result
@@ -367,7 +364,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
           throw new BotError(
             409,
             receipt.outcomeUncertain ? 'outcome-unknown' : 'upstream-failed',
-            receipt.error || `Host 任务${receipt.status}`,
+            receipt.error || `Pi meme 任务${receipt.status}`,
           )
         if (current.cursor) {
           checkCurrent()
@@ -387,7 +384,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
           })
         await pause(signal)
       }
-      throw new BotError(504, 'outcome-unknown', 'Host 任务仍未确认完成，请通过回执核对，不会自动重新提交')
+      throw new BotError(504, 'outcome-unknown', 'Pi meme 任务仍未确认完成，请通过回执核对，不会自动重新提交')
     },
     async stop(task) {
       const d = task.hostDelegation
@@ -438,60 +435,65 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
   }
   app.get('/api/v1/hosts', (c) => c.json(Object.values(store.read().hosts).map(publicHost)))
   app.get('/api/v1/hosts/:id', (c) => c.json(publicHost(hostFor(c.req.param('id')))))
-  app.post('/api/v1/hosts', async (c) => {
-    const input = await readInput(c.req)
-    const name = text(input.name, '连接名称', 80)
-    const url = address(input.url)
-    const projectIds = ids(input.projectIds ?? [])
-    const credentialRef = input.token ? await store.writeSecret(text(input.token, '凭据', 8192)) : undefined
-    const now = new Date().toISOString()
-    const host: HostConnection = {
-      id: randomUUID(),
-      revision: 1,
-      createdAt: now,
-      updatedAt: now,
-      name,
-      url,
-      credentialRef,
-      projectIds,
-      status: 'unchecked',
+  async function saveConnection(input: Record<string, unknown>, id?: string) {
+    if (Object.keys(input).some((key) => !['url', 'token', 'name', 'revision'].includes(key)))
+      throw new BotError(400, 'invalid-input', '连接字段无效')
+    const old = id ? hostFor(id) : undefined
+    if (old) revision(input.revision, old.revision)
+    const url = address(input.url ?? old?.url)
+    const name = input.name === undefined ? new URL(url).host : text(input.name, '连接名称', 80)
+    const secret = input.token === undefined && old ? undefined : text(input.token, '密钥', 8192)
+    const credentialRef = secret ? await store.writeSecret(secret) : old?.credentialRef
+    let committed = false
+    let saved: HostConnection
+    try {
+      saved = await store.update((draft) => {
+        if (old) revision(input.revision, requireItem(draft.hosts[old.id], 'Pi meme').revision)
+        if (Object.values(draft.hosts).some((host) => host.url === url && host.id !== old?.id))
+          throw new BotError(409, 'duplicate-connection', '此 Pi meme 已连接，请编辑现有连接')
+        if (
+          old &&
+          url !== old.url &&
+          Object.values(draft.tasks).some((task) => task.hostDelegation?.hostId === old.id && active.has(task.status))
+        )
+          throw new BotError(409, 'active-tasks', '请先结束这条连接中的任务，再更改 URL')
+        const now = new Date().toISOString()
+        const host: HostConnection = {
+          ...(old ?? { id: randomUUID(), revision: 0, createdAt: now, updatedAt: now }),
+          name,
+          url,
+          credentialRef,
+          expectedHostId: old?.url === url ? old.expectedHostId : undefined,
+          status: 'unchecked',
+          error: undefined,
+          checkedAt: undefined,
+          capabilities: undefined,
+        }
+        touch(host)
+        draft.hosts[host.id] = host
+        return host
+      })
+      committed = true
+    } finally {
+      if (!committed && credentialRef !== old?.credentialRef) await store.deleteSecret(credentialRef)
     }
-    await store.update((draft) => {
-      draft.hosts[host.id] = host
+    invalidate(saved.id)
+    if (old && old.credentialRef !== credentialRef) await store.deleteSecret(old.credentialRef)
+    // Connection failures are persisted with the saved configuration, so retrying needs no re-entry.
+    await clientFor(saved.id, true).catch((cause: unknown) => {
+      if (!(cause instanceof BotError) || cause.status !== 502) throw cause
     })
-    return c.json(publicHost(host), 201)
-  })
-  app.patch('/api/v1/hosts/:id', async (c) => {
-    const id = c.req.param('id')
-    const input = await readInput(c.req)
-    const old = hostFor(id)
-    revision(input.revision, old.revision)
-    const name = input.name === undefined ? old.name : text(input.name, '连接名称', 80)
-    const url = input.url === undefined ? old.url : address(input.url)
-    const projectIds = input.projectIds === undefined ? old.projectIds : ids(input.projectIds)
-    if (
-      url !== old.url &&
-      Object.values(store.read().tasks).some((t) => t.hostDelegation?.hostId === id && active.has(t.status))
-    )
-      throw new BotError(409, 'conflict', '仍有活动委派，不能更改地址')
-    const credentialRef = input.token ? await store.writeSecret(text(input.token, '凭据', 8192)) : old.credentialRef
-    const host = await store.update((draft) => {
-      const host = draft.hosts[id]
-      revision(input.revision, host.revision)
-      Object.assign(host, { name, url, projectIds, credentialRef, status: 'unchecked', error: undefined })
-      return touch(host)
-    })
-    invalidate(id)
-    if (old.credentialRef !== credentialRef) await store.deleteSecret(old.credentialRef)
-    return c.json(publicHost(host))
-  })
+    return publicHost(hostFor(saved.id))
+  }
+  app.post('/api/v1/hosts', async (c) => c.json(await saveConnection(await readInput(c.req)), 201))
+  app.patch('/api/v1/hosts/:id', async (c) => c.json(await saveConnection(await readInput(c.req), c.req.param('id'))))
   app.delete('/api/v1/hosts/:id', async (c) => {
     const id = c.req.param('id')
     const host = hostFor(id)
     const input = await readInput(c.req).catch((): Record<string, unknown> => ({}))
     revision(input.revision, host.revision)
     if (Object.values(store.read().tasks).some((t) => t.hostDelegation?.hostId === id && active.has(t.status)))
-      throw new BotError(409, 'conflict', '该 Host 仍有活动任务，请先处理任务')
+      throw new BotError(409, 'conflict', '该 Pi meme 仍有活动任务，请先处理任务')
     await store.update((draft) => {
       revision(input.revision, draft.hosts[id].revision)
       delete draft.hosts[id]
@@ -510,6 +512,52 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
     const client = await clientFor(id)
     return c.json(await client.projects.list())
   })
+  app.get('/api/v1/hosts/:id/content', async (c) => {
+    const connectionId = c.req.param('id')
+    const client = await clientFor(connectionId)
+    const hostId = hostFor(connectionId).expectedHostId!
+    const kind = c.req.query('kind')
+    const projectId = c.req.query('projectId')
+    const sessionId = c.req.query('sessionId')
+    if (kind === 'projects') return c.json(await client.projects.list())
+    if (kind === 'sessions')
+      return c.json(await client.sessions.list(projectId ? { project: { hostId, projectId } } : undefined))
+    if (kind === 'models') {
+      if (!client.models) throw new BotError(409, 'capability-unavailable', '此 Pi meme 暂未提供模型目录')
+      return c.json(await client.models.list())
+    }
+    if (kind === 'session') return c.json(await client.sessions.get({ hostId, sessionId: text(sessionId, '会话') }))
+    if (kind === 'messages') {
+      const offset = c.req.query('offset') === undefined ? undefined : Number(c.req.query('offset'))
+      const limit = c.req.query('limit') === undefined ? undefined : Number(c.req.query('limit'))
+      if (
+        (offset !== undefined && (!Number.isSafeInteger(offset) || offset < 0)) ||
+        (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 200))
+      )
+        throw new BotError(400, 'invalid-input', '消息分页参数无效')
+      return c.json(
+        await client.sessions.messages(
+          { hostId, sessionId: text(sessionId, '会话') },
+          {
+            offset,
+            limit,
+            cursor: c.req.query('cursor'),
+          },
+        ),
+      )
+    }
+    const root = sessionId ? { hostId, sessionId } : { hostId, projectId: text(projectId, '项目') }
+    if (kind === 'files') return c.json(await client.files.list(root, c.req.query('path')))
+    if (kind === 'read_file') return c.json(await client.files.read(root, text(c.req.query('path'), '文件路径', 4096)))
+    if (kind === 'search_files')
+      return c.json(
+        await client.files.search(root, {
+          query: text(c.req.query('query'), '搜索内容', 1000),
+          cursor: c.req.query('cursor'),
+        }),
+      )
+    throw new BotError(400, 'invalid-input', 'Pi meme 内容类型无效')
+  })
   app.post('/api/v1/hosts/:id/projects', async (c) => {
     const id = c.req.param('id')
     const input = await readInput(c.req)
@@ -517,7 +565,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
     return c.json(
       await client.projects.create(
         {
-          cwd: text(input.cwd, 'Host 上已有目录', 4096),
+          cwd: text(input.cwd, 'Pi meme 上已有目录', 4096),
           name: input.name === undefined ? undefined : text(input.name, '项目名称', 80),
         },
         { idempotencyKey: `bots-project-${c.req.header('Idempotency-Key')}` },
@@ -529,7 +577,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
     const input = await readInput(c.req)
     const prompt = text(input.prompt, '任务内容', 100000)
     const state = store.read()
-    const hostId = text(input.hostId, 'Host ID', 128)
+    const hostId = text(input.hostId, 'Pi meme ID', 128)
     const projectId = text(input.projectId, '项目 ID', 128)
     const sessionId = input.sessionId === undefined ? undefined : text(input.sessionId, '会话 ID', 128)
     const bot = state.bots[text(input.botId, 'Bot ID', 128)]
@@ -561,21 +609,13 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
         status: 'prepared',
       },
     }
-    const host = hostFor(hostId)
-    if (!hostAllowed(state, task, host.id, projectId) || !host.projectIds.includes(projectId))
-      throw new BotError(403, 'forbidden', '角色未获目标 Host/项目授权')
+    hostFor(hostId)
     await store.update((draft) => {
       const conv = requireItem(draft.conversations[conversation.id], '来源会话')
       const currentBot = requireItem(draft.bots[bot.id], 'Bot')
-      const currentHost = requireItem(draft.hosts[hostId], 'Host')
-      if (
-        conv.archived ||
-        !conv.memberIds.includes(bot.id) ||
-        !currentBot.enabled ||
-        !hostAllowed(draft, task, hostId, projectId) ||
-        !currentHost.projectIds.includes(projectId)
-      )
-        throw new BotError(403, 'forbidden', '角色或 Host 项目授权已撤销')
+      requireItem(draft.hosts[hostId], 'Pi meme')
+      if (conv.archived || !conv.memberIds.includes(bot.id) || !currentBot.enabled)
+        throw new BotError(403, 'forbidden', '角色或 Pi meme 连接已撤销')
       draft.messages[messageId] = {
         id: messageId,
         revision: 1,
@@ -609,7 +649,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
           : 'unknown'
         : 'completed'
       task.result = result
-      task.error = error ? 'Host 执行未确认，请查看委派回执后处理' : undefined
+      task.error = error ? 'Pi meme 执行未确认，请查看委派回执后处理' : undefined
       task.finishedAt = new Date().toISOString()
       touch(task)
       if (!result) return
@@ -639,7 +679,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
   app.get('/api/v1/delegations/:id', async (c) => {
     const task = taskFor(c.req.param('id'))
     const d = task.hostDelegation
-    if (!d) throw new BotError(404, 'not-found', '任务没有 Host 委派')
+    if (!d) throw new BotError(404, 'not-found', '任务没有 Pi meme 委派')
     const client = await clientFor(d.hostId)
     const host = hostFor(d.hostId)
     const receipt = d.operationId ? await client.sessions.receipt(d.operationId) : undefined
@@ -653,7 +693,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
     const task = taskFor(c.req.param('id'))
     const d = task.hostDelegation
     if (!d?.operationId)
-      throw new BotError(409, 'outcome-unknown', '缺少远端稳定回执，不能自动重新创建或提交任务；请到 Host 核对')
+      throw new BotError(409, 'outcome-unknown', '缺少远端稳定回执，不能自动重新创建或提交任务；请到 Pi meme 核对')
     if (task.status === 'completed') return c.json({ taskId: task.id, status: task.status })
     if (active.has(task.status)) throw new BotError(409, 'conflict', '该任务仍在等待远端，请查看实时状态')
     if (task.stopRequested) throw new BotError(409, 'conflict', '该任务已请求停止，请查看远端实际回执')
@@ -676,10 +716,10 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
   app.post('/api/v1/delegations/:id/attachments', async (c) => {
     const task = taskFor(c.req.param('id'))
     const delegation = task.hostDelegation
-    if (!delegation?.sessionId) throw new BotError(404, 'not-found', '缺少 Host 委派会话')
+    if (!delegation?.sessionId) throw new BotError(404, 'not-found', '缺少 Pi meme 委派会话')
     const { host } = authorize(task.id, delegation.hostId, delegation.projectId, true)
     const input = await readInput(c.req)
-    const relativePath = text(input.path, 'Host 产物路径', 4096)
+    const relativePath = text(input.path, 'Pi meme 产物路径', 4096)
     const client = await clientFor(host.id)
     authorize(task.id, delegation.hostId, delegation.projectId, true)
     const preview = await client.files.preview(
@@ -688,12 +728,12 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
     )
     authorize(task.id, delegation.hostId, delegation.projectId, true)
     if (preview.kind === 'unsupported')
-      throw new BotError(409, 'capability-unavailable', `Host 无法读取该产物：${preview.reason}`)
+      throw new BotError(409, 'capability-unavailable', `Pi meme 无法读取该产物：${preview.reason}`)
     let bytes: Uint8Array
     let mime: string
     if (preview.kind === 'image') {
       const match = preview.dataUrl.match(/^data:([^;]+);base64,([a-zA-Z0-9+/=]+)$/)
-      if (!match) throw new BotError(502, 'upstream-unavailable', 'Host 图片数据无效')
+      if (!match) throw new BotError(502, 'upstream-unavailable', 'Pi meme 图片数据无效')
       mime = match[1]
       bytes = Buffer.from(match[2], 'base64')
     } else {
@@ -701,7 +741,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
       bytes = Buffer.from(preview.content, 'utf8')
     }
     const attachment = await services.saveAttachment({
-      name: relativePath.split(/[\\/]/).pop() || 'Host 产物',
+      name: relativePath.split(/[\\/]/).pop() || 'Pi meme 产物',
       mime,
       bytes,
       taskId: task.id,

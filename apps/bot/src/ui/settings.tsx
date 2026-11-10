@@ -34,17 +34,9 @@ export function SettingsPage(
     setVisited((values) => (values.includes(activeTab) ? values : [...values, activeTab]))
   }, [activeTab])
   const action = useAction(refresh)
-  const [web, setWeb] = useState(snapshot.settings.webEnabled)
-  const [domains, setDomains] = useState(snapshot.settings.allowedWebDomains.join('\n'))
-  const [reduced, setReduced] = useState(snapshot.settings.reducedMotion)
-  const [theme, setTheme] = useState(() => {
-    try {
-      const value = localStorage.getItem('bots.theme.v1')
-      return value === 'light' || value === 'dark' ? value : 'system'
-    } catch {
-      return 'system'
-    }
-  })
+  const [toolsDraft, setToolsDraft] = useState<{ web: boolean; domains: string }>()
+  const web = toolsDraft?.web ?? snapshot.settings.webEnabled
+  const domains = toolsDraft?.domains ?? snapshot.settings.allowedWebDomains.join('\n')
   const [tokenName, setTokenName] = useState('')
   const [tokenWrite, setTokenWrite] = useState(false)
   const [newToken, setNewToken] = useState('')
@@ -54,11 +46,11 @@ export function SettingsPage(
   const [memorySaving, setMemorySaving] = useState(false)
   const { onDirtyChange, onSavingChange } = props
   useEffect(() => {
-    onDirtyChange?.(modelDirty || memoryDirty)
-  }, [modelDirty, memoryDirty, onDirtyChange])
+    onDirtyChange?.(modelDirty || memoryDirty || Boolean(toolsDraft))
+  }, [modelDirty, memoryDirty, toolsDraft, onDirtyChange])
   useEffect(() => {
-    onSavingChange?.(modelSaving || memorySaving)
-  }, [modelSaving, memorySaving, onSavingChange])
+    onSavingChange?.(modelSaving || memorySaving || Boolean(action.busy))
+  }, [modelSaving, memorySaving, action.busy, onSavingChange])
   return (
     <div className={props.hideNavigation ? 'settings-content' : 'settings-page'}>
       {!props.hideNavigation && (
@@ -128,25 +120,20 @@ export function SettingsPage(
                             .filter(Boolean),
                         },
                       })
+                      setToolsDraft(undefined)
                       await refresh()
                     }}
                   >
-                    <Check checked={web} onChange={setWeb}>
+                    <Check checked={web} onChange={(value) => setToolsDraft({ web: value, domains })}>
                       启用公开网页内容获取
                     </Check>
                     <Field label="允许的域名（每行一个）" hint="只访问公开页面；需要登录的网站须另行配置相应能力。">
                       <Textarea
                         value={domains}
                         placeholder="example.com"
-                        onChange={(e) => setDomains(e.target.value)}
+                        onChange={(e) => setToolsDraft({ web, domains: e.target.value })}
                       />
                     </Field>
-                    {Object.entries(snapshot.capabilities).map(([name, state]) => (
-                      <p className="capability-row" key={name}>
-                        <span>{name}</span>
-                        <span className="muted">{state.available ? '可用' : (state.reason ?? '不可用')}</span>
-                      </p>
-                    ))}
                   </Form>
                 )}
                 {tab === 'tools' && <Explore snapshot={snapshot} />}
@@ -154,37 +141,27 @@ export function SettingsPage(
                   <>
                     <Field label="主题">
                       <Select
-                        value={theme}
-                        onChange={(value) => {
-                          localStorage.setItem('bots.theme.v1', value)
-                          setTheme(value)
-                          window.dispatchEvent(new Event('bots:theme'))
-                        }}
+                        value={snapshot.settings.theme}
+                        disabled={action.busy === 'theme'}
+                        onChange={(theme) =>
+                          void action.run('theme', () => request('/settings', { method: 'PATCH', body: { theme } }))
+                        }
                       >
                         <option value="system">跟随系统</option>
                         <option value="light">浅色</option>
                         <option value="dark">深色</option>
                       </Select>
                     </Field>
-                    <Form
-                      onSubmit={async () => {
-                        await request('/settings', {
-                          method: 'PATCH',
-                          body: { reducedMotion: reduced },
-                        })
-                        await refresh()
-                      }}
+                    <Check
+                      checked={snapshot.settings.reducedMotion}
+                      onChange={(reducedMotion) =>
+                        void action.run('motion', () =>
+                          request('/settings', { method: 'PATCH', body: { reducedMotion } }),
+                        )
+                      }
                     >
-                      <Check
-                        checked={reduced}
-                        onChange={(value) => {
-                          setReduced(value)
-                          document.documentElement.dataset.reducedMotion = String(value)
-                        }}
-                      >
-                        减少动态效果
-                      </Check>
-                    </Form>
+                      减少动态效果
+                    </Check>
                   </>
                 )}
                 {tab === 'memories' && (
@@ -418,9 +395,9 @@ function Explore({ snapshot }: { snapshot: PageProps['snapshot'] }) {
       >
         <Field label="执行 Bot">
           <Select required value={botId} onChange={setBot}>
-            <option value="">选择获授权的角色</option>
+            <option value="">选择 Bot</option>
             {snapshot.bots
-              .filter((bot) => bot.enabled && bot.capabilities.includes('web'))
+              .filter((bot) => bot.enabled)
               .map((bot) => (
                 <option key={bot.id} value={bot.id}>
                   {bot.name}

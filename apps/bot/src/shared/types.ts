@@ -15,10 +15,6 @@ export interface Bot extends Resource {
   modelId: string | null
   resolvedModelId?: string
   enabled: boolean
-  capabilities: Capability[]
-  collaboratorIds: string[]
-  hostIds: string[]
-  hostGrants?: { hostId: string; projectId: string }[]
   maxToolCalls: number
   webConversationId?: string
 }
@@ -117,20 +113,13 @@ export interface InteractionOption {
   label: string
   value: string
 }
-export interface TaskProposal {
-  kind: 'create-bot' | 'create-group' | 'create-schedule' | 'remember'
-  value: Record<string, unknown>
-}
 export interface TaskInteraction extends Resource {
   taskId: string
   toolCallId: string
-  kind: 'question' | 'permission' | 'proposal'
+  kind: 'question' | 'confirmation'
   status: 'pending' | 'answered' | 'cancelled'
   question: string
   options?: InteractionOption[]
-  capability?: Capability
-  targetRefs?: { hostId?: string; projectId?: string; botId?: string }
-  proposal?: TaskProposal
   response?: TaskResponse
   responseRequestId?: string
 }
@@ -139,16 +128,6 @@ export interface TaskResponse {
   revision: number
   decision?: 'approve' | 'deny'
   answer?: string | string[]
-  scope?: 'task' | 'bot'
-}
-export interface TaskGrant {
-  capability: Capability
-  interactionId: string
-  botRevision?: number
-  grantedAt: string
-  hostId?: string
-  projectId?: string
-  botId?: string
 }
 export interface TaskLive {
   taskId: string
@@ -162,7 +141,7 @@ export interface TaskLive {
   runId?: string
 }
 export interface CapabilityBlocker {
-  code: 'missing-config' | 'permission-required' | 'model-unavailable'
+  code: 'missing-config' | 'model-unavailable'
   capability: Capability | 'chat'
   message: string
   targetRefs?: { hostId?: string; projectId?: string; botId?: string }
@@ -187,6 +166,14 @@ export interface Task extends Resource {
   hostDelegation?: HostDelegation
   usage?: { input: number; output: number; cost: number | null }
   stopRequested?: boolean
+  finishOnDisable?: boolean
+  completionAction?: {
+    kind: 'delete-bot' | 'archive-conversation'
+    targetId: string
+    revision: number
+    status: 'pending' | 'completed' | 'failed' | 'cancelled'
+    error?: string
+  }
   publicReply: boolean
   depth: number
   startedAt?: string
@@ -196,7 +183,6 @@ export interface Task extends Resource {
   mode?: 'queue' | 'steer'
   contextThroughSequence?: number
   interactions?: TaskInteraction[]
-  grants?: TaskGrant[]
   blocker?: CapabilityBlocker
 }
 export interface HostConnection extends Resource {
@@ -205,7 +191,6 @@ export interface HostConnection extends Resource {
   credentialRef?: string
   hasCredential?: boolean
   expectedHostId?: string
-  projectIds: string[]
   status: 'unchecked' | 'online' | 'offline' | 'identity-changed'
   error?: string
   checkedAt?: string
@@ -351,7 +336,13 @@ export interface AppState {
   operations: Record<string, Operation>
   inboundIds: Record<string, string>
   events: AppEvent[]
-  settings: { webEnabled: boolean; allowedWebDomains: string[]; reducedMotion: boolean }
+  settings: {
+    webEnabled: boolean
+    allowedWebDomains: string[]
+    reducedMotion: boolean
+    theme: 'system' | 'light' | 'dark'
+    timezone: string
+  }
 }
 export interface MessageInput {
   conversationId: string

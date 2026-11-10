@@ -3,6 +3,7 @@ import { chmod, lstat, mkdir, open, unlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import lockfile from 'proper-lockfile'
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
 import { defineDoc, Harness } from '@earendil-works/pi-durable'
@@ -11,9 +12,10 @@ import type { Models } from '@earendil-works/pi-ai/models'
 import type { ConversationId, JsonObject, Registry, Tx } from '@earendil-works/pi-durable'
 import type { AppState } from '../shared/types.js'
 import type { BotStore } from './contracts.js'
-import { BotError } from './errors.js'
+import { BotError, requireItem } from './errors.js'
 import { ensureBotConversation, fixedBotConversation } from './bot-conversations.js'
 import { migrateModelState } from './model-settings.js'
+import { assertTaskAuthorized } from './task-interactions.js'
 
 export const context = BACKGROUND_CONTEXT
 
@@ -42,12 +44,12 @@ function resourceMaps(state: AppState): AppState {
 }
 export const businessState = defineDoc<JsonObject>({
   kind: 'pi-meme-bot.state',
-  version: 2,
+  version: 3,
   scope: 'conversation',
   history: 'latest',
   fork: 'initial',
   initial: () => ({
-    schemaVersion: 2,
+    schemaVersion: 3,
     epoch: randomUUID(),
     seq: 0,
     credentialGeneration: 1,
@@ -71,11 +73,32 @@ export const businessState = defineDoc<JsonObject>({
     operations: {},
     inboundIds: {},
     events: [],
-    settings: { webEnabled: false, allowedWebDomains: [], reducedMotion: false },
+    settings: {
+      webEnabled: true,
+      allowedWebDomains: [],
+      reducedMotion: false,
+      theme: 'system',
+      timezone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
+    },
   }),
   migrate: (value, fromVersion) => {
-    if (fromVersion !== 1 || value.schemaVersion !== 1) throw new Error('Bots 数据版本不兼容，请先备份并迁移')
-    return JSON.parse(JSON.stringify(migrateModelState(value as unknown as AppState))) as JsonObject
+    if (![1, 2].includes(fromVersion)) throw new Error('Bots 数据版本不兼容，请先备份并迁移')
+    const state = fromVersion === 1 ? migrateModelState(value as unknown as AppState) : (value as unknown as AppState)
+    for (const bot of [...Object.values(state.bots), ...Object.values(state.tasks).map((task) => task.config)])
+      for (const key of ['capabilities', 'collaboratorIds', 'hostIds', 'hostGrants']) Reflect.deleteProperty(bot, key)
+    for (const host of Object.values(state.hosts)) Reflect.deleteProperty(host, 'projectIds')
+    for (const task of Object.values(state.tasks)) {
+      Reflect.deleteProperty(task, 'grants')
+      if (task.interactions?.some((item) => item.kind !== 'question' && item.status === 'pending')) {
+        task.status = 'blocked'
+        task.error = 'Bot 配置方式已升级，请重新发起任务'
+      }
+      task.interactions = task.interactions?.filter((item) => item.kind === 'question')
+    }
+    state.settings.theme = 'system'
+    state.settings.timezone = new Intl.DateTimeFormat().resolvedOptions().timeZone
+    state.schemaVersion = 3
+    return JSON.parse(JSON.stringify(state)) as JsonObject
   },
   checkpointWhen: () => true,
 })
@@ -83,6 +106,7 @@ export const businessState = defineDoc<JsonObject>({
 export class DurableBotStore implements BotStore {
   private cache!: AppState
   private queue: Promise<unknown> = Promise.resolve()
+  private taskContext = new AsyncLocalStorage<{ taskId: string; signal: AbortSignal; active: boolean }>()
   private release!: () => Promise<void>
   readonly directory: string
   harness!: Harness
@@ -126,7 +150,7 @@ export class DurableBotStore implements BotStore {
         await tx.doc(businessState, root.id)
       }, context)
       store.cache = (await store.harness.snapshot(businessState, root.id, context)) as unknown as AppState
-      if (store.cache.schemaVersion !== 2) throw new Error('Bots 数据版本不兼容，请先备份并迁移')
+      if (store.cache.schemaVersion !== 3) throw new Error('Bots 数据版本不兼容，请先备份并迁移')
       if (
         Object.values(store.cache.bots).some((bot) => {
           const conversation = fixedBotConversation(store.cache, bot)
@@ -147,7 +171,18 @@ export class DurableBotStore implements BotStore {
     return resourceMaps(structuredClone(this.cache))
   }
 
+  async withTask<T>(taskId: string, signal: AbortSignal, action: () => Promise<T>): Promise<T> {
+    const execution = { taskId, signal, active: true }
+    try {
+      return await this.taskContext.run(execution, action)
+    } finally {
+      // Long-lived channels created by configuration keep their own lifecycle after the request returns.
+      execution.active = false
+    }
+  }
+
   update<T>(change: (draft: AppState, tx: Tx) => T | Promise<T>): Promise<T> {
+    const taskContext = this.taskContext.getStore()
     const next = this.queue.then(async () => {
       let result: T
       const root = await this.harness.conversation(this.rootId, context)
@@ -155,6 +190,10 @@ export class DurableBotStore implements BotStore {
       await root.commit(async (tx) => {
         const document = await tx.doc(businessState, this.rootId)
         const state = resourceMaps(JSON.parse(JSON.stringify(document)) as AppState)
+        if (taskContext?.active) {
+          taskContext.signal.throwIfAborted()
+          assertTaskAuthorized(state, requireItem(state.tasks[taskContext.taskId], '任务'))
+        }
         result = await change(state, tx)
         state.seq++
         state.events.push({ id: randomUUID(), seq: state.seq, type: 'change', time: new Date().toISOString() })

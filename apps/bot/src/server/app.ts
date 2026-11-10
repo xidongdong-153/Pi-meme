@@ -3,27 +3,18 @@ import { Hono } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { bodyLimit } from 'hono/body-limit'
 import { createRegistry } from '@earendil-works/pi-durable'
-import type { BotServices } from './contracts.js'
+import type { BotEnvironment, BotServices } from './contracts.js'
 import { DurableBotStore } from './store.js'
 import { authenticate, checkOrigin, registerAuth } from './auth.js'
-import { BotError } from './errors.js'
+import { BotError, canonicalJson, requireItem } from './errors.js'
 import { createBotModels } from './models.js'
 import { BotRuntime } from './runtime.js'
 import { createAttachmentServices, registerCoreRoutes } from './routes.js'
 import { registerHostRoutes } from './hosts.js'
 import { registerQqRoutes } from './qq.js'
 import { registerCapabilityRoutes } from './capabilities.js'
-import { applyTaskProposal } from './domain-mutations.js'
-
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
-  if (value && typeof value === 'object')
-    return `{${Object.entries(value)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
-      .join(',')}}`
-  return JSON.stringify(value)
-}
+import { createConfigurationAccess } from './configuration-access.js'
+import { assertTaskAuthorized } from './task-interactions.js'
 
 async function inputDigest(request: Request, epoch: string) {
   const url = new URL(request.url)
@@ -46,12 +37,12 @@ async function inputDigest(request: Request, epoch: string) {
                 .digest('hex'),
             },
       ])
-    digest.update(canonical(fields.sort(([a], [b]) => a.localeCompare(b))))
+    digest.update(canonicalJson(fields.sort(([a], [b]) => a.localeCompare(b))))
   } else {
     const raw = await request.clone().text()
     if (request.headers.get('Content-Type')?.includes('application/json')) {
       try {
-        digest.update(canonical(JSON.parse(raw)))
+        digest.update(canonicalJson(JSON.parse(raw)))
       } catch {
         digest.update(raw)
       }
@@ -64,7 +55,12 @@ export async function createBotService(options: { publicOrigin?: string; port?: 
   const models = createBotModels()
   const registry = createRegistry()
   const store = await DurableBotStore.open(models, registry, { directory: options.dataDirectory })
-  const app = new Hono()
+  const app = new Hono<BotEnvironment>()
+  const configuration = createConfigurationAccess(
+    app,
+    store,
+    options.publicOrigin ?? `http://127.0.0.1:${options.port ?? 4310}`,
+  )
   let ready = false
   let runtime: BotRuntime
   const services: BotServices = {
@@ -72,8 +68,9 @@ export async function createBotService(options: { publicOrigin?: string; port?: 
     ...createAttachmentServices(store),
     acceptMessage: (input) => runtime.acceptMessage(input),
     stopTask: (id) => runtime.stopTask(id),
-    applyProposal: (proposal, task, interactionId) =>
-      store.update((state) => applyTaskProposal(state, proposal, task.id, interactionId)),
+    respondToTask: (taskId, response, requestId, qqIdentity) =>
+      runtime.respond(taskId, response, requestId, qqIdentity),
+    configure: configuration.configure,
   }
   runtime = new BotRuntime(store, models, registry, services)
   const inFlight = new Map<
@@ -81,6 +78,7 @@ export async function createBotService(options: { publicOrigin?: string; port?: 
     { hash: string; promise: Promise<{ status: number; body: string; contentType: string }> }
   >()
   app.use('*', async (c, next) => {
+    c.set('configurationTaskId', configuration.taskForRequest(c.req.raw))
     const requestId = randomUUID()
     c.header('X-Request-Id', requestId)
     c.header('X-Content-Type-Options', 'nosniff')
@@ -129,7 +127,9 @@ export async function createBotService(options: { publicOrigin?: string; port?: 
   app.get('/api/health', (c) => c.json({ ready, application: 'pi-meme-bot' }, ready ? 200 : 503))
   registerAuth(app, store, options.publicOrigin)
   app.use('/api/v1/*', async (c, next) => {
-    const principal = authenticate(c, store)
+    const taskId = c.get('configurationTaskId')
+    if (taskId) assertTaskAuthorized(store.read(), requireItem(store.read().tasks[taskId], '任务'))
+    const principal = taskId ? { id: `bot-task-${taskId}`, kind: 'bot' as const, write: true } : authenticate(c, store)
     if (!principal) throw new BotError(401, 'unauthenticated', '请先登录或提供有效API凭据')
     if (!['GET', 'HEAD'].includes(c.req.method)) {
       if (!principal.write) throw new BotError(403, 'forbidden', 'API凭据没有写入权限')

@@ -1,4 +1,4 @@
-import { Activity, useState, ViewTransition } from 'react'
+import { Activity, useEffect, useState, ViewTransition } from 'react'
 import { Plus } from 'lucide-react'
 import type { AppProject } from '@pi-meme/contracts/app-host'
 import { request } from '../client/api'
@@ -47,7 +47,7 @@ export function Connections({ snapshot, refresh, navigate }: PageProps) {
             window.dispatchEvent(new Event('bots:close-list'))
           }}
         >
-          Pi meme Host
+          Pi meme
         </button>
         <button
           className={`category ${activeTab === 'qq' ? 'selected' : ''}`}
@@ -75,11 +75,11 @@ export function Connections({ snapshot, refresh, navigate }: PageProps) {
             >
               <section className="editor-page">
                 <div className="section-heading">
-                  <h1>{tab === 'hosts' ? 'Pi meme Host' : 'QQ 官方机器人'}</h1>
+                  <h1>{tab === 'hosts' ? 'Pi meme' : 'QQ 官方机器人'}</h1>
                   {tab === 'hosts' && (
                     <Button variant="outline" onClick={() => motionTransition('bot-modal', () => setEditing(null))}>
                       <Plus size={15} />
-                      添加 Host
+                      连接 Pi meme
                     </Button>
                   )}
                 </div>
@@ -101,7 +101,7 @@ export function Connections({ snapshot, refresh, navigate }: PageProps) {
                           <div className="inline-actions">
                             <Button
                               variant="outline"
-                              disabled={!!action.busy}
+                              disabled={action.busy === h.id}
                               onClick={() =>
                                 void action.run(h.id, () =>
                                   request(`/hosts/${h.id}/check`, { method: 'POST', body: {} }),
@@ -111,7 +111,7 @@ export function Connections({ snapshot, refresh, navigate }: PageProps) {
                               检查连接
                             </Button>
                             <Button variant="ghost" onClick={() => motionTransition('bot-modal', () => setEditing(h))}>
-                              配置与授权
+                              编辑连接
                             </Button>
                             <Button
                               variant="ghost"
@@ -123,7 +123,7 @@ export function Connections({ snapshot, refresh, navigate }: PageProps) {
                               variant="ghost"
                               className="danger"
                               onClick={() => {
-                                if (confirm('解除连接只移除 Bots 登记，远端任务不会自动停止。继续？'))
+                                if (confirm('解除这条 Pi meme 连接？请先处理进行中的委派任务。'))
                                   void action.run(h.id, () =>
                                     request(`/hosts/${h.id}`, { method: 'DELETE', body: { revision: h.revision } }),
                                   )
@@ -138,7 +138,7 @@ export function Connections({ snapshot, refresh, navigate }: PageProps) {
                       <Empty
                         action={
                           <Button onClick={() => motionTransition('bot-modal', () => setEditing(null))}>
-                            添加 Host
+                            连接 Pi meme
                           </Button>
                         }
                       >
@@ -181,102 +181,65 @@ function HostEditor({
   close: () => void
   refresh: () => Promise<void>
 }) {
-  const [name, setName] = useState(host?.name ?? '')
-  const [url, setUrl] = useState(host?.url ?? 'http://127.0.0.1:4140')
+  const [url, setUrl] = useState(host?.url ?? '')
   const [token, setToken] = useState('')
-  const [projects, setProjects] = useState<AppProject[]>([])
-  const [projectIds, setProjectIds] = useState(host?.projectIds ?? [])
-  const [cwd, setCwd] = useState('')
-  const [error, setError] = useState<unknown>()
+  const [saving, setSaving] = useState(false)
+  const dirty = url !== (host?.url ?? '') || Boolean(token)
   return (
-    <Modal title={host ? '配置 Host' : '添加 Host'} onClose={close}>
+    <Modal
+      title={host ? '编辑 Pi meme' : '连接 Pi meme'}
+      onClose={() => {
+        if (!saving && (!dirty || confirm('放弃未保存的连接配置？'))) close()
+      }}
+    >
       <Form
+        submit={host ? '保存并连接' : '连接'}
         onSubmit={async () => {
-          await request(host ? `/hosts/${host.id}` : '/hosts', {
-            method: host ? 'PATCH' : 'POST',
-            body: { name, url, projectIds, revision: host?.revision, ...(token ? { token } : {}) },
-          })
-          await refresh()
-          close()
+          setSaving(true)
+          try {
+            await request(host ? `/hosts/${host.id}` : '/hosts', {
+              method: host ? 'PATCH' : 'POST',
+              body: { url, revision: host?.revision, ...(token ? { token } : {}) },
+            })
+            await refresh()
+            close()
+          } finally {
+            setSaving(false)
+          }
         }}
       >
-        <Field label="名称">
-          <Input required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
+        <Field label="URL">
+          <Input
+            required
+            type="url"
+            maxLength={2048}
+            placeholder="https://pi.example.com"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+          />
         </Field>
-        <Field label="Host 地址">
-          <Input required type="url" value={url} onChange={(e) => setUrl(e.target.value)} />
+        <Field label={host?.hasCredential ? '新密钥（留空保留）' : '密钥'}>
+          <Input
+            required={!host?.hasCredential}
+            maxLength={8192}
+            type="password"
+            autoComplete="new-password"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+          />
         </Field>
-        <Field label={host?.hasCredential ? '新访问令牌（留空保留）' : '访问令牌'}>
-          <Input type="password" autoComplete="new-password" value={token} onChange={(e) => setToken(e.target.value)} />
-        </Field>
-        {host && (
-          <>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void request<AppProject[]>(`/hosts/${host.id}/projects`).then(setProjects).catch(setError)}
-            >
-              读取项目
-            </Button>
-            <Field label="授权项目">
-              <div className="choice-list">
-                {projects.map((p) => (
-                  <Check
-                    key={p.projectId}
-                    checked={projectIds.includes(p.projectId)}
-                    onChange={(checked) =>
-                      setProjectIds((values) =>
-                        checked ? [...values, p.projectId] : values.filter((id) => id !== p.projectId),
-                      )
-                    }
-                  >
-                    {p.name || p.cwd || p.projectId}
-                  </Check>
-                ))}
-                {projectIds
-                  .filter((id) => !projects.some((p) => p.projectId === id))
-                  .map((id) => (
-                    <Check
-                      key={id}
-                      checked
-                      onChange={() => setProjectIds((values) => values.filter((value) => value !== id))}
-                    >
-                      {id}
-                    </Check>
-                  ))}
-              </div>
-            </Field>
-            <details>
-              <summary>登记 Host 上已有目录</summary>
-              <Field label="远端绝对路径">
-                <Input value={cwd} onChange={(e) => setCwd(e.target.value)} />
-              </Field>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() =>
-                  void request<AppProject>(`/hosts/${host.id}/projects`, { method: 'POST', body: { cwd } })
-                    .then((project) => setProjects((values) => [...values, project]))
-                    .catch(setError)
-                }
-              >
-                登记已有目录
-              </Button>
-            </details>
-          </>
-        )}
-        <ErrorText error={error} />
       </Form>
     </Modal>
   )
 }
+
 function QqSettings({ snapshot, refresh }: { snapshot: PageProps['snapshot']; refresh: () => Promise<void> }) {
   const qq = snapshot.qq
   const [baseRevision, setBaseRevision] = useState(qq.revision)
   const [appId, setAppId] = useState(qq.appId)
   const [secret, setSecret] = useState('')
-  const [defaultBotId, setBot] = useState(qq.defaultBotId)
-  const [enabled, setEnabled] = useState(qq.enabled)
+  const [defaultBotId, setBot] = useState(qq.defaultBotId || snapshot.modelSettings.defaultAssistantId || '')
+  const [enabled, setEnabled] = useState(qq.appId ? qq.enabled : true)
   const [binding, setBinding] = useState<{ code: string; expiresAt: string }>()
   const action = useAction(refresh)
   return (
@@ -305,6 +268,7 @@ function QqSettings({ snapshot, refresh }: { snapshot: PageProps['snapshot']; re
         </div>
       )}
       <Form
+        submit="保存并连接"
         onSubmit={async () => {
           const saved = await request<QqConfig>('/channels/qq', {
             method: 'PATCH',
@@ -312,6 +276,15 @@ function QqSettings({ snapshot, refresh }: { snapshot: PageProps['snapshot']; re
           })
           setBaseRevision(saved.revision)
           setSecret('')
+          if (saved.enabled && saved.status !== 'offline' && !saved.boundUserId) {
+            const result = await request<{ code: string; expiresAt: string }>('/channels/qq/binding', {
+              method: 'POST',
+              body: {},
+            })
+            setBinding(result)
+            const current = await request<QqConfig>('/channels/qq')
+            setBaseRevision(current.revision)
+          }
           await refresh()
         }}
       >
@@ -350,13 +323,14 @@ function QqSettings({ snapshot, refresh }: { snapshot: PageProps['snapshot']; re
             void action.run('connect', () => request('/channels/qq/connect', { method: 'POST', body: {} }))
           }
         >
-          连接 / 重新连接
+          重新连接
         </Button>
         <Button
           variant="outline"
           onClick={() =>
             void action.run('bind', async () => {
               setBinding(await request('/channels/qq/binding', { method: 'POST', body: {} }))
+              setBaseRevision((await request<QqConfig>('/channels/qq')).revision)
             })
           }
         >
@@ -367,7 +341,11 @@ function QqSettings({ snapshot, refresh }: { snapshot: PageProps['snapshot']; re
             variant="ghost"
             onClick={() => {
               if (confirm('解除当前 QQ 用户绑定？'))
-                void action.run('unbind', () => request('/channels/qq/binding', { method: 'DELETE' }))
+                void action.run('unbind', () =>
+                  request<QqConfig>('/channels/qq/binding', { method: 'DELETE', body: { revision: qq.revision } }).then(
+                    (value) => setBaseRevision(value.revision),
+                  ),
+                )
             }}
           >
             解除绑定
@@ -376,7 +354,7 @@ function QqSettings({ snapshot, refresh }: { snapshot: PageProps['snapshot']; re
       </div>
       {binding && (
         <div className="record">
-          <p>在 QQ 私聊发送：</p>
+          <p>在 QQ 私聊发送绑定指令</p>
           <code>/绑定 {binding.code}</code>
           <p className="muted">有效至 {date(binding.expiresAt)}</p>
         </div>
@@ -401,6 +379,20 @@ function DelegationForm({
   const [botId, setBot] = useState('')
   const [projectId, setProject] = useState('')
   const [projects, setProjects] = useState<AppProject[]>([])
+  const [projectError, setProjectError] = useState<unknown>()
+  useEffect(() => {
+    let current = true
+    void request<AppProject[]>(`/hosts/${host.id}/projects`)
+      .then((value) => {
+        if (current) setProjects(value)
+      })
+      .catch((cause: unknown) => {
+        if (current) setProjectError(cause)
+      })
+    return () => {
+      current = false
+    }
+  }, [host.id])
   const [prompt, setPrompt] = useState('')
   const [error, setError] = useState<unknown>()
   return (
@@ -429,14 +421,12 @@ function DelegationForm({
         </Field>
         <Field label="执行 Bot">
           <Select required value={botId} onChange={setBot}>
-            <option value="">选择已授权角色</option>
+            <option value="">选择 Bot</option>
             {snapshot.bots
               .filter(
                 (b) =>
                   b.enabled &&
-                  b.capabilities.includes('hosts') &&
-                  snapshot.conversations.find((item) => item.id === conversationId)?.memberIds.includes(b.id) &&
-                  (b.hostIds.includes(host.id) || b.hostGrants?.some((grant) => grant.hostId === host.id)),
+                  snapshot.conversations.find((item) => item.id === conversationId)?.memberIds.includes(b.id),
               )
               .map((b) => (
                 <option key={b.id} value={b.id}>
@@ -450,25 +440,17 @@ function DelegationForm({
           variant="outline"
           onClick={() => void request<AppProject[]>(`/hosts/${host.id}/projects`).then(setProjects).catch(setError)}
         >
-          读取授权项目
+          刷新项目
         </Button>
+        <ErrorText error={projectError} />
         <Field label="项目">
           <Select required value={projectId} onChange={setProject}>
-            <option value="">选择 Host 项目</option>
-            {projects
-              .filter((p) => {
-                const bot = snapshot.bots.find((item) => item.id === botId)
-                return (
-                  host.projectIds.includes(p.projectId) &&
-                  (bot?.hostIds.includes(host.id) ||
-                    bot?.hostGrants?.some((grant) => grant.hostId === host.id && grant.projectId === p.projectId))
-                )
-              })
-              .map((p) => (
-                <option key={p.projectId} value={p.projectId}>
-                  {p.name || p.cwd || p.projectId}
-                </option>
-              ))}
+            <option value="">选择 Pi meme 项目</option>
+            {projects.map((p) => (
+              <option key={p.projectId} value={p.projectId}>
+                {p.name || p.cwd || p.projectId}
+              </option>
+            ))}
           </Select>
         </Field>
         <Field label="任务内容">
