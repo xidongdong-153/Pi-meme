@@ -162,7 +162,7 @@ function ActivityDisclosureContent({
           <span
             aria-hidden="true"
             className={cn(
-              'mt-[0.16em] inline-flex size-[1.4em] shrink-0 opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none group-hover/activity-toggle:opacity-100 group-focus-visible/activity-toggle:opacity-100',
+              'mt-[0.16em] inline-flex size-[1.4em] shrink-0 items-center justify-center opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none group-hover/activity-toggle:opacity-100 group-focus-visible/activity-toggle:opacity-100',
               !open && '-rotate-90',
             )}
           >
