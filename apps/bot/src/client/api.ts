@@ -5,6 +5,9 @@ export class RequestError extends Error {
     public code: string,
     message: string,
     public status: number,
+    public details?: unknown,
+    public requestId?: string,
+    public retryable = false,
   ) {
     super(message)
   }
@@ -36,6 +39,9 @@ export async function request<T>(
       data?.error?.code ?? 'request-failed',
       data?.error?.message ?? `请求失败 (${response.status})`,
       response.status,
+      data?.error?.details,
+      data?.error?.requestId ?? response.headers.get('X-Request-Id') ?? undefined,
+      data?.error?.retryable ?? false,
     )
   }
   pendingWrites.delete(signature)

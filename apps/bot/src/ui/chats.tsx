@@ -1,5 +1,23 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowDown, ArrowUp, ChevronDown, ListTodo, LoaderCircle, Paperclip, Square, Users, X } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  ListTodo,
+  LoaderCircle,
+  Paperclip,
+  Plus,
+  Square,
+  Users,
+  X,
+} from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@pi-meme/ui/components/ui/dropdown-menu'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from './utils'
@@ -8,7 +26,22 @@ import './chat-experience.css'
 import { attachmentUrl, openBotConversation, request, RequestError } from '../client/api'
 import { BotSidebar } from './bot-sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from './primitives'
-import type { AcceptedMessage, Attachment, Bot, Conversation, Message, ModelConfig, Task } from '../shared/types'
+import type {
+  AcceptedMessage,
+  Attachment,
+  Bot,
+  Conversation,
+  Message,
+  ModelConfig,
+  Snapshot,
+  Task,
+  TaskLive,
+} from '../shared/types'
+import { ConversationOverview } from './conversation-overview'
+import { TaskInteractionCards } from './task-interactions'
+import { TaskTree } from './task-tree'
+import { MemoryEditor } from './memory-editor'
+import { attachmentAccept, imageMimeTypes, readableAttachment } from '../shared/attachment-types'
 import {
   Avatar,
   BrandMark,
@@ -30,6 +63,19 @@ import type { PageProps } from './common'
 
 const BotEditorDialog = lazy(() => import('./bots').then((module) => ({ default: module.BotEditorDialog })))
 const active = new Set(['queued', 'running', 'waiting', 'stopping'])
+function mergeLive(previous: TaskLive[], incoming: TaskLive[]) {
+  const values = new Map(previous.map((value) => [value.taskId, value]))
+  for (const value of incoming) {
+    const current = values.get(value.taskId)
+    if (
+      !current ||
+      (value.generation ?? 0) > (current.generation ?? 0) ||
+      ((value.generation ?? 0) === (current.generation ?? 0) && value.version >= current.version)
+    )
+      values.set(value.taskId, value)
+  }
+  return [...values.values()]
+}
 export function Chats({
   snapshot,
   refresh,
@@ -48,8 +94,21 @@ export function Chats({
   const [editingBot, setEditingBot] = useState<Bot | null | undefined>()
   const [openingError, setOpeningError] = useState<unknown>()
   const openGeneration = useRef(0)
-  const [detailStates, setDetailStates] = useState<Record<string, 'settings' | 'tasks' | undefined>>({})
+  const [detailStates, setDetailStates] = useState<Record<string, 'overview' | 'edit' | 'tasks' | undefined>>({})
+  const [detailDirty, setDetailDirty] = useState(false)
+  const [detailSaving, setDetailSaving] = useState(false)
+  const [live, setLive] = useState<TaskLive[]>(snapshot.live ?? [])
   const details = selectedId ? detailStates[selectedId] : undefined
+  const settingsReturn = useRef<
+    | {
+        conversationId?: string
+        view?: 'overview' | 'edit' | 'tasks'
+        bot?: Bot | null
+        task?: { id: string; conversationId: string }
+      }
+    | undefined
+  >(undefined)
+  const returnToTaskList = useRef(false)
   const detailTrigger = useRef<HTMLButtonElement>(null)
   const taskTrigger = useRef<HTMLElement | null>(null)
   const [taskSelection, setTaskSelection] = useState<{ id: string; conversationId: string }>()
@@ -72,6 +131,39 @@ export function Chats({
   const title = currentBot?.name ?? conversation?.name ?? ''
   const tasks = snapshot.tasks.filter((t) => t.conversationId === selectedId)
   const deliveries = snapshot.deliveries.filter((delivery) => delivery.conversationId === selectedId)
+  useEffect(() => setLive((previous) => mergeLive(previous, snapshot.live ?? [])), [snapshot.live])
+  useEffect(() => {
+    const receive = (event: Event) =>
+      setLive((previous) => mergeLive(previous, (event as CustomEvent<TaskLive[]>).detail))
+    window.addEventListener('bots:live', receive)
+    return () => window.removeEventListener('bots:live', receive)
+  }, [])
+  useEffect(() => {
+    const restore = () => {
+      const target = settingsReturn.current
+      settingsReturn.current = undefined
+      if (!target) return
+      if ('bot' in target) setEditingBot(target.bot)
+      else if (target.task) setTaskSelection(target.task)
+      else if (target.conversationId === selectedId && target.view)
+        setDetailStates((previous) => ({ ...previous, [target.conversationId!]: target.view }))
+    }
+    window.addEventListener('bots:settings-closed', restore)
+    return () => window.removeEventListener('bots:settings-closed', restore)
+  }, [selectedId])
+  function configure(tab = 'models') {
+    if (editingBot !== undefined) {
+      settingsReturn.current = { bot: editingBot }
+      setEditingBot(undefined)
+    } else if (taskSelection) {
+      settingsReturn.current = { task: taskSelection }
+      setTaskSelection(undefined)
+    } else if (selectedId && details) {
+      settingsReturn.current = { conversationId: selectedId, view: details }
+      setDetailStates((previous) => ({ ...previous, [selectedId]: undefined }))
+    }
+    openSettings(tab)
+  }
   function selectConversation(id: string | undefined) {
     openGeneration.current++
     setOpeningError(undefined)
@@ -165,19 +257,27 @@ export function Chats({
   }
   function openTask(id: string) {
     if (!selectedId) return
+    returnToTaskList.current = details === 'tasks'
     taskTrigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    motionTransition('chat-task', () => setTaskSelection({ id, conversationId: selectedId }))
+    motionTransition('chat-task', () => {
+      setDetailStates((previous) => ({ ...previous, [selectedId]: undefined }))
+      setTaskSelection({ id, conversationId: selectedId })
+    })
   }
   function closeTask() {
-    motionTransition('chat-task', () => setTaskSelection(undefined))
+    motionTransition('chat-task', () => {
+      setTaskSelection(undefined)
+      if (returnToTaskList.current && selectedId)
+        setDetailStates((previous) => ({ ...previous, [selectedId]: 'tasks' }))
+    })
     const target = taskTrigger.current
     if (target?.isConnected) target.focus({ preventScroll: true })
     else detailTrigger.current?.focus({ preventScroll: true })
   }
   const closeDetails = useCallback(() => {
-    if (!selectedId) return
+    if (!selectedId || detailSaving || (detailDirty && !confirm('离开当前编辑？仍有未保存的修改。'))) return
     motionTransition('chat-detail', () => setDetailStates((previous) => ({ ...previous, [selectedId]: undefined })))
-  }, [selectedId])
+  }, [selectedId, detailDirty, detailSaving])
 
   return (
     <div className={cn('split-page chats-page', selectedId && 'has-selection')}>
@@ -198,15 +298,10 @@ export function Chats({
             <div className="chat-heading">
               <button
                 className="chat-title"
-                aria-label={conversation.kind === 'group' ? `${title} · 群组设置` : `${title} · Bot 设置`}
-                onClick={() =>
-                  currentBot
-                    ? setEditingBot(currentBot)
-                    : setDetailStates((previous) => ({
-                        ...previous,
-                        [conversation.id]: conversation.kind === 'group' ? 'settings' : 'tasks',
-                      }))
-                }
+                aria-label={`${title} · 详情`}
+                aria-haspopup="dialog"
+                aria-expanded={Boolean(details)}
+                onClick={() => setDetailStates((previous) => ({ ...previous, [conversation.id]: 'overview' }))}
               >
                 {conversation.kind === 'group' ? (
                   <Users size={20} strokeWidth={1.7} />
@@ -228,12 +323,15 @@ export function Chats({
                       ref={detailTrigger}
                       variant="ghost"
                       size="icon"
-                      aria-label="任务记录"
+                      aria-label={`任务记录${tasks.some((task) => task.status === 'waiting') ? '，有待处理事项' : ''}`}
                       aria-haspopup="dialog"
                       aria-expanded={details === 'tasks'}
                       onClick={() => setDetailStates((previous) => ({ ...previous, [conversation.id]: 'tasks' }))}
                     >
                       <ListTodo size={19} strokeWidth={1.7} />
+                      {tasks.some((task) => task.status === 'waiting') && (
+                        <span className="task-attention-dot" aria-hidden="true" />
+                      )}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>任务记录</TooltipContent>
@@ -246,6 +344,10 @@ export function Chats({
               messages={messages[conversation.id] ?? []}
               attachments={snapshot.attachments}
               tasks={tasks}
+              snapshot={snapshot}
+              refresh={refresh}
+              settings={configure}
+              live={live.filter((value) => value.conversationId === conversation.id)}
               openTask={openTask}
               loaded={conversation.id in messages}
               error={error}
@@ -257,13 +359,11 @@ export function Chats({
               conversation={conversation}
               bots={snapshot.bots}
               models={snapshot.models}
-              configureModels={() =>
-                snapshot.models.some((model) => model.kind === 'text') && currentBot
-                  ? setEditingBot(currentBot)
-                  : openSettings('models')
-              }
+              defaultModelId={snapshot.modelSettings.defaultModelId}
+              configureModels={() => configure('models')}
               attachments={snapshot.attachments}
               online={online}
+              openSettings={configure}
               refresh={refresh}
               busyTasks={tasks.filter((t) => active.has(t.status))}
             />
@@ -303,22 +403,56 @@ export function Chats({
         )}
       </section>
       {details && conversation && (
-        <Modal title={details === 'tasks' ? '任务记录' : '群组设置'} onClose={closeDetails}>
+        <Modal
+          title={
+            details === 'tasks' ? '任务记录' : details === 'edit' ? (currentBot ? '编辑 Bot' : '编辑群组') : '详情'
+          }
+          className="ds-bot-details"
+          onClose={closeDetails}
+        >
           <div className="conversation-details">
-            {details === 'settings' ? (
-              <ConversationDetails key={conversation.id} {...{ conversation, snapshot, refresh, navigate }} />
+            {details === 'overview' ? (
+              <ConversationOverview
+                {...{ conversation, snapshot, refresh }}
+                bot={currentBot}
+                edit={() => setDetailStates((previous) => ({ ...previous, [conversation.id]: 'edit' }))}
+                tasks={() => setDetailStates((previous) => ({ ...previous, [conversation.id]: 'tasks' }))}
+                settings={configure}
+                openBot={(bot) => {
+                  closeDetails()
+                  void selectBot(bot)
+                }}
+                removed={() => {
+                  closeDetails()
+                  navigate('chats')
+                }}
+              />
+            ) : details === 'edit' ? (
+              currentBot ? (
+                <Suspense fallback={<p role="status">正在读取编辑器…</p>}>
+                  <BotEditorDialog
+                    {...{ snapshot, refresh, navigate }}
+                    bot={currentBot}
+                    inline
+                    onDirtyChange={setDetailDirty}
+                    onSavingChange={setDetailSaving}
+                    onSettings={configure}
+                    close={() => setDetailStates((previous) => ({ ...previous, [conversation.id]: 'overview' }))}
+                  />
+                </Suspense>
+              ) : (
+                <ConversationDetails
+                  key={conversation.id}
+                  {...{ conversation, snapshot, refresh, navigate }}
+                  onDirtyChange={setDetailDirty}
+                  onSavingChange={setDetailSaving}
+                  done={() => setDetailStates((previous) => ({ ...previous, [conversation.id]: 'overview' }))}
+                />
+              )
             ) : (
               <>
                 {tasks.length ? (
-                  tasks.map((task) => (
-                    <button className="task-row" key={task.id} onClick={() => openTask(task.id)}>
-                      <span>
-                        {task.parentTaskId ? '↳ ' : ''}
-                        {task.config.name}
-                      </span>
-                      <Status value={task.status} />
-                    </button>
-                  ))
+                  <TaskTree tasks={tasks} openTask={openTask} refresh={refresh} />
                 ) : (
                   <p className="muted">暂无任务</p>
                 )}
@@ -363,6 +497,7 @@ export function Chats({
             {...{ snapshot, refresh, navigate }}
             bot={editingBot ?? undefined}
             close={() => setEditingBot(undefined)}
+            onSettings={configure}
             created={(bot) => {
               if (!editingBot) void selectBot(bot)
             }}
@@ -374,7 +509,7 @@ export function Chats({
           bots={snapshot.bots}
           close={() => motionTransition('bot-modal', () => setCreating(false))}
           done={async (id) => {
-            await refresh()
+            await refresh().catch(() => {})
             motionTransition('bot-modal', () => {
               navigate('chats', id)
               setCreating(false)
@@ -386,6 +521,8 @@ export function Chats({
         <TaskDetails
           task={snapshot.tasks.find((task) => task.id === taskSelection.id && task.conversationId === selectedId)}
           tasks={snapshot.tasks}
+          snapshot={snapshot}
+          settings={configure}
           refresh={refresh}
           close={closeTask}
           navigate={navigate}
@@ -436,6 +573,10 @@ function MessageList({
   messages,
   attachments,
   tasks,
+  snapshot,
+  refresh,
+  settings,
+  live,
   openTask,
   loaded,
   error,
@@ -447,6 +588,10 @@ function MessageList({
   messages: Message[]
   attachments: Attachment[]
   tasks: Task[]
+  snapshot: Snapshot
+  refresh: () => Promise<void>
+  settings: (tab: string) => void
+  live: TaskLive[]
   openTask: (id: string) => void
   loaded: boolean
   error: unknown
@@ -624,6 +769,11 @@ function MessageList({
                     </a>
                   ) : null
                 })}
+                <MessageMemory message={message} {...{ snapshot, refresh }} />
+                <TaskInteractionCards
+                  tasks={tasks.filter((task) => task.sourceMessageId === message.id)}
+                  {...{ snapshot, refresh, settings }}
+                />
                 {tasks
                   .filter((task) => task.sourceMessageId === message.id && task.parentTaskId)
                   .map((task) => (
@@ -650,6 +800,80 @@ function MessageList({
               </div>
             </article>
           ))}
+          {tasks
+            .filter((task) => task.publicReply && task.partialResult && !active.has(task.status))
+            .map((task) => (
+              <article className="message message-partial" key={`partial:${task.id}`}>
+                <Avatar name={task.config.name} avatar={task.config.avatar} />
+                <div className="message-body">
+                  <div className="message-meta">
+                    <button className="text-link" onClick={() => openTask(task.id)}>
+                      {task.config.name}
+                    </button>
+                    <span>部分回复</span>
+                    <Status value={task.status} />
+                  </div>
+                  <div className="markdown pi-content">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{task.partialResult}</ReactMarkdown>
+                  </div>
+                </div>
+              </article>
+            ))}
+          {live
+            .filter(
+              (value) =>
+                active.has(tasks.find((task) => task.id === value.taskId)?.status ?? '') &&
+                !messages.some(
+                  (message) =>
+                    message.role === 'assistant' &&
+                    (message.taskId === value.taskId ||
+                      (!!value.runId && tasks.find((task) => task.id === message.taskId)?.runtimeId === value.runId)),
+                ),
+            )
+            .map((value) => {
+              const task = tasks.find((item) => item.id === value.taskId)
+              if (!task) return null
+              return (
+                <article
+                  className="message message-live"
+                  key={value.taskId}
+                  aria-label={`${task.config.name} 正在回复`}
+                >
+                  <Avatar name={task.config.name} avatar={task.config.avatar} />
+                  <div className="message-body">
+                    <div className="message-meta">
+                      <button className="text-link" onClick={() => openTask(task.id)}>
+                        {task.config.name}
+                      </button>
+                      {task.parentTaskId && <small>协作</small>}
+                    </div>
+                    {value.text ? (
+                      <div className="markdown pi-content">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{ a: (props) => <a {...props} target="_blank" rel="noreferrer noopener" /> }}
+                        >
+                          {value.text}
+                        </ReactMarkdown>
+                      </div>
+                    ) : null}
+                    {value.tool && (
+                      <p className="live-tool-status" role="status">
+                        <LoaderCircle size={13} className="spin" />
+                        正在处理
+                      </p>
+                    )}
+                    {!value.text && !value.tool && (
+                      <span className="live-typing" role="status" aria-label="正在思考">
+                        <i />
+                        <i />
+                        <i />
+                      </span>
+                    )}
+                  </div>
+                </article>
+              )
+            })}
         </div>
         {(waiting || restoringHistory) && (
           <div className={cn('chat-history-placeholder', restoringHistory && 'restoring-placeholder')} role="status">
@@ -701,13 +925,75 @@ function MessageList({
     </div>
   )
 }
-type ChatDraft = { text: string; ids: string[]; recipientIds: string[]; mode: 'queue' | 'steer' }
+function MessageMemory({
+  message,
+  snapshot,
+  refresh,
+}: {
+  message: Message
+  snapshot: Snapshot
+  refresh: () => Promise<void>
+}) {
+  const [editing, setEditing] = useState(false)
+  const action = useAction(refresh)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const conversation = snapshot.conversations.find((item) => item.id === message.conversationId)
+  const scope = conversation?.kind === 'group' ? 'conversation' : 'bot'
+  const targetId = scope === 'conversation' ? message.conversationId : conversation?.coordinatorId
+  const memory = snapshot.memories.find(
+    (item) => item.sourceMessageId === message.id && item.scope === scope && item.targetId === targetId,
+  )
+  function close() {
+    setEditing(false)
+    requestAnimationFrame(() => trigger.current?.focus({ preventScroll: true }))
+  }
+  return (
+    <div className="message-memory">
+      <div className="inline-actions">
+        <button ref={trigger} className="text-link" aria-expanded={editing} onClick={() => setEditing(true)}>
+          {memory ? '编辑记忆' : '记住这条'}
+        </button>
+        {memory && (
+          <button
+            className="text-link"
+            disabled={Boolean(action.busy)}
+            onClick={() =>
+              void action.run(memory.id, () =>
+                request(`/memories/${memory.id}`, { method: 'DELETE', body: { revision: memory.revision } }),
+              )
+            }
+          >
+            撤销记忆
+          </button>
+        )}
+      </div>
+      {editing && (
+        <div className="task-interaction-card">
+          <MemoryEditor
+            item={memory}
+            defaults={{
+              scope,
+              targetId,
+              title: message.content.split('\n')[0].slice(0, 120) || '消息记忆',
+              content: message.content,
+              sourceMessageId: message.id,
+            }}
+            {...{ snapshot, refresh, close }}
+          />
+        </div>
+      )}
+      <ErrorText error={action.error} />
+    </div>
+  )
+}
+type ChatDraft = { text: string; ids: string[]; recipientIds: string[]; mode: 'queue' | 'steer'; version: string }
 type PendingChatSubmission = {
   key: string
-  body: { content: string; attachmentIds: string[]; recipientIds: string[]; mode: string }
+  draftVersion?: string
+  body: { content: string; attachmentIds: string[]; recipientIds: string[]; mode: string; targetTaskId?: string }
 }
 function readDraft(id: string): ChatDraft {
-  const empty: ChatDraft = { text: '', ids: [], recipientIds: [], mode: 'queue' }
+  const empty: ChatDraft = { text: '', ids: [], recipientIds: [], mode: 'queue', version: 'initial' }
   try {
     const value = JSON.parse(sessionStorage.getItem(`bots.draft.v1:${id}`) ?? 'null') as Partial<ChatDraft> | null
     if (!value || typeof value.text !== 'string' || !Array.isArray(value.ids)) return empty
@@ -718,6 +1004,7 @@ function readDraft(id: string): ChatDraft {
         ? value.recipientIds.filter((item): item is string => typeof item === 'string')
         : [],
       mode: value.mode === 'steer' ? 'steer' : 'queue',
+      version: typeof value.version === 'string' ? value.version : 'initial',
     }
   } catch {
     return empty
@@ -754,18 +1041,22 @@ function Composer({
   conversation,
   bots,
   models,
+  defaultModelId,
   configureModels,
   attachments,
   online,
+  openSettings,
   refresh,
   busyTasks,
 }: {
   conversation: Conversation
   bots: Bot[]
   models: ModelConfig[]
+  defaultModelId: string | null
   configureModels: () => void
   attachments: Attachment[]
   online: boolean
+  openSettings: (tab: string) => void
   refresh: () => Promise<void>
   busyTasks: Task[]
 }) {
@@ -777,6 +1068,10 @@ function Composer({
   const [sending, setSending] = useState<Record<string, boolean>>({})
   const [uploading, setUploading] = useState<Record<string, { done: number; total: number }>>({})
   const [stopping, setStopping] = useState<Record<string, boolean>>({})
+  const [staleTarget, setStaleTarget] = useState<Record<string, boolean>>({})
+  const [sendTargets, setSendTargets] = useState<Task[]>([])
+  const [dragging, setDragging] = useState(false)
+  const [previewErrors, setPreviewErrors] = useState<string[]>([])
   const [initialPending] = useState(readPendingMessages)
   const pending = useRef(initialPending)
   const sendingLocks = useRef(new Set<string>())
@@ -796,11 +1091,31 @@ function Composer({
   const unavailable = targetIds.some((member) => !bots.find((bot) => bot.id === member)?.enabled)
   const missingModel = targetIds.some((member) => {
     const bot = bots.find((item) => item.id === member)
-    return !models.some((model) => model.kind === 'text' && model.id === bot?.modelId)
+    const model = models.find((item) => item.kind === 'text' && item.id === (bot?.modelId ?? defaultModelId))
+    if (model?.verification?.status !== 'verified') return true
+    return (
+      !model.hasCredential &&
+      !(
+        model.provider === 'openai-compatible' &&
+        ['localhost', '127.0.0.1', '[::1]'].includes(new URL(model.baseUrl).hostname)
+      )
+    )
   })
+  const runningRoots = busyTasks
+    .filter((task) => !task.parentTaskId && task.status !== 'queued')
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const currentRoot = runningRoots.find((task) => task.status !== 'stopping') ?? runningRoots[0]
   const invalidAttachment = draft.ids.some(
-    (attachmentId) => !attachments.some((attachment) => attachment.id === attachmentId),
+    (attachmentId) =>
+      previewErrors.includes(attachmentId) ||
+      !attachments.some(
+        (attachment) =>
+          attachment.id === attachmentId && readableAttachment(attachment.mime) && attachment.conversationId === id,
+      ),
   )
+  const canSubmit =
+    online && !isSending && !isUploading && !invalidAttachment && Boolean(draft.text.trim() || draft.ids.length)
+  const canSteer = canSubmit && !pending.current[id]
   const canSend =
     online &&
     !isSending &&
@@ -814,7 +1129,7 @@ function Composer({
     setStorageWarnings((previous) => ({ ...previous, [target]: !success }))
   }
   function updateDraft(target: string, change: (value: ChatDraft) => ChatDraft) {
-    const next = change(latestDrafts.current[target] ?? readDraft(target))
+    const next = { ...change(latestDrafts.current[target] ?? readDraft(target)), version: crypto.randomUUID() }
     latestDrafts.current = { ...latestDrafts.current, [target]: next }
     setDrafts(latestDrafts.current)
     warnStorage(target, persistChatState(`bots.draft.v1:${target}`, next))
@@ -831,20 +1146,25 @@ function Composer({
     composing.current = false
     if (recipientMenu.current) recipientMenu.current.open = false
   }, [id])
-  async function send() {
-    if (!canSend || sendingLocks.current.has(id) || uploadingLocks.current.has(id)) return
+  async function send(targetTask?: Task) {
+    if (!(targetTask ? canSteer : canSend) || sendingLocks.current.has(id) || uploadingLocks.current.has(id)) return
     const target = id
     sendingLocks.current.add(target)
     setSending((previous) => ({ ...previous, [target]: true }))
     report(target, undefined)
+    setStaleTarget((previous) => ({ ...previous, [target]: false }))
     textarea.current?.focus({ preventScroll: true })
     const submission = pending.current[target] ?? {
       key: crypto.randomUUID(),
+      draftVersion: draft.version,
       body: {
         content: draft.text,
         attachmentIds: draft.ids,
-        recipientIds: draft.recipientIds.filter((member) => conversation.memberIds.includes(member)),
-        mode: draft.mode,
+        recipientIds: targetTask
+          ? [targetTask.botId]
+          : draft.recipientIds.filter((member) => conversation.memberIds.includes(member)),
+        mode: targetTask ? 'steer' : 'queue',
+        ...(targetTask ? { targetTaskId: targetTask.id } : {}),
       },
     }
     pending.current[target] = submission
@@ -858,17 +1178,21 @@ function Composer({
       delete pending.current[target]
       if (!persistChatState('bots.pending.v1', pending.current)) warnStorage(target, false)
       const current = latestDrafts.current[target] ?? readDraft(target)
-      if (
-        current.text === submission.body.content &&
-        JSON.stringify(current.ids) === JSON.stringify(submission.body.attachmentIds)
-      )
-        updateDraft(target, (value) => ({ ...value, text: '', ids: [] }))
+      if (current.version === submission.draftVersion) updateDraft(target, (value) => ({ ...value, text: '', ids: [] }))
       await refresh()
     } catch (cause) {
-      if (cause instanceof RequestError && cause.status >= 400 && cause.status < 500 && cause.status !== 408) {
+      if (
+        cause instanceof RequestError &&
+        cause.status >= 400 &&
+        cause.status < 500 &&
+        ![401, 408].includes(cause.status) &&
+        !['outcome-unknown', 'unauthenticated'].includes(cause.code)
+      ) {
         delete pending.current[target]
         if (!persistChatState('bots.pending.v1', pending.current)) warnStorage(target, false)
       }
+      if (submission.body.mode === 'steer' && cause instanceof RequestError && cause.status === 409)
+        setStaleTarget((previous) => ({ ...previous, [target]: true }))
       report(target, cause)
     } finally {
       sendingLocks.current.delete(target)
@@ -882,8 +1206,14 @@ function Composer({
     setUploading((previous) => ({ ...previous, [target]: { done: 0, total: files.length } }))
     report(target, undefined)
     try {
-      for (const [index, item] of files.entries()) {
+      if ((latestDrafts.current[target] ?? readDraft(target)).ids.length + files.length > 10)
+        throw new Error('每条消息最多 10 个附件')
+      for (const item of files) {
+        if (!readableAttachment(item.type))
+          throw new Error(`支持 PNG、JPEG、WebP、GIF、UTF-8 文本和 JSON：${item.name}`)
         if (!item.size || item.size > 20 * 1024 * 1024) throw new Error(`附件须为1字节至20MiB：${item.name}`)
+      }
+      for (const [index, item] of files.entries()) {
         const form = new FormData()
         form.set('file', item)
         form.set('conversationId', target)
@@ -908,14 +1238,14 @@ function Composer({
     }
   }
   async function stop() {
-    if (!online || stoppingLocks.current.has(id)) return
+    if (!online || stoppingLocks.current.has(id) || !currentRoot) return
     const target = id
-    const roots = busyTasks.filter((task) => !busyTasks.some((parent) => parent.id === task.parentTaskId))
+    const rootId = currentRoot.id
     stoppingLocks.current.add(target)
     setStopping((previous) => ({ ...previous, [target]: true }))
     report(target, undefined)
     try {
-      await Promise.all(roots.map((task) => request(`/tasks/${task.id}/stop`, { method: 'POST', body: {} })))
+      await request(`/tasks/${rootId}/stop`, { method: 'POST', body: {} })
       await refresh()
     } catch (cause) {
       report(target, cause)
@@ -928,6 +1258,11 @@ function Composer({
     <div className="composer-wrap">
       <div id="chat-composer-feedback">
         <ErrorText error={error} />
+        {staleTarget[id] && (
+          <Button variant="outline" size="sm" disabled={!canSend} onClick={() => void send()}>
+            改为排队发送
+          </Button>
+        )}
         {storageWarnings[id] && (
           <p className="error" role="status">
             浏览器暂时无法保存草稿或发送状态，请保持此页打开。
@@ -936,19 +1271,64 @@ function Composer({
         {unavailable && <p className="error">所选 Bot 已停用，请先启用。</p>}
         {missingModel && (
           <p className="composer-model-notice">
-            Bot 尚未配置文本模型。
-            <button className="text-link" onClick={configureModels}>
-              配置模型
+            当前对话模型需要检查连接、图片输入与工具调用。
+            <button
+              className="text-link"
+              onClick={() => {
+                const bot = bots.find(
+                  (item) =>
+                    targetIds.includes(item.id) &&
+                    !models.some(
+                      (model) =>
+                        model.id === (item.modelId ?? defaultModelId) && model.verification?.status === 'verified',
+                    ),
+                )
+                const modelId = bot?.modelId ?? defaultModelId
+                if (modelId) sessionStorage.setItem('bots.model.focus', modelId)
+                configureModels()
+              }}
+            >
+              检查模型
             </button>
           </p>
         )}
         {invalidAttachment && !isUploading && <p className="error">部分附件已不可用，请移除后再发送。</p>}
       </div>
-      <div className="composer" aria-busy={isUploading || isSending}>
+      <div
+        className={cn('composer', dragging && 'is-dragging')}
+        aria-busy={isUploading || isSending}
+        onDragOver={(event) => {
+          if (event.dataTransfer.types.includes('Files')) {
+            event.preventDefault()
+            setDragging(true)
+          }
+        }}
+        onDragLeave={(event) => {
+          if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget))
+            setDragging(false)
+        }}
+        onDrop={(event) => {
+          event.preventDefault()
+          setDragging(false)
+          void upload(Array.from(event.dataTransfer.files))
+        }}
+      >
         {draft.ids.length > 0 && (
           <div className="draft-attachments">
             {draft.ids.map((attachmentId) => (
               <span key={attachmentId}>
+                {imageMimeTypes.includes(
+                  attachments.find((attachment) => attachment.id === attachmentId)?.mime ?? '',
+                ) && (
+                  <img
+                    className="draft-attachment-preview"
+                    src={attachmentUrl(attachmentId)}
+                    alt={attachments.find((attachment) => attachment.id === attachmentId)?.name ?? '图片附件'}
+                    onError={() =>
+                      setPreviewErrors((values) => (values.includes(attachmentId) ? values : [...values, attachmentId]))
+                    }
+                  />
+                )}
                 <span className="draft-attachment-name">
                   {attachments.find((attachment) => attachment.id === attachmentId)?.name ??
                     (isUploading ? '正在准备附件' : '附件已不可用')}
@@ -979,6 +1359,13 @@ function Composer({
           rows={1}
           maxLength={32000}
           onChange={(event) => updateDraft(id, (value) => ({ ...value, text: event.target.value }))}
+          onPaste={(event) => {
+            const images = Array.from(event.clipboardData.files).filter((item) => item.type.startsWith('image/'))
+            if (images.length) {
+              event.preventDefault()
+              void upload(images)
+            }
+          }}
           onCompositionStart={() => {
             composing.current = true
           }}
@@ -1004,6 +1391,7 @@ function Composer({
             <input
               ref={file}
               type="file"
+              accept={attachmentAccept}
               multiple
               hidden
               onChange={(event) => {
@@ -1012,15 +1400,39 @@ function Composer({
                 void upload(files)
               }}
             />
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={isUploading ? '正在上传附件' : '添加附件'}
-              disabled={!online || isUploading}
-              onClick={() => file.current?.click()}
-            >
-              {isUploading ? <LoaderCircle size={17} className="spin" /> : <Paperclip size={17} />}
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={isUploading ? '正在上传附件' : '添加'}
+                  disabled={!online || isUploading}
+                >
+                  {isUploading ? <LoaderCircle size={17} className="spin" /> : <Plus size={19} />}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="start" sideOffset={8}>
+                <DropdownMenuItem onSelect={() => file.current?.click()}>
+                  <Paperclip size={14} />
+                  添加图片或附件
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => {
+                    persistChatState('bots.schedule.new', {
+                      conversationId: conversation.id,
+                      botId: targetIds.length === 1 ? targetIds[0] : conversation.coordinatorId,
+                      timezone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
+                      notification: 'web',
+                    })
+                    openSettings('schedules')
+                  }}
+                >
+                  新建定时任务
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => openSettings('memories')}>记忆</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             {conversation.kind === 'group' && (
               <details className="recipient-menu" ref={recipientMenu}>
                 <summary>
@@ -1055,25 +1467,14 @@ function Composer({
                 </div>
               </details>
             )}
-            {busyTasks.length > 0 && (
-              <Select
-                value={draft.mode}
-                onChange={(mode) =>
-                  updateDraft(id, (value) => ({ ...value, mode: mode === 'steer' ? 'steer' : 'queue' }))
-                }
-              >
-                <option value="queue">排队发送</option>
-                <option value="steer">补充当前任务</option>
-              </Select>
-            )}
           </div>
           <div className="inline-actions">
-            {busyTasks.length > 0 && (
+            {currentRoot && (
               <Button
                 variant="ghost"
                 size="icon-sm"
-                aria-label={stopping[id] ? '正在停止本轮任务' : '停止本轮任务'}
-                disabled={!online || stopping[id] || busyTasks.every((task) => task.status === 'stopping')}
+                aria-label={stopping[id] ? '正在停止本轮任务' : `停止 ${currentRoot.config.name} 本轮任务`}
+                disabled={!online || stopping[id] || currentRoot.status === 'stopping'}
                 onClick={() => void stop()}
               >
                 {stopping[id] ? <LoaderCircle size={15} className="spin" /> : <Square size={15} />}
@@ -1087,6 +1488,33 @@ function Composer({
             >
               {isSending ? <LoaderCircle size={17} className="spin" /> : <ArrowUp size={17} />}
             </Button>
+            {runningRoots.some((task) => task.status === 'running') && !pending.current[id] && (
+              <DropdownMenu
+                onOpenChange={(open) => {
+                  if (open) setSendTargets(runningRoots.filter((task) => task.status === 'running'))
+                }}
+              >
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" aria-label="选择发送方式" disabled={!canSteer}>
+                    <ChevronDown size={13} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="top" align="end" sideOffset={8}>
+                  <DropdownMenuItem disabled={!canSend} onSelect={() => void send()}>
+                    排队发送
+                  </DropdownMenuItem>
+                  {sendTargets.map((task) => (
+                    <DropdownMenuItem
+                      key={task.id}
+                      disabled={!busyTasks.some((current) => current.id === task.id && current.status === 'running')}
+                      onSelect={() => void send(task)}
+                    >
+                      补充 {task.config.name} 当前任务
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
       </div>
@@ -1098,6 +1526,9 @@ function Composer({
       {pending.current[id] && !isSending && (
         <div className="inline-actions pending-message">
           <p className="muted">发送结果尚未确认。再次点击发送会核对同一次请求。</p>
+          <blockquote>
+            {pending.current[id].body.content || `${pending.current[id].body.attachmentIds.length} 个附件`}
+          </blockquote>
           <Button
             variant="ghost"
             onClick={() => {
@@ -1118,8 +1549,11 @@ function NewGroup({ bots, close, done }: { bots: Bot[]; close: () => void; done:
   const [name, setName] = useState('')
   const [members, setMembers] = useState<string[]>([])
   const [coordinator, setCoordinator] = useState('')
-  const dirty = Boolean(name || members.length)
+  const [collaboration, setCollaboration] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const dirty = Boolean(name || members.length || !collaboration)
   function leave() {
+    if (saving) return
     if (!dirty || confirm('群组尚未创建，放弃当前填写内容？')) close()
   }
   return (
@@ -1129,15 +1563,37 @@ function NewGroup({ bots, close, done }: { bots: Bot[]; close: () => void; done:
         onCancel={leave}
         onSubmit={async () => {
           if (members.length < 2) throw new Error('请选择至少两位 Bot。')
-          const group = await request<Conversation>('/conversations', {
-            method: 'POST',
-            body: { name: name.trim(), kind: 'group', memberIds: members, coordinatorId: coordinator || members[0] },
-          })
-          await done(group.id)
+          setSaving(true)
+          try {
+            const group = await request<Conversation>('/conversations', {
+              method: 'POST',
+              body: {
+                name:
+                  name.trim() ||
+                  members
+                    .map((id) => bots.find((bot) => bot.id === id)?.name ?? '')
+                    .join('、')
+                    .slice(0, 120),
+                kind: 'group',
+                memberIds: members,
+                coordinatorId: coordinator || members[0],
+                collaborationEnabled: collaboration,
+              },
+            })
+            await done(group.id)
+          } finally {
+            setSaving(false)
+          }
         }}
       >
         <Field label="群组名称">
-          <Input autoFocus value={name} maxLength={120} required onChange={(event) => setName(event.target.value)} />
+          <Input
+            autoFocus
+            value={name}
+            maxLength={120}
+            placeholder="默认使用成员名称"
+            onChange={(event) => setName(event.target.value)}
+          />
         </Field>
         <Field label="成员">
           <div className="group-member-choices">
@@ -1160,16 +1616,22 @@ function NewGroup({ bots, close, done }: { bots: Bot[]; close: () => void; done:
             {bots.filter((bot) => bot.enabled).length < 2 && <p className="muted">需要至少两位已启用的 Bot。</p>}
           </div>
         </Field>
-        <Field label="协调者">
-          <Select value={coordinator} onChange={setCoordinator} required>
-            <option value="">选择协调者</option>
-            {members.map((id) => (
-              <option key={id} value={id}>
-                {bots.find((bot) => bot.id === id)?.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
+        <Check checked={collaboration} onChange={setCollaboration}>
+          允许成员在本群协作
+        </Check>
+        <details className="advanced">
+          <summary>协调者：{bots.find((bot) => bot.id === coordinator)?.name ?? '首位成员'}</summary>
+          <Field label="协调者">
+            <Select value={coordinator} onChange={setCoordinator}>
+              <option value="">选择协调者</option>
+              {members.map((id) => (
+                <option key={id} value={id}>
+                  {bots.find((bot) => bot.id === id)?.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </details>
       </Form>
     </Modal>
   )
@@ -1178,16 +1640,62 @@ function ConversationDetails({
   conversation,
   snapshot,
   refresh,
-  navigate,
-}: PageProps & { conversation: Conversation }) {
-  const action = useAction(refresh)
-  const [baseRevision, setBaseRevision] = useState(conversation.revision)
-  const [name, setName] = useState(conversation.name)
-  const [members, setMembers] = useState(conversation.memberIds)
-  const [coordinator, setCoordinator] = useState(conversation.coordinatorId)
+  onDirtyChange,
+  onSavingChange,
+  done,
+}: PageProps & {
+  conversation: Conversation
+  onDirtyChange: (dirty: boolean) => void
+  onSavingChange: (saving: boolean) => void
+  done: () => void
+}) {
+  const storageKey = `bots.group-editor.v1:${conversation.id}`
+  const [stored] = useState<Partial<Conversation>>(() => {
+    try {
+      const value: unknown = JSON.parse(sessionStorage.getItem(storageKey) ?? '{}')
+      return value && typeof value === 'object' && !Array.isArray(value) ? (value as Partial<Conversation>) : {}
+    } catch {
+      return {}
+    }
+  })
+  const [baseRevision, setBaseRevision] = useState(stored.revision ?? conversation.revision)
+  const [name, setName] = useState(stored.name ?? conversation.name)
+  const [members, setMembers] = useState(stored.memberIds ?? conversation.memberIds)
+  const [coordinator, setCoordinator] = useState(stored.coordinatorId ?? conversation.coordinatorId)
+  const [collaboration, setCollaboration] = useState(
+    stored.collaborationEnabled ?? conversation.collaborationEnabled === true,
+  )
+  const [storageError, setStorageError] = useState(false)
+  const dirty =
+    name !== conversation.name ||
+    coordinator !== conversation.coordinatorId ||
+    collaboration !== (conversation.collaborationEnabled === true) ||
+    JSON.stringify(members) !== JSON.stringify(conversation.memberIds)
+  useEffect(() => {
+    onDirtyChange(dirty)
+  }, [dirty, onDirtyChange])
+  useEffect(() => () => onDirtyChange(false), [onDirtyChange])
+  useEffect(() => {
+    if (dirty)
+      setStorageError(
+        !persistChatState(storageKey, {
+          revision: baseRevision,
+          name,
+          memberIds: members,
+          coordinatorId: coordinator,
+          collaborationEnabled: collaboration,
+        }),
+      )
+  }, [storageKey, baseRevision, name, members, coordinator, collaboration, dirty])
   return (
     <>
       <Form
+        onCancel={() => {
+          if (!dirty || confirm('放弃尚未保存的群组修改？')) {
+            sessionStorage.removeItem(storageKey)
+            done()
+          }
+        }}
         onSubmit={async () => {
           const removed = conversation.memberIds.filter((id) => !members.includes(id))
           if (
@@ -1198,14 +1706,38 @@ function ConversationDetails({
             !confirm('将停止被移除成员的当前任务，再保存成员变更。继续？')
           )
             return
-          const saved = await request<Conversation>(`/conversations/${conversation.id}`, {
-            method: 'PATCH',
-            body: { revision: baseRevision, name, memberIds: members, coordinatorId: coordinator, removalMode: 'stop' },
-          })
-          setBaseRevision(saved.revision)
-          await refresh()
+          onSavingChange(true)
+          try {
+            const saved = await request<Conversation>(`/conversations/${conversation.id}`, {
+              method: 'PATCH',
+              body: {
+                revision: baseRevision,
+                name,
+                memberIds: members,
+                coordinatorId: coordinator,
+                collaborationEnabled: collaboration,
+                removalMode: 'stop',
+              },
+            })
+            setBaseRevision(saved.revision)
+            sessionStorage.removeItem(storageKey)
+            await refresh().catch(() => {})
+            done()
+          } finally {
+            onSavingChange(false)
+          }
         }}
       >
+        {storageError && (
+          <p className="error" role="alert">
+            浏览器暂时无法保存群组草稿，请保持编辑页打开。
+          </p>
+        )}
+        {baseRevision !== conversation.revision && (
+          <p className="error" role="status">
+            群组已更新，保存将核对原修订版本。
+          </p>
+        )}
         <Field label="名称">
           <Input value={name} required maxLength={120} onChange={(e) => setName(e.target.value)} />
         </Field>
@@ -1228,6 +1760,9 @@ function ConversationDetails({
                 ))}
               </div>
             </Field>
+            <Check checked={collaboration} onChange={setCollaboration}>
+              允许成员在本群协作
+            </Check>
             <Field label="协调者">
               <Select value={coordinator} onChange={setCoordinator}>
                 {members.map((id) => (
@@ -1240,51 +1775,6 @@ function ConversationDetails({
           </>
         )}
       </Form>
-      <ErrorText error={action.error} />
-      <div className="detail-actions">
-        <Button
-          variant="outline"
-          onClick={() =>
-            void action.run('pin', () =>
-              request(`/conversations/${conversation.id}`, {
-                method: 'PATCH',
-                body: { revision: conversation.revision, pinned: !conversation.pinned },
-              }),
-            )
-          }
-        >
-          {conversation.pinned ? '取消置顶' : '置顶'}
-        </Button>
-        <Button
-          variant="ghost"
-          onClick={() =>
-            void action.run('archive', async () => {
-              await request(`/conversations/${conversation.id}`, {
-                method: 'PATCH',
-                body: { revision: conversation.revision, archived: true },
-              })
-              navigate('chats')
-            })
-          }
-        >
-          归档
-        </Button>
-        <Button
-          variant="ghost"
-          className="danger"
-          onClick={() => {
-            if (confirm('删除此会话及其关联记录？'))
-              void action.run('delete', async () => {
-                await request(`/conversations/${conversation.id}?revision=${conversation.revision}`, {
-                  method: 'DELETE',
-                })
-                navigate('chats')
-              })
-          }}
-        >
-          删除会话
-        </Button>
-      </div>
     </>
   )
 }
@@ -1434,12 +1924,16 @@ function HostInteraction({
 function TaskDetails({
   task,
   tasks,
+  snapshot,
+  settings,
   refresh,
   close,
   navigate,
 }: {
   task?: Task
   tasks: Task[]
+  snapshot: Snapshot
+  settings: (tab: string) => void
   refresh: () => Promise<void>
   close: () => void
   navigate: PageProps['navigate']
@@ -1456,6 +1950,7 @@ function TaskDetails({
           </div>
           <p className="task-prompt">{task.prompt}</p>
           <ErrorText error={task.error} />
+          <TaskInteractionCards tasks={[task]} {...{ snapshot, refresh, settings }} />
           {task.result && (
             <div className="markdown">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{task.result}</ReactMarkdown>

@@ -162,7 +162,7 @@ export function Form({
       <ErrorText error={error} />
       <div className="form-actions">
         {onCancel && (
-          <Button type="button" variant="ghost" onClick={() => motionTransition('bot-modal', onCancel)}>
+          <Button type="button" variant="ghost" disabled={busy} onClick={() => motionTransition('bot-modal', onCancel)}>
             取消
           </Button>
         )}

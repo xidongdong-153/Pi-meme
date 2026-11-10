@@ -13,7 +13,7 @@ export function validateScheduleTarget(state: AppState, schedule: Schedule) {
   const bot = state.bots[schedule.botId]
   if (!conversation || conversation.archived || !conversation.memberIds.includes(schedule.botId))
     throw new BotError(400, 'invalid-input', '请选择有效会话及其成员 Bot')
-  if (!bot?.enabled || !bot.capabilities.includes('schedules'))
+  if (!bot?.enabled || (!schedule.executionGrant && !bot.capabilities.includes('schedules')))
     throw new BotError(403, 'forbidden', '执行 Bot 未启用或未获定时安排授权')
   if (
     schedule.notification === 'qq' &&
@@ -24,6 +24,14 @@ export function validateScheduleTarget(state: AppState, schedule: Schedule) {
       conversation.qqAppId !== state.qq.appId)
   )
     throw new BotError(409, 'capability-unavailable', 'QQ 通知需要当前已绑定的 QQ 来源会话')
+}
+
+export function validateScheduleAdmission(state: AppState, run: ScheduleRun) {
+  const snapshot = run.scheduleSnapshot
+  const current = state.schedules[run.scheduleId]
+  if (!snapshot || !current || run.status !== 'running' || current.executionGrant !== snapshot.executionGrant)
+    throw new BotError(403, 'forbidden', '定时任务已更改、暂停或删除，本次接纳已取消')
+  validateScheduleTarget(state, snapshot)
 }
 
 export function createScheduleRuntime(services: BotServices) {
@@ -44,7 +52,7 @@ export function createScheduleRuntime(services: BotServices) {
       const state = services.store.read()
       // A saved inbox identity is an admission receipt, even when later configuration was revoked.
       // Recover that receipt without creating new work; fresh admission still checks current grants.
-      if (!state.inboundIds[`input:schedule-run:${run.id}`]) validateScheduleTarget(state, snapshot)
+      if (!state.inboundIds[`input:schedule-run:${run.id}`]) validateScheduleAdmission(state, run)
       const receipt = await services.acceptMessage({
         conversationId: snapshot.conversationId,
         content: snapshot.prompt,
@@ -52,6 +60,7 @@ export function createScheduleRuntime(services: BotServices) {
         source: 'schedule',
         notification: snapshot.notification,
         requestId: `schedule-run:${run.id}`,
+        scheduleRunId: run.id,
       })
       await services.store.update((draft) => {
         const current = draft.scheduleRuns[run.id]

@@ -9,7 +9,7 @@ const capabilityNames: Record<Capability, string> = {
   hosts: 'Host 项目工作',
   images: '图片生成',
   web: '公开网页探索',
-  schedules: '管理计划',
+  schedules: '定时任务',
 }
 type BotEditorProps = PageProps & {
   bot?: Bot
@@ -18,21 +18,37 @@ type BotEditorProps = PageProps & {
   onDirtyChange?: (dirty: boolean) => void
   onSavingChange?: (saving: boolean) => void
   onDraftPersistenceChange?: (persisted: boolean) => void
+  onSettings?: (tab: string) => void
 }
 
 export function BotEditorDialog({
   bot,
   close,
   created,
+  inline = false,
+  onDirtyChange: notifyDirty,
+  onSavingChange: notifySaving,
   ...props
 }: PageProps & {
   bot?: Bot
   close: () => void
   created?: (bot: Bot) => void
+  inline?: boolean
+  onDirtyChange?: (dirty: boolean) => void
+  onSavingChange?: (saving: boolean) => void
+  onSettings?: (tab: string) => void
 }) {
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [draftPersisted, setDraftPersisted] = useState(true)
+  useEffect(() => {
+    notifyDirty?.(dirty)
+  }, [dirty, notifyDirty])
+  useEffect(() => () => notifyDirty?.(false), [notifyDirty])
+  useEffect(() => {
+    notifySaving?.(saving)
+  }, [saving, notifySaving])
+  useEffect(() => () => notifySaving?.(false), [notifySaving])
   function requestClose() {
     if (saving) return
     if (
@@ -41,17 +57,31 @@ export function BotEditorDialog({
     )
       close()
   }
-  return (
+  const editor = (
+    <BotEditor
+      {...props}
+      bot={bot}
+      close={close}
+      created={created}
+      onDirtyChange={setDirty}
+      onSavingChange={setSaving}
+      onDraftPersistenceChange={setDraftPersisted}
+      onSettings={
+        props.onSettings
+          ? (tab) => {
+              if (saving || (dirty && !draftPersisted && !confirm('浏览器无法保存草稿，前往模型设置并放弃当前修改？')))
+                return
+              props.onSettings?.(tab)
+            }
+          : undefined
+      }
+    />
+  )
+  return inline ? (
+    <div className="bot-editor-inline">{editor}</div>
+  ) : (
     <Modal title={bot ? '编辑 Bot' : '创建 Bot'} className="bot-editor-dialog" onClose={requestClose}>
-      <BotEditor
-        {...props}
-        bot={bot}
-        close={close}
-        created={created}
-        onDirtyChange={setDirty}
-        onSavingChange={setSaving}
-        onDraftPersistenceChange={setDraftPersisted}
-      />
+      {editor}
     </Modal>
   )
 }
@@ -66,6 +96,7 @@ export function BotEditor({
   onDirtyChange,
   onSavingChange,
   onDraftPersistenceChange,
+  onSettings,
 }: BotEditorProps) {
   const storageKey = `bots.editor.v1:${bot?.id ?? 'new'}`
   const [stored] = useState<Partial<Bot>>(() => {
@@ -88,6 +119,7 @@ export function BotEditor({
   const [capabilities, setCapabilities] = useState<Capability[]>(stored.capabilities ?? bot?.capabilities ?? [])
   const [collaboratorIds, setCollaborators] = useState(stored.collaboratorIds ?? bot?.collaboratorIds ?? [])
   const [hostIds, setHosts] = useState(stored.hostIds ?? bot?.hostIds ?? [])
+  const [hostGrants, setHostGrants] = useState(stored.hostGrants ?? bot?.hostGrants ?? [])
   const [maxToolCalls, setMaxTools] = useState(stored.maxToolCalls ?? bot?.maxToolCalls ?? 12)
   const action = useAction(refresh)
   const [draftError, setDraftError] = useState(false)
@@ -99,6 +131,7 @@ export function BotEditor({
   useEffect(() => {
     onDirtyChange?.(dirty)
   }, [dirty, onDirtyChange])
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
   useEffect(() => {
     if (clean.current || !dirty) return
     try {
@@ -114,6 +147,7 @@ export function BotEditor({
           capabilities,
           collaboratorIds,
           hostIds,
+          hostGrants,
           maxToolCalls,
           revision: baseRevision,
         }),
@@ -135,6 +169,7 @@ export function BotEditor({
     capabilities,
     collaboratorIds,
     hostIds,
+    hostGrants,
     maxToolCalls,
     baseRevision,
     dirty,
@@ -163,11 +198,12 @@ export function BotEditor({
               setAvatar(bot.avatar)
               setDescription(bot.description)
               setInstructions(bot.instructions)
-              setModelId(bot.modelId)
+              setModelId(bot.modelId ?? '')
               setEnabled(bot.enabled)
               setCapabilities(bot.capabilities)
               setCollaborators(bot.collaboratorIds)
               setHosts(bot.hostIds)
+              setHostGrants(bot.hostGrants ?? [])
               setMaxTools(bot.maxToolCalls)
               setBaseRevision(bot.revision)
               setDirty(false)
@@ -185,18 +221,20 @@ export function BotEditor({
         }}
       >
         <Form
+          submit={bot ? '保存' : '创建 Bot'}
           onSubmit={async () => {
             const value = {
               name,
               avatar,
               description,
               instructions,
-              modelId,
+              modelId: modelId || null,
               enabled,
               runningTasks,
               capabilities,
               collaboratorIds,
               hostIds,
+              hostGrants,
               maxToolCalls,
               ...(bot ? { revision: baseRevision } : {}),
             }
@@ -230,45 +268,66 @@ export function BotEditor({
               <Avatar name={name || 'Bot'} />
             </div>
           </div>
-          <Field label="简介">
-            <Input maxLength={400} value={description} onChange={(e) => setDescription(e.target.value)} />
-          </Field>
-          <Field label="文本模型">
-            <Select
-              value={modelId}
-              onChange={(value) => {
-                markDirty()
-                setModelId(value)
-              }}
-              required
-            >
-              <option value="">选择模型</option>
-              {snapshot.models
-                .filter((m) => m.kind === 'text')
-                .map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-            </Select>
-            {!snapshot.models.some((m) => m.kind === 'text') && (
-              <Button type="button" variant="ghost" onClick={() => navigate('settings')}>
-                先配置文本模型
-              </Button>
-            )}
-          </Field>
-          <Field label="角色指令">
+          <Field label="角色职责">
             <Textarea
               className="instructions"
               required
               maxLength={32000}
+              placeholder="例如：帮我梳理需求、安排工作，并跟进结果。"
               value={instructions}
               onChange={(e) => setInstructions(e.target.value)}
             />
           </Field>
-          <Check checked={enabled} onChange={setEnabled}>
-            启用角色
-          </Check>
+          <details className="bot-editor-advanced">
+            <summary>角色设置</summary>
+            <Field label="对话模型">
+              <Select
+                value={modelId}
+                onChange={(value) => {
+                  markDirty()
+                  setModelId(value)
+                }}
+              >
+                <option value="">
+                  跟随默认模型
+                  {snapshot.models.find((model) => model.id === snapshot.modelSettings.defaultModelId)?.name
+                    ? ` · ${snapshot.models.find((model) => model.id === snapshot.modelSettings.defaultModelId)!.name}`
+                    : ''}
+                </option>
+                {snapshot.models
+                  .filter((m) => m.kind === 'text')
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+              </Select>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  const effectiveId = modelId || snapshot.modelSettings.defaultModelId
+                  if (effectiveId) {
+                    try {
+                      sessionStorage.setItem('bots.model.focus', effectiveId)
+                    } catch {
+                      /* The settings list remains usable without focus storage. */
+                    }
+                  }
+                  if (onSettings) onSettings('models')
+                  else navigate('settings', 'models')
+                }}
+              >
+                模型设置
+              </Button>
+            </Field>
+            <Field label="简介">
+              <Input maxLength={400} value={description} onChange={(e) => setDescription(e.target.value)} />
+            </Field>
+            <Check checked={enabled} onChange={setEnabled}>
+              启用角色
+            </Check>
+          </details>
           {!enabled &&
             snapshot.tasks.some(
               (task) => task.botId === bot?.id && ['queued', 'running', 'waiting', 'stopping'].includes(task.status),
@@ -287,7 +346,7 @@ export function BotEditor({
               </Field>
             )}
           <details className="bot-editor-advanced">
-            <summary>能力与权限</summary>
+            <summary>能力、授权与预算</summary>
             <div className="choice-list">
               {(Object.keys(capabilityNames) as Capability[]).map((cap) => (
                 <Check
@@ -326,7 +385,7 @@ export function BotEditor({
               </Field>
             )}
             {capabilities.includes('hosts') && (
-              <Field label="允许访问的 Host">
+              <Field label="允许访问的整个 Host">
                 <div className="choice-list">
                   {snapshot.hosts.map((h) => (
                     <Check
@@ -338,6 +397,35 @@ export function BotEditor({
                     >
                       {h.name}
                     </Check>
+                  ))}
+                </div>
+              </Field>
+            )}
+            {hostGrants.length > 0 && (
+              <Field label="已授权的 Host 项目">
+                <div className="host-project-grants">
+                  {hostGrants.map((grant) => (
+                    <div className="host-project-grant" key={`${grant.hostId}:${grant.projectId}`}>
+                      <span>
+                        {snapshot.hosts.find((host) => host.id === grant.hostId)?.name ?? grant.hostId} ·{' '}
+                        {grant.projectId}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          markDirty()
+                          setHostGrants((values) =>
+                            values.filter(
+                              (value) => value.hostId !== grant.hostId || value.projectId !== grant.projectId,
+                            ),
+                          )
+                        }}
+                      >
+                        移除
+                      </Button>
+                    </div>
                   ))}
                 </div>
               </Field>

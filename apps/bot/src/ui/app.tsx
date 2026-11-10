@@ -5,9 +5,10 @@ import { motionTransition } from './motion'
 import { useBotNavigation } from './navigation'
 import { useListDrawer } from './list-drawer'
 import { getSnapshot, request, RequestError } from '../client/api'
-import type { Snapshot } from '../shared/types'
+import type { Snapshot, TaskLive } from '../shared/types'
 import { Button, ErrorText, Field, Form, Input } from './common'
 import { Chats } from './chats'
+import { ModelOnboarding } from './model-settings'
 
 const SettingsDialog = lazy(() => import('./settings-dialog').then((module) => ({ default: module.SettingsDialog })))
 const pages = ['chats']
@@ -69,15 +70,20 @@ export function App() {
   }, [])
   const initialCursor = useRef('')
   const refreshRef = useRef<Promise<void> | null>(null)
+  const refreshQueued = useRef(false)
   const refresh = useCallback((): Promise<void> => {
+    refreshQueued.current = true
     if (refreshRef.current) return refreshRef.current
-    const pending = getSnapshot()
-      .then((data) => {
+    const pending = (async () => {
+      do {
+        refreshQueued.current = false
+        const data = await getSnapshot()
         initialCursor.current = data.cursor
         setSnapshot(data)
         setOnline(true)
         setError(undefined)
-      })
+      } while (refreshQueued.current)
+    })()
       .catch((cause) => {
         setError(cause)
         setOnline(false)
@@ -120,6 +126,15 @@ export function App() {
       events.onmessage = update
       events.addEventListener('change', update)
       events.addEventListener('resync', update)
+      events.addEventListener('live', (event) => {
+        try {
+          const live: unknown = JSON.parse((event as MessageEvent<string>).data)
+          if (Array.isArray(live))
+            window.dispatchEvent(new CustomEvent<TaskLive[]>('bots:live', { detail: live as TaskLive[] }))
+        } catch {
+          update()
+        }
+      })
       events.addEventListener('unauthenticated', () => {
         events.close()
         setAuth({ initialized: true, authenticated: false })
@@ -155,6 +170,15 @@ export function App() {
   useEffect(() => {
     setDrawerOpen(false)
   }, [location.id])
+  const previousInitialized = useRef<boolean | undefined>(undefined)
+  useEffect(() => {
+    if (!snapshot) return
+    const activated = previousInitialized.current === false && snapshot.modelSettings.initialized
+    previousInitialized.current = snapshot.modelSettings.initialized
+    if (!activated || location.id) return
+    const assistant = snapshot.bots.find((bot) => bot.id === snapshot.modelSettings.defaultAssistantId)
+    if (assistant?.webConversationId) navigateTo('chats', assistant.webConversationId)
+  }, [location.id, snapshot, navigateTo])
   function navigate(page: string, id?: string) {
     setDrawerOpen(false)
     if (page === 'chats') {
@@ -200,6 +224,7 @@ export function App() {
   if (!auth.authenticated)
     return <Login initialized={auth.initialized} done={() => setAuth({ initialized: true, authenticated: true })} />
   const props = snapshot ? { snapshot, refresh, navigate } : null
+  if (props && !props.snapshot.modelSettings.initialized) return <ModelOnboarding {...props} />
   return (
     <div className={cn('bot-app', !listOpen && 'list-collapsed', isNarrow && drawerOpen && 'narrow-list-open')}>
       <main ref={contentFrame} className="content-frame" aria-label="Pi Bot">
@@ -259,7 +284,14 @@ export function App() {
             </div>
           }
         >
-          <SettingsDialog {...props} initialTab={settingsTab} close={() => setSettingsTab(undefined)} />
+          <SettingsDialog
+            {...props}
+            initialTab={settingsTab}
+            close={() => {
+              setSettingsTab(undefined)
+              window.dispatchEvent(new Event('bots:settings-closed'))
+            }}
+          />
         </Suspense>
       )}
     </div>

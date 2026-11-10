@@ -202,6 +202,38 @@
   min-height: 20px;
 }
 
+.chats-page .draft-attachment-preview {
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.chats-page .composer.is-dragging {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}
+
+.message-memory {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.message-memory .task-interaction-card {
+  color: var(--foreground);
+}
+
+.pending-message blockquote {
+  width: 100%;
+  max-height: 5em;
+  margin: 0;
+  padding-left: 10px;
+  overflow: auto;
+  border-left: 2px solid var(--border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .chats-page .recipient-menu > div {
   max-width: calc(100vw - 96px);
   max-height: 240px;
@@ -253,6 +285,286 @@
   .chats-page .composer-actions select {
     max-width: 118px;
     font-size: 12px;
+  }
+}
+
+.chats-page .markdown,
+.chats-page .collaboration .markdown,
+.ds-bot-details .markdown {
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.chats-page .message,
+.chats-page .composer-wrap {
+  width: min(100%, 980px);
+  margin-inline: auto;
+}
+
+.chats-page .message-body {
+  max-width: min(760px, calc(100% - 46px));
+}
+
+.chats-page .chat-header-actions .button {
+  position: relative;
+}
+
+.task-attention-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--foreground);
+}
+
+.live-tool-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.live-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+}
+
+.live-typing i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--muted-foreground);
+}
+
+.task-inline-interactions:empty {
+  display: none;
+}
+
+.task-interaction-card {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.task-interaction-card p {
+  margin: 0;
+}
+
+.task-interaction-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.task-interaction-card form {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+
+.task-interaction-card form .control {
+  width: 100%;
+}
+
+.task-proposal-values {
+  display: grid;
+  gap: 10px;
+  max-height: 24rem;
+  margin: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.task-proposal-values > div {
+  display: grid;
+  gap: 2px;
+}
+
+.task-proposal-values dt {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.task-proposal-values dd {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.conversation-overview .ds-details-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0 24px;
+  text-align: center;
+}
+
+.ds-details-identity > .avatar,
+.ds-details-identity > .avatar img {
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+}
+
+.ds-details-identity h2,
+.ds-details-identity p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ds-details-identity h2 {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.ds-details-identity p {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.ds-details-section {
+  padding: 18px 0;
+  border-top: 1px solid var(--border);
+}
+
+.ds-details-section h3 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+.ds-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 9px 0;
+  text-align: left;
+  font-size: 13px;
+}
+
+.ds-detail-row > span:first-of-type {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ds-detail-row small {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.ds-detail-row .avatar {
+  flex: 0 0 30px;
+}
+
+.ds-detail-row > svg:last-child {
+  flex-shrink: 0;
+  color: var(--muted-foreground);
+}
+
+.detail-section-link {
+  padding: 0;
+}
+
+.detail-section-link h3 {
+  flex: 1;
+  margin: 0;
+}
+
+.detail-section-link > span {
+  flex: 0 0 auto !important;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.detail-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.detail-capabilities > span {
+  padding: 3px 8px;
+  border-radius: 7px;
+  background: var(--secondary);
+  font-size: 12px;
+}
+
+.detail-memory {
+  margin-top: 14px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.detail-memory p {
+  display: -webkit-box;
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.conversation-actions-menu {
+  z-index: 90;
+}
+
+.conversation-task-tree,
+.conversation-task-tree ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.conversation-task-tree ul {
+  margin-left: 10px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+.task-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.task-tree-row .task-row {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.task-tree-row small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+@media (max-width: 640px) {
+  .task-interaction-card {
+    padding: 12px;
   }
 }
 

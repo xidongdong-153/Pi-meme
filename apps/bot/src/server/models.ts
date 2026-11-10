@@ -6,6 +6,8 @@ import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messag
 import { googleGenerativeAIApi } from '@earendil-works/pi-ai/api/google-generative-ai.lazy'
 import type { ModelConfig } from '../shared/types.js'
 import type { BotStore } from './contracts.js'
+import { effectiveModel, modelConfigFingerprint, modelFingerprint } from './model-settings.js'
+import { catalogModel, localAnonymousModel, modelMetadata } from './model-metadata.js'
 
 export const modelProviderId = (model: ModelConfig) => `bot-${model.id}-${model.revision}`
 export const createBotModels = () => createModels()
@@ -13,25 +15,26 @@ export const createBotModels = () => createModels()
 export function installModel(models: ReturnType<typeof createModels>, config: ModelConfig, store: BotStore) {
   if (config.kind !== 'text') return
   const provider = modelProviderId(config)
-  const api =
-    config.provider === 'anthropic'
-      ? 'anthropic-messages'
-      : config.provider === 'google'
-        ? 'google-generative-ai'
-        : config.provider === 'openai'
-          ? 'openai-responses'
-          : 'openai-completions'
+  const known = catalogModel(config)
+  const fingerprint = modelConfigFingerprint(config)
   const model: Model<Api> = {
+    ...known,
     id: config.model,
     name: config.name,
-    api,
+    api:
+      config.protocol ??
+      (config.provider === 'anthropic'
+        ? 'anthropic-messages'
+        : config.provider === 'google'
+          ? 'google-generative-ai'
+          : config.provider === 'openai'
+            ? 'openai-responses'
+            : 'openai-completions'),
     provider,
     baseUrl: config.baseUrl,
-    reasoning: false,
-    input: ['text', 'image'],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 128000,
-    maxTokens: 8192,
+    ...modelMetadata(config),
+    input: known?.input ?? ['text', 'image'],
+    cost: known?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   }
   models.setProvider(
     createProvider({
@@ -43,14 +46,18 @@ export function installModel(models: ReturnType<typeof createModels>, config: Mo
         apiKey: {
           name: config.name,
           resolve: async () => {
-            const current = store.read().models[config.id]
-            if (!current || current.credentialRef !== config.credentialRef)
-              throw new Error('模型凭据已撤销或更新，请创建新任务')
-            const key = await store.secret(config.credentialRef)
-            const latest = store.read().models[config.id]
-            if (!latest || latest.credentialRef !== config.credentialRef)
-              throw new Error('模型凭据已撤销或更新，请创建新任务')
-            return { auth: key ? { apiKey: key } : {} }
+            const assertCurrent = () => {
+              const state = store.read()
+              const current = state.models[config.id]
+              if (!current || modelFingerprint(state, current) !== fingerprint)
+                throw new Error('模型连接或凭据已撤销或更新，请创建新任务')
+              return effectiveModel(state, current)
+            }
+            const current = assertCurrent()
+            const key = await store.secret(current.credentialRef)
+            assertCurrent()
+            if (!key && !localAnonymousModel(current)) throw new Error('模型凭据已撤销或不存在')
+            return { auth: { apiKey: key ?? 'local-anonymous' } }
           },
         },
       },

@@ -12,20 +12,54 @@ export interface Bot extends Resource {
   avatar: string
   description: string
   instructions: string
-  modelId: string
+  modelId: string | null
+  resolvedModelId?: string
   enabled: boolean
   capabilities: Capability[]
   collaboratorIds: string[]
   hostIds: string[]
+  hostGrants?: { hostId: string; projectId: string }[]
   maxToolCalls: number
   webConversationId?: string
+}
+export type ModelProvider = 'openai' | 'anthropic' | 'google' | 'openai-compatible'
+export type ModelProtocol = 'openai-responses' | 'openai-completions' | 'anthropic-messages' | 'google-generative-ai'
+export interface ModelService extends Resource {
+  name: string
+  provider: ModelProvider
+  protocol: ModelProtocol
+  baseUrl: string
+  credentialRef?: string
+  hasCredential?: boolean
+}
+export interface ModelVerification {
+  status: 'unverified' | 'verified' | 'unsupported' | 'failed' | 'unknown'
+  fingerprint?: string
+  checkedAt?: string
+  error?: string
+  imageInput?: boolean
+  toolCalls?: boolean
+}
+export interface ModelSettings {
+  revision: number
+  services: ModelService[]
+  models: ModelConfig[]
+  defaultModelId: string | null
+  defaultAssistantId: string | null
+  initialized: boolean
 }
 export interface ModelConfig extends Resource {
   name: string
   kind: 'text' | 'image'
-  provider: 'openai' | 'anthropic' | 'google' | 'openai-compatible'
+  provider: ModelProvider
   model: string
   baseUrl: string
+  serviceId?: string
+  protocol?: ModelProtocol
+  contextWindow?: number
+  maxTokens?: number
+  reasoning?: boolean
+  verification?: ModelVerification
   credentialRef?: string
   hasCredential?: boolean
 }
@@ -40,6 +74,15 @@ export interface Conversation extends Resource {
   sequence: number
   qqUserId?: string
   qqAppId?: string
+  collaborationEnabled?: boolean
+  contextSummaries?: Record<string, ConversationSummary>
+}
+export interface ConversationSummary {
+  content: string
+  throughSequence: number
+  modelId: string
+  updatedAt: string
+  memberSince: number
 }
 export interface Message extends Resource {
   conversationId: string
@@ -70,6 +113,60 @@ export interface HostDelegation {
   lastSyncedAt?: string
   cursor?: { journalEpoch: string; seq: number }
 }
+export interface InteractionOption {
+  label: string
+  value: string
+}
+export interface TaskProposal {
+  kind: 'create-bot' | 'create-group' | 'create-schedule' | 'remember'
+  value: Record<string, unknown>
+}
+export interface TaskInteraction extends Resource {
+  taskId: string
+  toolCallId: string
+  kind: 'question' | 'permission' | 'proposal'
+  status: 'pending' | 'answered' | 'cancelled'
+  question: string
+  options?: InteractionOption[]
+  capability?: Capability
+  targetRefs?: { hostId?: string; projectId?: string; botId?: string }
+  proposal?: TaskProposal
+  response?: TaskResponse
+  responseRequestId?: string
+}
+export interface TaskResponse {
+  interactionId: string
+  revision: number
+  decision?: 'approve' | 'deny'
+  answer?: string | string[]
+  scope?: 'task' | 'bot'
+}
+export interface TaskGrant {
+  capability: Capability
+  interactionId: string
+  botRevision?: number
+  grantedAt: string
+  hostId?: string
+  projectId?: string
+  botId?: string
+}
+export interface TaskLive {
+  taskId: string
+  conversationId: string
+  botId: string
+  version: number
+  generation: number
+  text: string
+  tool?: string
+  status: TaskStatus
+  runId?: string
+}
+export interface CapabilityBlocker {
+  code: 'missing-config' | 'permission-required' | 'model-unavailable'
+  capability: Capability | 'chat'
+  message: string
+  targetRefs?: { hostId?: string; projectId?: string; botId?: string }
+}
 export interface Task extends Resource {
   conversationId: string
   sourceMessageId: string
@@ -79,6 +176,8 @@ export interface Task extends Resource {
   status: TaskStatus
   prompt: string
   result?: string
+  partialResult?: string
+  liveGeneration?: number
   error?: string
   runtimeId?: string
   submissionId?: string
@@ -96,6 +195,9 @@ export interface Task extends Resource {
   modelConfig?: ModelConfig
   mode?: 'queue' | 'steer'
   contextThroughSequence?: number
+  interactions?: TaskInteraction[]
+  grants?: TaskGrant[]
+  blocker?: CapabilityBlocker
 }
 export interface HostConnection extends Resource {
   name: string
@@ -140,6 +242,7 @@ export interface Schedule extends Resource {
   lastRunAt?: string
   activeTaskId?: string
   notification: 'web' | 'qq'
+  executionGrant?: string
 }
 export interface ScheduleRun extends Resource {
   scheduleId: string
@@ -230,6 +333,8 @@ export interface AppState {
   credentialGeneration: number
   bots: Record<string, Bot>
   models: Record<string, ModelConfig>
+  modelServices: Record<string, ModelService>
+  modelSettings: Omit<ModelSettings, 'models' | 'services'>
   conversations: Record<string, Conversation>
   messages: Record<string, Message>
   tasks: Record<string, Task>
@@ -256,8 +361,10 @@ export interface MessageInput {
   source: 'web' | 'api' | 'qq' | 'schedule'
   requestId: string
   mode?: 'queue' | 'steer'
+  targetTaskId?: string
   notification?: 'web' | 'qq'
   platformMessageId?: string
+  scheduleRunId?: string
 }
 export interface AcceptedMessage {
   messageId: string
@@ -271,6 +378,8 @@ export interface CapabilityState {
 export interface Snapshot {
   bots: Bot[]
   models: ModelConfig[]
+  modelSettings: ModelSettings
+  live?: TaskLive[]
   conversations: Conversation[]
   tasks: Task[]
   hosts: HostConnection[]

@@ -13,6 +13,7 @@ import { createAttachmentServices, registerCoreRoutes } from './routes.js'
 import { registerHostRoutes } from './hosts.js'
 import { registerQqRoutes } from './qq.js'
 import { registerCapabilityRoutes } from './capabilities.js'
+import { applyTaskProposal } from './domain-mutations.js'
 
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
@@ -59,10 +60,10 @@ async function inputDigest(request: Request, epoch: string) {
   return digest.digest('hex')
 }
 
-export async function createBotService(options: { publicOrigin?: string; port?: number } = {}) {
+export async function createBotService(options: { publicOrigin?: string; port?: number; dataDirectory?: string } = {}) {
   const models = createBotModels()
   const registry = createRegistry()
-  const store = await DurableBotStore.open(models, registry)
+  const store = await DurableBotStore.open(models, registry, { directory: options.dataDirectory })
   const app = new Hono()
   let ready = false
   let runtime: BotRuntime
@@ -71,6 +72,8 @@ export async function createBotService(options: { publicOrigin?: string; port?: 
     ...createAttachmentServices(store),
     acceptMessage: (input) => runtime.acceptMessage(input),
     stopTask: (id) => runtime.stopTask(id),
+    applyProposal: (proposal, task, interactionId) =>
+      store.update((state) => applyTaskProposal(state, proposal, task.id, interactionId)),
   }
   runtime = new BotRuntime(store, models, registry, services)
   const inFlight = new Map<
@@ -154,12 +157,14 @@ export async function createBotService(options: { publicOrigin?: string; port?: 
       }
       if (existing) {
         const result = existing.result as { status?: number; body?: string; contentType?: string }
-        if (!result.status || result.body === undefined)
+        const recoverable = /^\/api\/v1\/(?:conversations\/[^/]+\/messages|tasks\/[^/]+\/responses)$/.test(c.req.path)
+        if ((!result.status || result.body === undefined) && !recoverable)
           throw new BotError(409, 'outcome-unknown', '上次请求结果待核对，请查询资源；不会自动重做')
-        return new Response(result.body, {
-          status: result.status,
-          headers: { 'Content-Type': result.contentType ?? 'application/json', 'Cache-Control': 'no-store' },
-        })
+        if (result.status && result.body !== undefined)
+          return new Response(result.body, {
+            status: result.status,
+            headers: { 'Content-Type': result.contentType ?? 'application/json', 'Cache-Control': 'no-store' },
+          })
       }
       let resolve!: (result: { status: number; body: string; contentType: string }) => void
       let reject!: (error: unknown) => void

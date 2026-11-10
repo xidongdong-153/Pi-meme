@@ -4,13 +4,24 @@ import { open, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { streamSSE } from 'hono/streaming'
 import type { Context } from 'hono'
-import type { AppState, Bot, Capability, Conversation, Memory, ModelConfig, Snapshot } from '../shared/types.js'
+import type { AppState, Snapshot, TaskResponse } from '../shared/types.js'
 import type { BotApp, BotServices } from './contracts.js'
 import { authenticate, hash } from './auth.js'
 import { BotError, ids, requireItem, revision, text, touch } from './errors.js'
 import type { BotRuntime } from './runtime.js'
 import { activeTask } from './runtime.js'
 import { ensureBotConversation } from './bot-conversations.js'
+import { botFields, botView } from './bot-fields.js'
+import {
+  deleteModel,
+  fallbackDefaultAssistant,
+  modelSettingsView,
+  patchModelSettings,
+  resolveBotModel,
+} from './model-settings.js'
+import { imageMimeTypes, readableAttachment } from '../shared/attachment-types.js'
+import { checkModelSettings } from './model-check.js'
+import { conversationFields, createBot, createConversation, saveMemory } from './domain-mutations.js'
 
 export function resource() {
   const now = new Date().toISOString()
@@ -31,14 +42,16 @@ function removeSecret<T extends { credentialRef?: string; hasCredential?: boolea
 }
 
 export function snapshot(state: AppState): Snapshot {
-  const textAvailable = Object.values(state.models).some(
-    (model) =>
-      model.kind === 'text' &&
-      (!!model.credentialRef ||
-        (model.provider === 'openai-compatible' &&
-          ['localhost', '127.0.0.1', '[::1]'].includes(new URL(model.baseUrl).hostname))),
-  )
-  const imagesAvailable = Object.values(state.models).some((model) => model.kind === 'image' && !!model.credentialRef)
+  const modelSettings = modelSettingsView(state)
+  const textAvailable = Object.values(state.models).some((model) => {
+    try {
+      resolveBotModel(state, model.id)
+      return true
+    } catch {
+      return false
+    }
+  })
+  const imagesAvailable = modelSettings.models.some((model) => model.kind === 'image' && model.hasCredential)
   const qq = removeSecret(state.qq)
   delete qq.bindingCodeHash
   delete qq.bindingExpiresAt
@@ -50,8 +63,9 @@ export function snapshot(state: AppState): Snapshot {
     return copy
   })
   return {
-    bots: Object.values(state.bots),
-    models: Object.values(state.models).map(removeSecret),
+    bots: Object.values(state.bots).map((bot) => botView(state, bot)),
+    models: modelSettings.models,
+    modelSettings,
     conversations: Object.values(state.conversations),
     tasks,
     hosts: Object.values(state.hosts).map(removeSecret),
@@ -68,7 +82,7 @@ export function snapshot(state: AppState): Snapshot {
     capabilities: {
       chat: {
         available: textAvailable,
-        reason: textAvailable ? undefined : '请配置文本模型及凭据；本机兼容服务可免密',
+        reason: textAvailable ? undefined : '请配置并验证支持图片与工具调用的对话模型',
       },
       images: { available: imagesAvailable, reason: imagesAvailable ? undefined : '请配置图片模型及凭据' },
       web: {
@@ -85,70 +99,29 @@ export function snapshot(state: AppState): Snapshot {
   }
 }
 
-function botFields(input: Record<string, unknown>, state: AppState, current?: Bot): Bot {
-  const value = { ...current, ...input }
-  const capabilities = ids(value.capabilities ?? [], '能力') as Capability[]
-  if (capabilities.some((item) => !['collaborate', 'hosts', 'images', 'web', 'schedules'].includes(item)))
-    throw new BotError(400, 'invalid-input', '能力名称无效')
-  const collaboratorIds = ids(value.collaboratorIds ?? [], '协作角色')
-  const hostIds = ids(value.hostIds ?? [], 'Host')
-  for (const id of collaboratorIds) requireItem(state.bots[id], '协作角色')
-  for (const id of hostIds) requireItem(state.hosts[id], 'Host')
-  const modelId = text(value.modelId, '文本模型', 128, true)
-  if (modelId && requireItem(state.models[modelId], '模型').kind !== 'text')
-    throw new BotError(400, 'invalid-input', '请选择文本模型')
-  const maximum = value.maxToolCalls ?? 12
-  if (!Number.isInteger(maximum) || Number(maximum) < 1 || Number(maximum) > 32)
-    throw new BotError(400, 'invalid-input', '工具调用预算须为1–32整数')
-  if (value.enabled !== undefined && typeof value.enabled !== 'boolean')
-    throw new BotError(400, 'invalid-input', '启用状态须为布尔值')
-  return {
-    ...(current ?? resource()),
-    name: text(value.name, '名称', 80),
-    avatar: text(value.avatar ?? '🤖', '头像', 100, true),
-    description: text(value.description, '简介', 1000, true),
-    instructions: text(value.instructions, '角色指令', 32000, true),
-    modelId,
-    enabled: value.enabled !== false,
-    capabilities,
-    collaboratorIds,
-    hostIds,
-    maxToolCalls: Number(maximum),
-  }
-}
-
-function conversationFields(input: Record<string, unknown>, state: AppState, current?: Conversation): Conversation {
-  const value = { ...current, ...input }
-  const kind = value.kind ?? 'direct'
-  if (
-    !['direct', 'group', 'qq'].includes(String(kind)) ||
-    (!current && kind === 'qq') ||
-    (current && kind !== current.kind)
-  )
-    throw new BotError(400, 'invalid-input', '会话类型无效或不可改变')
-  const memberIds = ids(value.memberIds ?? [], '成员', 16)
-  if (!memberIds.length || (kind === 'direct' && memberIds.length !== 1) || (kind === 'group' && memberIds.length < 2))
-    throw new BotError(400, 'invalid-input', '私聊需1名Bot，群聊需2–16名Bot')
-  for (const id of memberIds) requireItem(state.bots[id], '成员')
-  if (current?.kind === 'direct' && current.coordinatorId !== memberIds[0])
-    throw new BotError(400, 'invalid-input', '私聊角色固定，请选择对应 Bot')
-  const coordinatorId = text(value.coordinatorId ?? memberIds[0], '协调者', 128)
-  if (!memberIds.includes(coordinatorId)) throw new BotError(400, 'invalid-input', '协调者须为当前成员')
-  const memberSince = { ...current?.memberSince }
-  for (const id of memberIds) if (!current?.memberIds.includes(id)) memberSince[id] = (current?.sequence ?? 0) + 1
-  for (const key of ['pinned', 'archived'] as const)
-    if (value[key] !== undefined && typeof value[key] !== 'boolean')
-      throw new BotError(400, 'invalid-input', `${key}须为布尔值`)
-  return {
-    ...(current ?? resource()),
-    kind: kind as Conversation['kind'],
-    name: text(value.name ?? state.bots[coordinatorId].name, '会话名称', 120),
-    memberIds,
-    coordinatorId,
-    memberSince,
-    pinned: value.pinned === true,
-    archived: value.archived === true,
-    sequence: current?.sequence ?? 0,
+function validImageHeader(bytes: Buffer, mime: string): boolean {
+  switch (mime) {
+    case 'image/png':
+      return (
+        bytes.length >= 33 &&
+        bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) &&
+        bytes.toString('ascii', 12, 16) === 'IHDR' &&
+        bytes.readUInt32BE(16) > 0 &&
+        bytes.readUInt32BE(20) > 0
+      )
+    case 'image/jpeg':
+      return bytes.length > 4 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+    case 'image/webp':
+      return bytes.length >= 20 && bytes.toString('ascii', 0, 4) === 'RIFF' && bytes.toString('ascii', 8, 12) === 'WEBP'
+    case 'image/gif':
+      return (
+        bytes.length >= 13 &&
+        ['GIF87a', 'GIF89a'].includes(bytes.toString('ascii', 0, 6)) &&
+        bytes.readUInt16LE(6) > 0 &&
+        bytes.readUInt16LE(8) > 0
+      )
+    default:
+      return false
   }
 }
 
@@ -165,6 +138,20 @@ export function createAttachmentServices(
         .replaceAll('\\', '_')
       const mime = text(input.mime, '文件类型', 150)
       if (!/^[\w.+-]+\/[\w.+-]+$/.test(mime)) throw new BotError(400, 'invalid-input', '文件类型无效')
+      if (input.source === 'upload') {
+        if (!readableAttachment(mime))
+          throw new BotError(400, 'unsupported-attachment', '支持 PNG、JPEG、WebP、GIF、UTF-8 文本和 JSON')
+        if (imageMimeTypes.includes(mime)) {
+          if (!validImageHeader(Buffer.from(input.bytes), mime))
+            throw new BotError(400, 'invalid-attachment', '图片内容与声明的文件类型不符或已经损坏')
+        } else {
+          try {
+            new TextDecoder('utf-8', { fatal: true }).decode(input.bytes)
+          } catch {
+            throw new BotError(400, 'invalid-attachment', '文本附件须使用有效的 UTF-8 编码')
+          }
+        }
+      }
       if (input.conversationId) requireItem(store.read().conversations[input.conversationId], '会话')
       const attachment = {
         ...resource(),
@@ -206,7 +193,7 @@ export function createAttachmentServices(
       if (!/^[\da-f-]{36}$/.test(attachment.objectName)) throw new BotError(403, 'forbidden', '附件对象无效')
       const handle = await open(
         join(store.directory, 'attachments', attachment.objectName),
-        constants.O_RDONLY | constants.O_NOFOLLOW,
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
       ).catch((cause: NodeJS.ErrnoException) => {
         if (cause.code && ['ELOOP', 'ENOENT', 'ENOTDIR', 'EACCES', 'EPERM'].includes(cause.code))
           throw new BotError(409, 'attachment-unavailable', '附件文件不可用，请检查文件权限和完整性')
@@ -229,22 +216,19 @@ export function createAttachmentServices(
 
 export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: BotRuntime) {
   const store = services.store
-  app.get('/api/v1/snapshot', (c) => c.json(snapshot(store.read())))
+  app.get('/api/v1/snapshot', (c) => c.json({ ...snapshot(store.read()), live: runtime.liveSnapshot() }))
   app.get('/api/v1/capabilities', (c) => c.json(snapshot(store.read()).capabilities))
-  app.get('/api/v1/bots', (c) => c.json({ items: Object.values(store.read().bots) }))
-  app.get('/api/v1/bots/:id', (c) => c.json(requireItem(store.read().bots[c.req.param('id')], 'Bot')))
+  app.get('/api/v1/bots', (c) => {
+    const state = store.read()
+    return c.json({ items: Object.values(state.bots).map((bot) => botView(state, bot)) })
+  })
+  app.get('/api/v1/bots/:id', (c) => {
+    const state = store.read()
+    return c.json(botView(state, requireItem(state.bots[c.req.param('id')], 'Bot')))
+  })
   app.post('/api/v1/bots', async (c) => {
     const input = await body(c)
-    return c.json(
-      await store.update((state) => {
-        if (Object.keys(state.bots).length >= 200) throw new BotError(409, 'limit-exceeded', '最多200个Bot')
-        const bot = botFields(input, state)
-        state.bots[bot.id] = bot
-        ensureBotConversation(state, bot.id)
-        return bot
-      }),
-      201,
-    )
+    return c.json(await store.update((state) => botView(state, createBot(state, input))), 201)
   })
   app.patch('/api/v1/bots/:id', async (c) => {
     const input = await body(c)
@@ -311,6 +295,12 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
       )
         throw new BotError(409, 'resource-in-use', '请先替换默认接待/协调者、暂停计划或归档关联会话')
       delete state.bots[bot.id]
+      fallbackDefaultAssistant(state, bot.id)
+      for (const remaining of Object.values(state.bots))
+        if (remaining.collaboratorIds.includes(bot.id)) {
+          remaining.collaboratorIds = remaining.collaboratorIds.filter((id) => id !== bot.id)
+          touch(remaining)
+        }
       for (const conversation of Object.values(state.conversations))
         if (conversation.memberIds.includes(bot.id)) {
           if (conversation.archived && conversation.kind === 'group') continue
@@ -328,15 +318,7 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
   app.get('/api/v1/conversations', (c) => c.json({ items: Object.values(store.read().conversations) }))
   app.post('/api/v1/conversations', async (c) => {
     const input = await body(c)
-    return c.json(
-      await store.update((state) => {
-        const conversation = conversationFields(input, state)
-        if (conversation.kind === 'direct') return ensureBotConversation(state, conversation.coordinatorId)
-        state.conversations[conversation.id] = conversation
-        return conversation
-      }),
-      201,
-    )
+    return c.json(await store.update((state) => createConversation(state, input)), 201)
   })
   app.get('/api/v1/conversations/:id', (c) =>
     c.json(requireItem(store.read().conversations[c.req.param('id')], '会话')),
@@ -431,6 +413,7 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
         attachmentIds: input.attachmentIds as string[] | undefined,
         recipientIds: input.recipientIds as string[] | undefined,
         mode: input.mode as 'queue' | 'steer' | undefined,
+        targetTaskId: input.targetTaskId as string | undefined,
         source: authenticate(c, store)?.kind === 'cookie' ? 'web' : 'api',
         requestId: `api:${hash(`${authenticate(c, store)!.id}:${c.req.path}:${c.req.header('Idempotency-Key')}`)}`,
       }),
@@ -453,90 +436,24 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
     ),
   )
   app.post('/api/v1/tasks/:id/stop', async (c) => c.json(await services.stopTask(c.req.param('id'))))
+  app.post('/api/v1/tasks/:id/responses', async (c) => {
+    const requestId = hash(`${authenticate(c, store)!.id}:${c.req.path}:${c.req.header('Idempotency-Key')}`)
+    const task = await runtime.respond(c.req.param('id'), (await body(c)) as unknown as TaskResponse, requestId)
+    const { modelConfig: _modelConfig, ...publicTask } = task
+    return c.json(publicTask)
+  })
   app.post('/api/v1/tasks/:id/attempts', async (c) => {
     const task = await runtime.retry(c.req.param('id'))
     delete task.modelConfig
     return c.json(task, 202)
   })
 
-  app.get('/api/v1/settings/models', (c) => c.json({ models: snapshot(store.read()).models }))
-  app.patch('/api/v1/settings/models', async (c) => {
-    const input = await body(c)
-    if (!Array.isArray(input.models) || input.models.length > 100)
-      throw new BotError(400, 'invalid-input', '模型列表无效')
-    const changes: { input: Record<string, unknown>; credentialRef?: string }[] = []
-    try {
-      for (const raw of input.models) {
-        if (!raw || typeof raw !== 'object' || Array.isArray(raw))
-          throw new BotError(400, 'invalid-input', '模型内容无效')
-        const value = raw as Record<string, unknown>
-        const apiKey = value.apiKey === undefined ? undefined : text(value.apiKey, 'API key', 8000, true)
-        changes.push({ input: value, credentialRef: apiKey ? await store.writeSecret(apiKey) : undefined })
-      }
-      const models = await store.update((state) =>
-        changes.map(({ input: value, credentialRef }) => {
-          const old = typeof value.id === 'string' ? requireItem(state.models[value.id], '模型') : undefined
-          if (old) revision(old, value.revision)
-          const provider = value.provider ?? old?.provider ?? 'openai-compatible'
-          const kind = value.kind ?? old?.kind ?? 'text'
-          if (
-            !['openai', 'openai-compatible', 'anthropic', 'google'].includes(String(provider)) ||
-            !['text', 'image'].includes(String(kind))
-          )
-            throw new BotError(400, 'invalid-input', '模型供应商或类型无效')
-          if (kind === 'image' && provider !== 'openai' && provider !== 'openai-compatible')
-            throw new BotError(400, 'capability-unavailable', '图片模型目前支持OpenAI或兼容图片API')
-          const defaultUrl =
-            provider === 'anthropic'
-              ? 'https://api.anthropic.com'
-              : provider === 'google'
-                ? 'https://generativelanguage.googleapis.com'
-                : 'https://api.openai.com/v1'
-          const baseUrl = text(value.baseUrl ?? old?.baseUrl ?? defaultUrl, '服务地址', 2000)
-          let url: URL
-          try {
-            url = new URL(baseUrl)
-          } catch {
-            throw new BotError(400, 'invalid-input', '模型地址无效')
-          }
-          if (
-            url.username ||
-            url.password ||
-            url.search ||
-            url.hash ||
-            (url.protocol !== 'https:' &&
-              !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))
-          )
-            throw new BotError(400, 'invalid-input', '远程模型须使用HTTPS；本机回环可用HTTP，地址不能包含凭据')
-          const model: ModelConfig = {
-            ...(old ?? resource()),
-            name: text(value.name ?? old?.name, '模型名称', 80),
-            kind: kind as ModelConfig['kind'],
-            provider: provider as ModelConfig['provider'],
-            model: text(value.model ?? old?.model, '模型ID', 200),
-            baseUrl: baseUrl.replace(/\/$/, ''),
-            credentialRef: value.apiKey === '' ? undefined : (credentialRef ?? old?.credentialRef),
-          }
-          if (old) touch(model)
-          state.models[model.id] = model
-          return removeSecret(model)
-        }),
-      )
-      return c.json({ models })
-    } catch (cause) {
-      await Promise.all(changes.map((item) => store.deleteSecret(item.credentialRef)))
-      throw cause
-    }
-  })
+  app.get('/api/v1/settings/models', (c) => c.json(modelSettingsView(store.read())))
+  app.patch('/api/v1/settings/models', async (c) => c.json(await patchModelSettings(store, await body(c))))
+  app.post('/api/v1/settings/models/check', async (c) => c.json(await checkModelSettings(store, await body(c))))
   app.delete('/api/v1/models/:id', async (c) => {
     const input = await body(c)
-    await store.update((state) => {
-      const model = requireItem(state.models[c.req.param('id')])
-      revision(model, input.revision)
-      if (Object.values(state.bots).some((bot) => bot.modelId === model.id))
-        throw new BotError(409, 'resource-in-use', '请先为关联Bot更换模型')
-      delete state.models[model.id]
-    })
+    await deleteModel(store, c.req.param('id'), input.revision)
     return c.json({ deleted: true })
   })
   app.get('/api/v1/settings', (c) => c.json(store.read().settings))
@@ -564,40 +481,17 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
   })
 
   app.get('/api/v1/memories', (c) => c.json({ items: Object.values(store.read().memories) }))
-  const saveMemory = async (c: Context, existing: boolean) => {
+  const saveMemoryRoute = async (c: Context, existing: boolean) => {
     const input = await body(c)
     return c.json(
-      await store.update((state) => {
-        const old = existing ? requireItem(state.memories[c.req.param('id')!]) : undefined
-        if (old) revision(old, input.revision)
-        const value = { ...old, ...input }
-        if (!['owner', 'bot', 'conversation'].includes(String(value.scope)))
-          throw new BotError(400, 'invalid-input', '记忆范围无效')
-        const targetId = value.scope === 'owner' ? undefined : text(value.targetId, '记忆目标', 128)
-        if (value.scope === 'bot') requireItem(state.bots[targetId!], 'Bot')
-        if (value.scope === 'conversation') requireItem(state.conversations[targetId!], '会话')
-        if (value.sourceMessageId) {
-          const source = requireItem(state.messages[text(value.sourceMessageId, '来源消息', 128)])
-          if (value.scope === 'conversation' && source.conversationId !== targetId)
-            throw new BotError(403, 'forbidden', '来源不属于该会话')
-        }
-        const memory: Memory = {
-          ...(old ?? resource()),
-          scope: value.scope as Memory['scope'],
-          targetId,
-          title: text(value.title, '标题', 120),
-          content: text(value.content, '记忆内容', 16000),
-          sourceMessageId: value.sourceMessageId as string | undefined,
-        }
-        if (old) touch(memory)
-        state.memories[memory.id] = memory
-        return memory
-      }),
+      await store.update((state) =>
+        saveMemory(state, input, existing ? requireItem(state.memories[c.req.param('id')!], '记忆') : undefined),
+      ),
       existing ? 200 : 201,
     )
   }
-  app.post('/api/v1/memories', (c) => saveMemory(c, false))
-  app.patch('/api/v1/memories/:id', (c) => saveMemory(c, true))
+  app.post('/api/v1/memories', (c) => saveMemoryRoute(c, false))
+  app.patch('/api/v1/memories/:id', (c) => saveMemoryRoute(c, true))
   app.delete('/api/v1/memories/:id', async (c) => {
     const input = await body(c)
     await store.update((state) => {
@@ -688,6 +582,8 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
   app.get('/api/v1/events', (c) => {
     const value = c.req.header('Last-Event-ID') ?? c.req.query('after')
     const initial = store.read()
+    const conversationId = c.req.query('conversationId')
+    if (conversationId) requireItem(initial.conversations[conversationId], '会话')
     let sequence = initial.seq
     if (value) {
       const index = value.lastIndexOf(':')
@@ -703,29 +599,55 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
       sequence = seq
     }
     return streamSSE(c, async (stream) => {
-      while (!stream.aborted) {
-        if (!authenticate(c, store)) {
-          await stream.writeSSE({ event: 'unauthenticated', data: '{}' })
-          break
-        }
-        const state = store.read()
-        if (sequence < (state.events[0]?.seq ?? 0) - 1) {
-          await stream.writeSSE({
-            event: 'resync',
-            data: JSON.stringify({ cursor: `${state.epoch}:${state.seq}`, resyncRequired: true }),
+      let liveVersion = 0
+      let sentLiveVersion = -1
+      let wake: (() => void) | undefined
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const unsubscribe = runtime.subscribeLive(() => {
+        liveVersion++
+        wake?.()
+      })
+      stream.onAbort(() => wake?.())
+      try {
+        while (!stream.aborted) {
+          if (!authenticate(c, store)) {
+            await stream.writeSSE({ event: 'unauthenticated', data: '{}' })
+            break
+          }
+          const state = store.read()
+          if (sequence < (state.events[0]?.seq ?? 0) - 1) {
+            await stream.writeSSE({
+              event: 'resync',
+              data: JSON.stringify({ cursor: `${state.epoch}:${state.seq}`, resyncRequired: true }),
+            })
+            break
+          }
+          for (const event of state.events.filter((event) => event.seq > sequence)) {
+            await stream.writeSSE({
+              id: `${state.epoch}:${event.seq}`,
+              event: 'change',
+              data: JSON.stringify({ cursor: `${state.epoch}:${event.seq}`, event }),
+            })
+            sequence = event.seq
+          }
+          if (sentLiveVersion !== liveVersion) {
+            const version = liveVersion
+            await stream.writeSSE({ event: 'live', data: JSON.stringify(runtime.liveSnapshot(conversationId)) })
+            sentLiveVersion = version
+          }
+          await stream.writeSSE({ event: 'heartbeat', data: JSON.stringify({ cursor: `${state.epoch}:${sequence}` }) })
+          if (sentLiveVersion !== liveVersion) continue
+          await new Promise<void>((resolve) => {
+            wake = resolve
+            timer = setTimeout(resolve, 1000)
           })
-          break
+          clearTimeout(timer)
+          wake = undefined
         }
-        for (const event of state.events.filter((event) => event.seq > sequence)) {
-          await stream.writeSSE({
-            id: `${state.epoch}:${event.seq}`,
-            event: 'change',
-            data: JSON.stringify({ cursor: `${state.epoch}:${event.seq}`, event }),
-          })
-          sequence = event.seq
-        }
-        await stream.writeSSE({ event: 'heartbeat', data: JSON.stringify({ cursor: `${state.epoch}:${sequence}` }) })
-        await stream.sleep(1000)
+      } finally {
+        unsubscribe()
+        clearTimeout(timer)
+        wake = undefined
       }
     })
   })

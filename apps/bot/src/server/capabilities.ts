@@ -1,11 +1,11 @@
-import { randomUUID } from 'node:crypto'
 import type { Context } from 'hono'
 import type { Schedule } from '../shared/types.js'
 import type { BotApp, BotServices, CapabilityAdapter } from './contracts.js'
 import { BotError } from './errors.js'
 import { createImageGenerator } from './images-generate.js'
 import { createScheduleRuntime, validateScheduleTarget } from './schedules-runtime.js'
-import { nextOccurrence, previewOccurrences, validateRule } from './schedules-time.js'
+import { previewOccurrences, validateRule } from './schedules-time.js'
+import { createSchedule, scheduleFields } from './domain-mutations.js'
 import { explorePublicPage } from './web-public.js'
 
 async function body(context: Context): Promise<Record<string, unknown>> {
@@ -30,42 +30,6 @@ function text(value: unknown, name: string, maximum: number, fallback?: string) 
 function revision(current: { revision: number }, expected: unknown) {
   if (!Number.isInteger(expected) || current.revision !== expected)
     throw new BotError(409, 'revision-conflict', '计划已变化，请重新读取后保存', { revision: current.revision })
-}
-
-function scheduleFields(input: Record<string, unknown>, current?: Schedule): Schedule {
-  const now = new Date().toISOString()
-  const value = { ...current, ...input }
-  const weekdays = value.weekdays ?? []
-  if (!Array.isArray(weekdays) || weekdays.length > 7 || weekdays.some((day) => typeof day !== 'number'))
-    throw new BotError(400, 'invalid-input', '星期必须是 0–6 的整数列表')
-  if (value.enabled !== undefined && typeof value.enabled !== 'boolean')
-    throw new BotError(400, 'invalid-input', '启用状态须为布尔值')
-  if (value.notification !== undefined && !['web', 'qq'].includes(String(value.notification)))
-    throw new BotError(400, 'invalid-input', '通知渠道须为 web 或 qq')
-  const schedule: Schedule = {
-    id: current?.id ?? randomUUID(),
-    revision: current ? current.revision + 1 : 1,
-    createdAt: current?.createdAt ?? now,
-    updatedAt: now,
-    name: text(value.name, '名称', 80),
-    conversationId: text(value.conversationId, '会话', 200),
-    botId: text(value.botId, 'Bot', 200),
-    prompt: text(value.prompt, '执行内容', 32_000),
-    enabled: value.enabled === undefined ? true : (value.enabled as boolean),
-    kind: value.kind as Schedule['kind'],
-    timezone: text(value.timezone, '时区', 100),
-    at: typeof value.at === 'string' ? value.at : '',
-    time: typeof value.time === 'string' ? value.time : '',
-    weekdays: [...new Set(weekdays as number[])],
-    notification: value.notification === 'qq' ? 'qq' : 'web',
-    lastRunAt: current?.lastRunAt,
-    activeTaskId: current?.activeTaskId,
-  }
-  validateRule(schedule)
-  if (schedule.kind === 'once') schedule.at = new Date(schedule.at).toISOString()
-  schedule.nextRunAt = schedule.enabled ? nextOccurrence(schedule) : undefined
-  if (schedule.enabled && !schedule.nextRunAt) throw new BotError(400, 'invalid-input', '启用计划须有未来的执行时间')
-  return schedule
 }
 
 export function registerCapabilityRoutes(app: BotApp, services: BotServices): CapabilityAdapter {
@@ -114,12 +78,8 @@ export function registerCapabilityRoutes(app: BotApp, services: BotServices): Ca
     return context.json(previewOccurrences(rule))
   })
   app.post('/api/v1/schedules', async (context) => {
-    const schedule = scheduleFields(await body(context))
-    await services.store.update((draft) => {
-      validateScheduleTarget(draft, schedule)
-      if (Object.keys(draft.schedules).length >= 500) throw new BotError(409, 'limit-exceeded', '最多保存 500 个计划')
-      draft.schedules[schedule.id] = schedule
-    })
+    const input = await body(context)
+    const schedule = await services.store.update((draft) => createSchedule(draft, input))
     return context.json(schedule, 201)
   })
   app.get('/api/v1/schedules/:id', (context) => {

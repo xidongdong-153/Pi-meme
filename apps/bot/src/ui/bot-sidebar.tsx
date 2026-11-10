@@ -30,7 +30,9 @@ export function BotSidebar({
   const [search, setSearch] = useState('')
   const searchInput = useRef<HTMLInputElement>(null)
   const query = search.trim().toLocaleLowerCase()
-  const lead = snapshot.bots.find((bot) => bot.id === snapshot.qq.defaultBotId) ?? snapshot.bots[0]
+  const lead =
+    snapshot.bots.find((bot) => bot.id === snapshot.modelSettings.defaultAssistantId && bot.enabled) ??
+    [...snapshot.bots].filter((bot) => bot.enabled).sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]
   const conversations = new Map(snapshot.conversations.map((conversation) => [conversation.id, conversation]))
   const entries = [
     ...snapshot.bots
@@ -132,6 +134,7 @@ export function BotSidebar({
             >
               <Avatar name={lead.name} avatar={lead.avatar} />
               <strong>{lead.name}</strong>
+              {lead.id === snapshot.modelSettings.defaultAssistantId && <small>默认助理</small>}
             </button>
           </div>
         )}

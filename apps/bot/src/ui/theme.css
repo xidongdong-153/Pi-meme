@@ -26,6 +26,8 @@
   --user-bubble: #25262a;
   --user-bubble-foreground: #ffffff;
   --overlay: #12141a66;
+  --shadow-dialog: 0 24px 80px #00000026;
+  --shadow-details: -12px 0 36px #0000000f;
   --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-code: ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-sans: var(--font-ui);
@@ -69,4 +71,6 @@
   --user-bubble: #e7e7ee;
   --user-bubble-foreground: #202124;
   --overlay: #00000080;
+  --shadow-dialog: 0 24px 80px #00000066;
+  --shadow-details: -12px 0 36px #00000040;
 }

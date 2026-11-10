@@ -1,5 +1,6 @@
 import { Activity, useState, ViewTransition } from 'react'
 import { Plus } from 'lucide-react'
+import type { AppProject } from '@pi-meme/contracts/app-host'
 import { request } from '../client/api'
 import type { HostConnection, QqConfig } from '../shared/types'
 import {
@@ -21,7 +22,6 @@ import {
 import type { PageProps } from './common'
 import { motionTransition } from './motion'
 
-type Project = { id: string; name?: string; cwd?: string }
 export function Connections({ snapshot, refresh, navigate }: PageProps) {
   const [activeTab, setTab] = useState('hosts')
   const [visited, setVisited] = useState<string[]>(['hosts'])
@@ -184,7 +184,7 @@ function HostEditor({
   const [name, setName] = useState(host?.name ?? '')
   const [url, setUrl] = useState(host?.url ?? 'http://127.0.0.1:4140')
   const [token, setToken] = useState('')
-  const [projects, setProjects] = useState<Project[]>([])
+  const [projects, setProjects] = useState<AppProject[]>([])
   const [projectIds, setProjectIds] = useState(host?.projectIds ?? [])
   const [cwd, setCwd] = useState('')
   const [error, setError] = useState<unknown>()
@@ -214,7 +214,7 @@ function HostEditor({
             <Button
               type="button"
               variant="outline"
-              onClick={() => void request<Project[]>(`/hosts/${host.id}/projects`).then(setProjects).catch(setError)}
+              onClick={() => void request<AppProject[]>(`/hosts/${host.id}/projects`).then(setProjects).catch(setError)}
             >
               读取项目
             </Button>
@@ -222,17 +222,19 @@ function HostEditor({
               <div className="choice-list">
                 {projects.map((p) => (
                   <Check
-                    key={p.id}
-                    checked={projectIds.includes(p.id)}
+                    key={p.projectId}
+                    checked={projectIds.includes(p.projectId)}
                     onChange={(checked) =>
-                      setProjectIds((values) => (checked ? [...values, p.id] : values.filter((id) => id !== p.id)))
+                      setProjectIds((values) =>
+                        checked ? [...values, p.projectId] : values.filter((id) => id !== p.projectId),
+                      )
                     }
                   >
-                    {p.name ?? p.cwd ?? p.id}
+                    {p.name || p.cwd || p.projectId}
                   </Check>
                 ))}
                 {projectIds
-                  .filter((id) => !projects.some((p) => p.id === id))
+                  .filter((id) => !projects.some((p) => p.projectId === id))
                   .map((id) => (
                     <Check
                       key={id}
@@ -253,7 +255,7 @@ function HostEditor({
                 type="button"
                 variant="outline"
                 onClick={() =>
-                  void request<Project>(`/hosts/${host.id}/projects`, { method: 'POST', body: { cwd } })
+                  void request<AppProject>(`/hosts/${host.id}/projects`, { method: 'POST', body: { cwd } })
                     .then((project) => setProjects((values) => [...values, project]))
                     .catch(setError)
                 }
@@ -398,7 +400,7 @@ function DelegationForm({
   const [conversationId, setConversation] = useState('')
   const [botId, setBot] = useState('')
   const [projectId, setProject] = useState('')
-  const [projects, setProjects] = useState<Project[]>([])
+  const [projects, setProjects] = useState<AppProject[]>([])
   const [prompt, setPrompt] = useState('')
   const [error, setError] = useState<unknown>()
   return (
@@ -429,7 +431,13 @@ function DelegationForm({
           <Select required value={botId} onChange={setBot}>
             <option value="">选择已授权角色</option>
             {snapshot.bots
-              .filter((b) => b.enabled && b.hostIds.includes(host.id) && b.capabilities.includes('hosts'))
+              .filter(
+                (b) =>
+                  b.enabled &&
+                  b.capabilities.includes('hosts') &&
+                  snapshot.conversations.find((item) => item.id === conversationId)?.memberIds.includes(b.id) &&
+                  (b.hostIds.includes(host.id) || b.hostGrants?.some((grant) => grant.hostId === host.id)),
+              )
               .map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}
@@ -440,7 +448,7 @@ function DelegationForm({
         <Button
           type="button"
           variant="outline"
-          onClick={() => void request<Project[]>(`/hosts/${host.id}/projects`).then(setProjects).catch(setError)}
+          onClick={() => void request<AppProject[]>(`/hosts/${host.id}/projects`).then(setProjects).catch(setError)}
         >
           读取授权项目
         </Button>
@@ -448,10 +456,17 @@ function DelegationForm({
           <Select required value={projectId} onChange={setProject}>
             <option value="">选择 Host 项目</option>
             {projects
-              .filter((p) => host.projectIds.includes(p.id))
+              .filter((p) => {
+                const bot = snapshot.bots.find((item) => item.id === botId)
+                return (
+                  host.projectIds.includes(p.projectId) &&
+                  (bot?.hostIds.includes(host.id) ||
+                    bot?.hostGrants?.some((grant) => grant.hostId === host.id && grant.projectId === p.projectId))
+                )
+              })
               .map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name ?? p.cwd ?? p.id}
+                <option key={p.projectId} value={p.projectId}>
+                  {p.name || p.cwd || p.projectId}
                 </option>
               ))}
           </Select>

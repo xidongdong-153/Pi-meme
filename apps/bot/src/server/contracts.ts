@@ -1,5 +1,5 @@
 import type { Hono } from 'hono'
-import type { AcceptedMessage, AppState, Attachment, MessageInput, Task } from '../shared/types.js'
+import type { AcceptedMessage, AppState, Attachment, MessageInput, Task, TaskProposal } from '../shared/types.js'
 
 export interface BotStore {
   directory: string
@@ -13,6 +13,7 @@ export interface BotServices {
   store: BotStore
   acceptMessage: (input: MessageInput) => Promise<AcceptedMessage>
   stopTask: (id: string) => Promise<{ taskIds: string[] }>
+  applyProposal: (proposal: TaskProposal, task: Task, interactionId: string) => Promise<unknown>
   saveAttachment: (input: {
     name: string
     mime: string
@@ -41,7 +42,7 @@ export interface CapabilityAdapter {
   start: () => Promise<void>
   close: () => Promise<void>
   generateImage: (
-    input: { prompt: string; conversationId: string; taskId?: string; modelId?: string },
+    input: { prompt: string; conversationId: string; taskId?: string; modelId?: string; toolCallId?: string },
     signal?: AbortSignal,
   ) => Promise<{ attachmentIds: string[]; generationId: string }>
   explore: (input: { url: string }, signal?: AbortSignal) => Promise<string>

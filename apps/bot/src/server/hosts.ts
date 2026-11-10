@@ -6,6 +6,7 @@ import type { InteractionAnswer, SubmissionReceipt } from '@pi-meme/contracts/ap
 import type { BotApp, BotServices, HostAdapter } from './contracts.js'
 import type { HostConnection, Task } from '../shared/types.js'
 import { BotError, requireItem } from './errors.js'
+import { collaborationAllowed, hostAllowed } from './task-interactions.js'
 
 const active = new Set(['queued', 'running', 'waiting', 'stopping'])
 function text(value: unknown, label: string, max = 200): string {
@@ -89,26 +90,40 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
     clients.get(id)?.value.dispose()
     clients.delete(id)
   }
-  async function clientFor(id: string): Promise<NodeHostClient> {
+  async function clientFor(id: string, checkConnection = false): Promise<NodeHostClient> {
     if (closed) throw new BotError(503, 'upstream-unavailable', 'Host 适配器已关闭')
     const host = hostFor(id)
     if (host.status === 'identity-changed')
       throw new BotError(409, 'host-identity-changed', 'Host 身份发生变化，请移除后重新登记并授权')
     const cached = clients.get(id)
-    if (cached?.revision === host.revision) return cached.value
-    invalidate(id)
+    if (cached?.revision === host.revision && host.status === 'online' && !checkConnection) return cached.value
+    if (cached?.revision !== host.revision) invalidate(id)
     const token = await store.secret(host.credentialRef)
     if (!token) throw new BotError(409, 'capability-unavailable', '尚未配置 Host 凭据')
     let identity: string | undefined
+    let expectedHostId = host.expectedHostId
     try {
-      const client = await createNodeHostClient({
-        url: host.url,
-        token,
-        hostId: host.expectedHostId,
-        clientId: `bots-${store.read().epoch}-${id}`.slice(0, 128),
-        webSocket: (url, headers) => new WebSocket(url, { headers }),
-        fetch: (url, init) => fetch(url, { ...init, signal: init?.signal ?? AbortSignal.timeout(30000) }),
-      })
+      const client =
+        cached?.revision === host.revision
+          ? cached.value
+          : await createNodeHostClient({
+              url: host.url,
+              token,
+              hostId: host.expectedHostId,
+              clientId: `bots-${store.read().epoch}-${id}`.slice(0, 128),
+              webSocket: (url, headers) => new WebSocket(url, { headers }),
+              fetch: (url, init) => {
+                const current = hostFor(id)
+                if (
+                  current.url !== host.url ||
+                  current.credentialRef !== host.credentialRef ||
+                  (expectedHostId && current.expectedHostId !== expectedHostId) ||
+                  current.status === 'identity-changed'
+                )
+                  throw new BotError(403, 'forbidden', 'Host 连接配置已改变，请重新检查连接')
+                return fetch(url, { ...init, signal: init?.signal ?? AbortSignal.timeout(30000) })
+              },
+            })
       const capabilities = await client.capabilities()
       identity = capabilities.hostId
       const next = await store.update((draft) => {
@@ -122,19 +137,22 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
         current.error = undefined
         current.checkedAt = new Date().toISOString()
         current.capabilities = capabilities.features
-        return touch(current)
+        // 连接观测单独更新 checkedAt，配置与授权编辑才推进 revision。
+        current.updatedAt = current.checkedAt
+        return current
       })
+      expectedHostId = identity
       clients.set(id, { revision: next.revision, value: client })
       return client
     } catch (error) {
       const changed = error instanceof Error && error.message.includes('身份')
       await store.update((draft) => {
         const current = draft.hosts[id]
-        if (current && current.url === host.url) {
+        if (current && current.url === host.url && current.credentialRef === host.credentialRef) {
           current.status = changed ? 'identity-changed' : 'offline'
           current.error = changed ? 'Host 身份发生变化，已阻断' : '连接或认证失败，请核对地址、凭据和网络'
           current.checkedAt = new Date().toISOString()
-          touch(current)
+          current.updatedAt = current.checkedAt
         }
       })
       throw new BotError(
@@ -144,7 +162,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
       )
     }
   }
-  function authorize(taskId: string, hostId: string, projectId: string) {
+  function authorize(taskId: string, hostId: string, projectId: string, allowFinished = false) {
     const state = store.read()
     const task = state.tasks[taskId]
     const bot = task && state.bots[task.botId]
@@ -161,26 +179,18 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
       if (
         !parent ||
         parent.stopRequested ||
-        !active.has(parent.status) ||
+        (!allowFinished && !active.has(parent.status)) ||
         !parentBot?.enabled ||
-        (parent.botId !== memberTask.botId &&
-          (!parentBot.collaboratorIds.includes(memberTask.botId) ||
-            !parent.config.collaboratorIds.includes(memberTask.botId)))
+        (parent.botId !== memberTask.botId && !collaborationAllowed(state, parent, memberTask.botId))
       )
         throw new BotError(403, 'forbidden', '后台协作授权已失效')
       memberTask = parent
     }
     if (!memberTask || !conversation.memberIds.includes(memberTask.botId))
       throw new BotError(403, 'forbidden', '来源角色已被移除')
-    if (!task || !bot?.enabled || task.stopRequested || !active.has(task.status))
+    if (!task || !bot?.enabled || task.stopRequested || (!allowFinished && !active.has(task.status)))
       throw new BotError(403, 'forbidden', '任务或角色已停用')
-    if (
-      !task.config.capabilities.includes('hosts') ||
-      !bot.capabilities.includes('hosts') ||
-      !task.config.hostIds.includes(hostId) ||
-      !bot.hostIds.includes(hostId) ||
-      !host.projectIds.includes(projectId)
-    )
+    if (!hostAllowed(state, task, hostId, projectId) || !host.projectIds.includes(projectId))
       throw new BotError(403, 'forbidden', '当前 Bot 未获该 Host 或项目授权')
     return { task, host }
   }
@@ -200,7 +210,24 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
       })
       const client = await clientFor(input.hostId)
       const host = hostFor(input.hostId)
+      const checkCurrent = () => {
+        try {
+          if (signal?.aborted) throw new BotError(403, 'forbidden', '委派等待已取消')
+          const current = authorize(input.taskId, input.hostId, input.projectId).host
+          if (
+            current.url !== host.url ||
+            current.credentialRef !== host.credentialRef ||
+            current.expectedHostId !== host.expectedHostId
+          )
+            throw new BotError(403, 'forbidden', 'Host 连接配置已改变')
+        } catch (cause) {
+          if (taskFor(input.taskId).hostDelegation?.operationId)
+            throw new BotError(409, 'outcome-unknown', '后续 Host 调用已停止，远端已有操作请通过回执核对')
+          throw cause
+        }
+      }
       const project = { hostId: host.expectedHostId!, projectId: input.projectId }
+      checkCurrent()
       await client.projects.get(project)
       let delegation = taskFor(input.taskId).hostDelegation
       if (input.sessionId && delegation?.sessionId && input.sessionId !== delegation.sessionId)
@@ -235,10 +262,12 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
           if (signal?.aborted) throw new BotError(409, 'outcome-unknown', '委派等待已取消')
           authorize(input.taskId, input.hostId, input.projectId)
           if (input.sessionId) {
+            checkCurrent()
             session = await client.sessions.get({ hostId: project.hostId, sessionId: input.sessionId })
             if (session.project?.projectId !== input.projectId || session.configuration.accessMode === 'full-access')
               throw new BotError(403, 'forbidden', '目标会话不属于授权项目或权限高于工作区修改')
-          } else
+          } else {
+            checkCurrent()
             session = await client.sessions.create(
               {
                 project,
@@ -247,7 +276,10 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
               },
               { idempotencyKey: `${delegation.idempotencyKey}-session` },
             )
+          }
+          checkCurrent()
           const baseline = await client.sessions.messages(session, { limit: 1 })
+          checkCurrent()
           const boundary = baseline.totalMessages
             ? await client.sessions.messages(session, { offset: baseline.totalMessages - 1, limit: 1 })
             : baseline
@@ -261,8 +293,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
             draft.tasks[input.taskId].hostDelegation!.status = 'submitting'
             touch(draft.tasks[input.taskId])
           })
-          if (signal?.aborted) throw new BotError(409, 'outcome-unknown', '委派等待已取消')
-          authorize(input.taskId, input.hostId, input.projectId)
+          checkCurrent()
           const receipt = await client.sessions.submit(
             session,
             { delivery: 'start', text: text(input.prompt, '任务内容', 100000) },
@@ -283,10 +314,12 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
       const deadline = Date.now() + 30 * 60_000
       while (Date.now() < deadline) {
         if (closed) break
+        checkCurrent()
         const current = taskFor(input.taskId).hostDelegation!
         if (!current.operationId || !current.sessionId)
           throw new BotError(409, 'outcome-unknown', 'Host 尚未返回稳定回执')
         const receipt = await client.sessions.receipt(current.operationId)
+        checkCurrent()
         await saveReceipt(input.taskId, receipt)
         if (receipt.status === 'completed') {
           const baseline = JSON.parse(store.read().inboundIds[`host-boundary:${input.taskId}`] ?? 'null') as {
@@ -295,6 +328,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
           } | null
           if (!baseline) throw new BotError(409, 'outcome-unknown', '缺少提交前消息边界，不能将旧会话结果作为本次交付')
           if (baseline.count) {
+            checkCurrent()
             const boundary = await client.sessions.messages(receipt.session, { offset: baseline.count - 1, limit: 1 })
             if (boundary.messages[0]?.id !== baseline.entryId)
               throw new BotError(409, 'outcome-unknown', 'Host 消息分支已变化，请在正式会话核对结果')
@@ -302,6 +336,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
           const messages = []
           let offset = baseline.count
           while (true) {
+            checkCurrent()
             const page = await client.sessions.messages(receipt.session, { offset, limit: 200 })
             messages.push(...page.messages)
             if (page.nextOffset === undefined) break
@@ -321,6 +356,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
             .map((message) => message.text)
             .join('\n\n')
           const result = answer || 'Host 已完成任务；正式会话中没有可读取的文本结果。'
+          checkCurrent()
           await store.update((draft) => {
             draft.tasks[input.taskId].hostDelegation!.result = result
             touch(draft.tasks[input.taskId])
@@ -333,8 +369,13 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
             receipt.outcomeUncertain ? 'outcome-unknown' : 'upstream-failed',
             receipt.error || `Host 任务${receipt.status}`,
           )
-        if (current.cursor) await client.events.read({ sessionId: receipt.session.sessionId, after: current.cursor })
+        if (current.cursor) {
+          checkCurrent()
+          await client.events.read({ sessionId: receipt.session.sessionId, after: current.cursor })
+        }
+        checkCurrent()
         const snapshot = await client.sessions.snapshot(receipt.session)
+        checkCurrent()
         await store.update((draft) => {
           draft.tasks[input.taskId].hostDelegation!.cursor = snapshot.controlCursor
         })
@@ -461,7 +502,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
   })
   app.post('/api/v1/hosts/:id/check', async (c) => {
     const id = c.req.param('id')
-    await clientFor(id)
+    await clientFor(id, true)
     return c.json(publicHost(hostFor(id)))
   })
   app.get('/api/v1/hosts/:id/projects', async (c) => {
@@ -521,10 +562,20 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
       },
     }
     const host = hostFor(hostId)
-    if (!bot.capabilities.includes('hosts') || !bot.hostIds.includes(host.id) || !host.projectIds.includes(projectId))
+    if (!hostAllowed(state, task, host.id, projectId) || !host.projectIds.includes(projectId))
       throw new BotError(403, 'forbidden', '角色未获目标 Host/项目授权')
     await store.update((draft) => {
-      const conv = draft.conversations[conversation.id]
+      const conv = requireItem(draft.conversations[conversation.id], '来源会话')
+      const currentBot = requireItem(draft.bots[bot.id], 'Bot')
+      const currentHost = requireItem(draft.hosts[hostId], 'Host')
+      if (
+        conv.archived ||
+        !conv.memberIds.includes(bot.id) ||
+        !currentBot.enabled ||
+        !hostAllowed(draft, task, hostId, projectId) ||
+        !currentHost.projectIds.includes(projectId)
+      )
+        throw new BotError(403, 'forbidden', '角色或 Host 项目授权已撤销')
       draft.messages[messageId] = {
         id: messageId,
         revision: 1,
@@ -626,23 +677,16 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
     const task = taskFor(c.req.param('id'))
     const delegation = task.hostDelegation
     if (!delegation?.sessionId) throw new BotError(404, 'not-found', '缺少 Host 委派会话')
-    const current = store.read()
-    const bot = current.bots[task.botId]
-    const host = hostFor(delegation.hostId)
-    if (
-      !bot?.enabled ||
-      !bot.hostIds.includes(host.id) ||
-      !bot.capabilities.includes('hosts') ||
-      !host.projectIds.includes(delegation.projectId)
-    )
-      throw new BotError(403, 'forbidden', 'Host 或项目授权已撤销')
+    const { host } = authorize(task.id, delegation.hostId, delegation.projectId, true)
     const input = await readInput(c.req)
     const relativePath = text(input.path, 'Host 产物路径', 4096)
     const client = await clientFor(host.id)
+    authorize(task.id, delegation.hostId, delegation.projectId, true)
     const preview = await client.files.preview(
       { hostId: hostFor(host.id).expectedHostId!, sessionId: delegation.sessionId },
       relativePath,
     )
+    authorize(task.id, delegation.hostId, delegation.projectId, true)
     if (preview.kind === 'unsupported')
       throw new BotError(409, 'capability-unavailable', `Host 无法读取该产物：${preview.reason}`)
     let bytes: Uint8Array
@@ -680,6 +724,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
     const response = input.response as InteractionAnswer
     if (!response || typeof response !== 'object') throw new BotError(400, 'invalid-input', '交互答案无效')
     const client = await clientFor(d.hostId)
+    authorize(task.id, d.hostId, d.projectId)
     await client.interaction.respond(
       { hostId: hostFor(d.hostId).expectedHostId!, sessionId: d.sessionId },
       { requestId, response, agentId: input.agentId === undefined ? undefined : text(input.agentId, 'Agent ID', 128) },

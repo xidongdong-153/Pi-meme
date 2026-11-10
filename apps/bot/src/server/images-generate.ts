@@ -1,11 +1,33 @@
 import { randomUUID } from 'node:crypto'
 import type { AppState, Generation } from '../shared/types.js'
 import type { BotServices } from './contracts.js'
-import { BotError } from './errors.js'
+import { BotError, requireItem } from './errors.js'
 import { getPublicResource } from './web-public.js'
+import { effectiveModel, modelConfigFingerprint, modelFingerprint } from './model-settings.js'
+import { assertTaskAuthorized } from './task-interactions.js'
 
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024
 const MAX_RESPONSE_BYTES = 30 * 1024 * 1024
+
+function generationReceipt(
+  generation: Generation,
+  input: { prompt: string; conversationId: string; modelId?: string },
+) {
+  if (
+    generation.prompt !== input.prompt.trim() ||
+    generation.conversationId !== input.conversationId ||
+    (input.modelId && generation.modelId !== input.modelId)
+  )
+    throw new BotError(409, 'idempotency-conflict', '同一生图工具调用不能更改输入')
+  if (generation.status !== 'completed')
+    throw new BotError(
+      generation.status === 'failed' ? 502 : 409,
+      generation.status === 'failed' ? 'upstream-unavailable' : 'outcome-unknown',
+      generation.error ?? '原生图调用尚无成功回执，请核对原记录后显式创建新尝试',
+      { generationId: generation.id },
+    )
+  return { generationId: generation.id, attachmentIds: generation.attachmentIds }
+}
 
 function imageMime(bytes: Uint8Array) {
   if (bytes.length >= 8 && Buffer.from(bytes.subarray(0, 8)).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
@@ -67,6 +89,7 @@ export function createImageGenerator(services: BotServices, shutdown: AbortSigna
       prompt: string
       conversationId: string
       taskId?: string
+      toolCallId?: string
       modelId?: string
       previousGenerationId?: string
       confirmUnknown?: boolean
@@ -89,13 +112,19 @@ export function createImageGenerator(services: BotServices, shutdown: AbortSigna
       throw new BotError(403, 'forbidden', '任务已停止或不属于来源会话')
     const botId = task?.botId ?? conversation.coordinatorId
     const bot = state.bots[botId]
-    if (!bot?.enabled || !bot.capabilities.includes('images'))
+    if (!bot?.enabled || (!task && !bot.capabilities.includes('images')))
       throw new BotError(403, 'forbidden', '该 Bot 未获图片生成授权')
-    const model = input.modelId
+    if (task) assertTaskAuthorized(state, task, 'images')
+    const receiptKey = input.taskId && input.toolCallId ? `image-tool:${input.taskId}:${input.toolCallId}` : undefined
+    const previousId = receiptKey && state.inboundIds[receiptKey]
+    if (previousId) return generationReceipt(requireItem(state.generations[previousId], '生图回执'), input)
+    const selected = input.modelId
       ? state.models[input.modelId]
       : Object.values(state.models).find((entry) => entry.kind === 'image')
+    const model = selected ? effectiveModel(state, selected) : undefined
     if (!model || model.kind !== 'image' || !['openai', 'openai-compatible'].includes(model.provider))
       throw new BotError(409, 'capability-unavailable', '请配置 OpenAI 或兼容 API 的独立图片模型')
+    const fingerprint = modelConfigFingerprint(model)
     const checkAuthorization = (latest: AppState) => {
       const currentBot = latest.bots[botId]
       const currentConversation = latest.conversations[conversation.id]
@@ -103,7 +132,7 @@ export function createImageGenerator(services: BotServices, shutdown: AbortSigna
       const currentModel = latest.models[model.id]
       if (
         !currentBot?.enabled ||
-        !currentBot.capabilities.includes('images') ||
+        (!currentTask && !currentBot.capabilities.includes('images')) ||
         !currentConversation ||
         currentConversation.archived
       )
@@ -118,19 +147,8 @@ export function createImageGenerator(services: BotServices, shutdown: AbortSigna
         throw new BotError(403, 'forbidden', '任务已停止或不属于来源会话')
       if ((!currentTask || currentTask.publicReply) && !currentConversation.memberIds.includes(botId))
         throw new BotError(403, 'forbidden', 'Bot 已不在来源会话中')
-      if (currentTask?.parentTaskId) {
-        const parent = latest.tasks[currentTask.parentTaskId]
-        if (!parent || !latest.bots[parent.botId]?.collaboratorIds.includes(botId))
-          throw new BotError(403, 'forbidden', '协作授权已撤销')
-      }
-      if (
-        !currentModel ||
-        currentModel.credentialRef !== model.credentialRef ||
-        currentModel.kind !== 'image' ||
-        currentModel.provider !== model.provider ||
-        currentModel.model !== model.model ||
-        currentModel.baseUrl !== model.baseUrl
-      )
+      if (currentTask) assertTaskAuthorized(latest, currentTask, 'images')
+      if (!currentModel || modelFingerprint(latest, currentModel) !== fingerprint)
         throw new BotError(409, 'revision-conflict', '图片模型配置已变化，请重新发起')
     }
     const checkAttempts = (latest: AppState) => {
@@ -201,11 +219,16 @@ export function createImageGenerator(services: BotServices, shutdown: AbortSigna
       modelSnapshot: { provider: model.provider, model: model.model, baseUrl: model.baseUrl },
       previousGenerationId: input.previousGenerationId,
     }
-    await services.store.update((draft) => {
+    const registered = await services.store.update((draft) => {
+      const existingId = receiptKey && draft.inboundIds[receiptKey]
+      if (existingId) return requireItem(draft.generations[existingId], '生图回执')
       checkAuthorization(draft)
       checkAttempts(draft)
       draft.generations[generation.id] = generation
+      if (receiptKey) draft.inboundIds[receiptKey] = generation.id
+      return generation
     })
+    if (registered.id !== generation.id) return generationReceipt(registered, input)
     let sent = false
     let rejected = false
     try {
@@ -250,6 +273,7 @@ export function createImageGenerator(services: BotServices, shutdown: AbortSigna
           throw new BotError(502, 'upstream-unavailable', '图片编码无效或超过大小限制')
         bytes = Buffer.from(encoded, 'base64')
       } else if (typeof data[0].url === 'string') {
+        checkAuthorization(services.store.read())
         const image = await getPublicResource(data[0].url, { signal, maxBytes: MAX_IMAGE_BYTES, timeoutMs: 30_000 })
         if (image.status !== 200) throw new BotError(502, 'upstream-unavailable', '供应商图片地址下载失败')
         bytes = image.bytes

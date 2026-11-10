@@ -1,21 +1,10 @@
 import { Activity, useEffect, useState, ViewTransition } from 'react'
 import { Plus } from 'lucide-react'
 import { request } from '../client/api'
-import type { Memory, ModelConfig } from '../shared/types'
-import {
-  Button,
-  Check,
-  DrawerClose,
-  Empty,
-  ErrorText,
-  Field,
-  Form,
-  Input,
-  Modal,
-  Select,
-  Textarea,
-  useAction,
-} from './common'
+import type { Memory } from '../shared/types'
+import { ModelSettingsPanel } from './model-settings'
+import { MemoryEditor } from './memory-editor'
+import { Button, Check, DrawerClose, Empty, ErrorText, Field, Form, Input, Select, Textarea, useAction } from './common'
 import type { PageProps } from './common'
 import { motionTransition } from './motion'
 
@@ -28,7 +17,13 @@ const settingsTabs = [
 ] as const
 
 export function SettingsPage(
-  props: PageProps & { activeTab?: string; onTabChange?: (tab: string) => void; hideNavigation?: boolean },
+  props: PageProps & {
+    activeTab?: string
+    onTabChange?: (tab: string) => void
+    hideNavigation?: boolean
+    onDirtyChange?: (dirty: boolean) => void
+    onSavingChange?: (saving: boolean) => void
+  },
 ) {
   const { snapshot, refresh } = props
   const [localTab, setLocalTab] = useState('models')
@@ -38,7 +33,6 @@ export function SettingsPage(
   useEffect(() => {
     setVisited((values) => (values.includes(activeTab) ? values : [...values, activeTab]))
   }, [activeTab])
-  const [editing, setEditing] = useState<ModelConfig | null | undefined>()
   const action = useAction(refresh)
   const [web, setWeb] = useState(snapshot.settings.webEnabled)
   const [domains, setDomains] = useState(snapshot.settings.allowedWebDomains.join('\n'))
@@ -54,6 +48,17 @@ export function SettingsPage(
   const [tokenName, setTokenName] = useState('')
   const [tokenWrite, setTokenWrite] = useState(false)
   const [newToken, setNewToken] = useState('')
+  const [modelDirty, setModelDirty] = useState(false)
+  const [modelSaving, setModelSaving] = useState(false)
+  const [memoryDirty, setMemoryDirty] = useState(false)
+  const [memorySaving, setMemorySaving] = useState(false)
+  const { onDirtyChange, onSavingChange } = props
+  useEffect(() => {
+    onDirtyChange?.(modelDirty || memoryDirty)
+  }, [modelDirty, memoryDirty, onDirtyChange])
+  useEffect(() => {
+    onSavingChange?.(modelSaving || memorySaving)
+  }, [modelSaving, memorySaving, onSavingChange])
   return (
     <div className={props.hideNavigation ? 'settings-content' : 'settings-page'}>
       {!props.hideNavigation && (
@@ -105,48 +110,10 @@ export function SettingsPage(
                       )[tab]
                     }
                   </h1>
-                  {tab === 'models' && (
-                    <Button variant="outline" onClick={() => motionTransition('bot-modal', () => setEditing(null))}>
-                      <Plus size={15} />
-                      添加模型
-                    </Button>
-                  )}
                 </div>
                 <ErrorText error={action.error} />
                 {tab === 'models' && (
-                  <>
-                    {snapshot.models.length ? (
-                      snapshot.models.map((m) => (
-                        <div className="record" key={m.id}>
-                          <div className="record-heading">
-                            <div>
-                              <h2>{m.name}</h2>
-                              <p className="muted">
-                                {m.kind === 'image' ? '图片' : '文本'} · {m.provider} · {m.model}
-                              </p>
-                            </div>
-                            <Button
-                              variant="outline"
-                              onClick={() => motionTransition('bot-modal', () => setEditing(m))}
-                            >
-                              编辑
-                            </Button>
-                          </div>
-                          <p className="muted">{m.hasCredential ? '已配置密钥' : '尚未配置密钥'}</p>
-                        </div>
-                      ))
-                    ) : (
-                      <Empty
-                        action={
-                          <Button onClick={() => motionTransition('bot-modal', () => setEditing(null))}>
-                            添加文本模型
-                          </Button>
-                        }
-                      >
-                        独立配置模型后即可聊天
-                      </Empty>
-                    )}
-                  </>
+                  <ModelSettingsPanel {...props} onDirtyChange={setModelDirty} onSavingChange={setModelSaving} />
                 )}
                 {tab === 'tools' && (
                   <Form
@@ -220,7 +187,9 @@ export function SettingsPage(
                     </Form>
                   </>
                 )}
-                {tab === 'memories' && <Memories {...props} />}
+                {tab === 'memories' && (
+                  <Memories {...props} onDirtyChange={setMemoryDirty} onSavingChange={setMemorySaving} />
+                )}
                 {tab === 'tokens' && (
                   <>
                     <PasswordForm />
@@ -294,13 +263,6 @@ export function SettingsPage(
             </ViewTransition>
           </Activity>
         ))}
-      {editing !== undefined && (
-        <ModelEditor
-          model={editing ?? undefined}
-          close={() => motionTransition('bot-modal', () => setEditing(undefined))}
-          refresh={refresh}
-        />
-      )}
     </div>
   )
 }
@@ -351,101 +313,33 @@ function PasswordForm() {
     </details>
   )
 }
-function ModelEditor({
-  model,
-  close,
+function Memories({
+  snapshot,
   refresh,
-}: {
-  model?: ModelConfig
-  close: () => void
-  refresh: () => Promise<void>
+  onDirtyChange,
+  onSavingChange,
+}: PageProps & {
+  onDirtyChange: (dirty: boolean) => void
+  onSavingChange: (saving: boolean) => void
 }) {
-  const [name, setName] = useState(model?.name ?? '')
-  const [kind, setKind] = useState(model?.kind ?? 'text')
-  const [provider, setProvider] = useState(model?.provider ?? 'openai-compatible')
-  const [modelName, setModel] = useState(model?.model ?? '')
-  const [baseUrl, setBaseUrl] = useState(model?.baseUrl ?? 'https://api.openai.com/v1')
-  const [apiKey, setKey] = useState('')
-  const action = useAction(refresh)
-  return (
-    <Modal title={model ? '编辑模型' : '添加模型'} onClose={close}>
-      <Form
-        onSubmit={async () => {
-          await request('/settings/models', {
-            method: 'PATCH',
-            body: {
-              models: [
-                {
-                  id: model?.id,
-                  revision: model?.revision,
-                  name,
-                  kind,
-                  provider,
-                  model: modelName,
-                  baseUrl,
-                  ...(apiKey ? { apiKey } : {}),
-                },
-              ],
-            },
-          })
-          await refresh()
-          close()
-        }}
-      >
-        <Field label="名称">
-          <Input required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
-        </Field>
-        <div className="form-grid">
-          <Field label="类型">
-            <Select value={kind} onChange={(v) => setKind(v as ModelConfig['kind'])}>
-              <option value="text">文本模型</option>
-              <option value="image">图片模型</option>
-            </Select>
-          </Field>
-          <Field label="供应商">
-            <Select value={provider} onChange={(v) => setProvider(v as ModelConfig['provider'])}>
-              <option value="openai-compatible">OpenAI 兼容</option>
-              <option value="openai">OpenAI</option>
-              <option value="anthropic">Anthropic</option>
-              <option value="google">Google</option>
-            </Select>
-          </Field>
-        </div>
-        <Field label="模型 ID">
-          <Input required value={modelName} onChange={(e) => setModel(e.target.value)} />
-        </Field>
-        <Field label="API 地址">
-          <Input type="url" required value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
-        </Field>
-        <Field label={model?.hasCredential ? '新密钥（留空保留）' : 'API 密钥'}>
-          <Input type="password" autoComplete="new-password" value={apiKey} onChange={(e) => setKey(e.target.value)} />
-        </Field>
-      </Form>
-      <ErrorText error={action.error} />
-      {model && (
-        <Button
-          variant="ghost"
-          className="danger"
-          disabled={!!action.busy}
-          onClick={() => {
-            if (confirm('删除此模型？'))
-              void action.run('delete-model', async () => {
-                await request(`/models/${model.id}?revision=${model.revision}`, { method: 'DELETE' })
-                close()
-              })
-          }}
-        >
-          删除模型
-        </Button>
-      )}
-    </Modal>
-  )
-}
-function Memories({ snapshot, refresh }: PageProps) {
   const [editing, setEditing] = useState<Memory | null | undefined>()
   const [selected, setSelected] = useState<string>()
   const item = snapshot.memories.find((m) => m.id === selected)
   const action = useAction(refresh)
+  if (editing !== undefined)
+    return (
+      <MemoryEditor
+        item={editing ?? undefined}
+        snapshot={snapshot}
+        refresh={refresh}
+        onDirtyChange={onDirtyChange}
+        onSavingChange={onSavingChange}
+        close={() => {
+          setEditing(undefined)
+          onDirtyChange(false)
+        }}
+      />
+    )
   return (
     <>
       <div className="form-actions">
@@ -505,14 +399,6 @@ function Memories({ snapshot, refresh }: PageProps) {
         </div>
       </div>
       <ErrorText error={action.error} />
-      {editing !== undefined && (
-        <MemoryEditor
-          item={editing ?? undefined}
-          snapshot={snapshot}
-          close={() => motionTransition('bot-modal', () => setEditing(undefined))}
-          refresh={refresh}
-        />
-      )}
     </>
   )
 }
@@ -548,67 +434,5 @@ function Explore({ snapshot }: { snapshot: PageProps['snapshot'] }) {
       </Form>
       {content && <p className="memory-content">{content}</p>}
     </div>
-  )
-}
-function MemoryEditor({
-  item,
-  snapshot,
-  close,
-  refresh,
-}: {
-  item?: Memory
-  snapshot: PageProps['snapshot']
-  close: () => void
-  refresh: () => Promise<void>
-}) {
-  const [title, setTitle] = useState(item?.title ?? '')
-  const [content, setContent] = useState(item?.content ?? '')
-  const [scope, setScope] = useState(item?.scope ?? 'owner')
-  const [target, setTarget] = useState(item?.targetId ?? '')
-  return (
-    <Modal title={item ? '编辑记忆' : '新增记忆'} onClose={close}>
-      <Form
-        onSubmit={async () => {
-          await request(item ? `/memories/${item.id}` : '/memories', {
-            method: item ? 'PATCH' : 'POST',
-            body: { revision: item?.revision, title, content, scope, targetId: scope === 'owner' ? undefined : target },
-          })
-          await refresh()
-          close()
-        }}
-      >
-        <Field label="标题">
-          <Input required maxLength={120} value={title} onChange={(e) => setTitle(e.target.value)} />
-        </Field>
-        <Field label="范围">
-          <Select
-            value={scope}
-            onChange={(v) => {
-              setScope(v as Memory['scope'])
-              setTarget('')
-            }}
-          >
-            <option value="owner">个人共享</option>
-            <option value="bot">Bot 专属</option>
-            <option value="conversation">会话</option>
-          </Select>
-        </Field>
-        {scope !== 'owner' && (
-          <Field label="所属对象">
-            <Select value={target} onChange={setTarget} required>
-              <option value="">请选择</option>
-              {(scope === 'bot' ? snapshot.bots : snapshot.conversations).map((value) => (
-                <option key={value.id} value={value.id}>
-                  {value.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        )}
-        <Field label="内容">
-          <Textarea required maxLength={16000} value={content} onChange={(e) => setContent(e.target.value)} />
-        </Field>
-      </Form>
-    </Modal>
   )
 }
