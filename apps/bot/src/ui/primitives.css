@@ -103,7 +103,6 @@
   line-height: 1.5;
   transition:
     border-color var(--motion-fast),
-    background-color var(--motion-fast),
     box-shadow var(--motion-fast);
 }
 .input {

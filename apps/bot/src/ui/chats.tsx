@@ -22,7 +22,6 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from './utils'
 import { motionTransition } from './motion'
-import './chat-experience.css'
 import { attachmentUrl, openBotConversation, request, RequestError } from '../client/api'
 import { BotSidebar } from './bot-sidebar'
 import { Tooltip, TooltipContent, TooltipTrigger } from './primitives'
@@ -724,81 +723,17 @@ function MessageList({
             </div>
           )}
           {messages.map((message) => (
-            <article
-              className={cn(
-                'message',
-                message.role === 'user' && 'from-user',
-                arrivalIds.includes(message.id) && 'chat-message-arrival',
-              )}
+            <MessageItem
               key={message.id}
-              id={`message-${message.id}`}
-              data-message-id={message.id}
-            >
-              <Avatar name={message.authorName} avatar={message.avatar} user={message.role === 'user'} />
-              <div className="message-body">
-                <div className="message-meta">
-                  <strong>{message.authorName}</strong>
-                  <time dateTime={message.createdAt}>
-                    {new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </time>
-                  {message.source === 'qq' && <small>QQ</small>}
-                  {message.taskId && (
-                    <button className="text-link" onClick={() => openTask(message.taskId!)}>
-                      任务
-                    </button>
-                  )}
-                </div>
-                <div className="markdown pi-content">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{ a: (props) => <a {...props} target="_blank" rel="noreferrer noopener" /> }}
-                  >
-                    {message.content}
-                  </ReactMarkdown>
-                </div>
-                {message.attachmentIds.map((id) => {
-                  const attachment = attachments.find((item) => item.id === id)
-                  return attachment ? (
-                    <a className="attachment" key={id} href={attachmentUrl(id)} target="_blank" rel="noreferrer">
-                      {attachment.mime.startsWith('image/') ? (
-                        <img src={attachmentUrl(id)} alt={attachment.name} loading="lazy" />
-                      ) : (
-                        <Paperclip size={16} />
-                      )}
-                      <span>{attachment.name}</span>
-                    </a>
-                  ) : null
-                })}
-                <MessageMemory message={message} {...{ snapshot, refresh }} />
-                <TaskInteractionCards
-                  tasks={tasks.filter((task) => task.sourceMessageId === message.id)}
-                  {...{ refresh, settings }}
-                />
-                {tasks
-                  .filter((task) => task.sourceMessageId === message.id && task.parentTaskId)
-                  .map((task) => (
-                    <details className="collaboration" key={task.id}>
-                      <summary>
-                        <button
-                          className="text-link"
-                          onClick={(event) => {
-                            event.preventDefault()
-                            openTask(task.id)
-                          }}
-                        >
-                          {task.config.name}
-                        </button>{' '}
-                        <Status value={task.status} />
-                      </summary>
-                      <div className="markdown">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {task.result ?? task.error ?? task.prompt}
-                        </ReactMarkdown>
-                      </div>
-                    </details>
-                  ))}
-              </div>
-            </article>
+              message={message}
+              arrived={arrivalIds.includes(message.id)}
+              attachments={attachments}
+              tasks={tasks}
+              snapshot={snapshot}
+              refresh={refresh}
+              settings={settings}
+              openTask={openTask}
+            />
           ))}
           {tasks
             .filter((task) => task.publicReply && task.partialResult && !active.has(task.status))
@@ -806,15 +741,17 @@ function MessageList({
               <article className="message message-partial" key={`partial:${task.id}`}>
                 <Avatar name={task.config.name} avatar={task.config.avatar} />
                 <div className="message-body">
-                  <div className="message-meta">
-                    <button className="text-link" onClick={() => openTask(task.id)}>
-                      {task.config.name}
-                    </button>
-                    <span>部分回复</span>
-                    <Status value={task.status} />
-                  </div>
-                  <div className="markdown pi-content">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{task.partialResult}</ReactMarkdown>
+                  <div className="message-bubble">
+                    <div className="message-meta">
+                      <button className="text-link" onClick={() => openTask(task.id)}>
+                        {task.config.name}
+                      </button>
+                      <span>部分回复</span>
+                      <Status value={task.status} />
+                    </div>
+                    <div className="markdown pi-content">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{task.partialResult}</ReactMarkdown>
+                    </div>
                   </div>
                 </div>
               </article>
@@ -841,35 +778,37 @@ function MessageList({
                 >
                   <Avatar name={task.config.name} avatar={task.config.avatar} />
                   <div className="message-body">
-                    <div className="message-meta">
-                      <button className="text-link" onClick={() => openTask(task.id)}>
-                        {task.config.name}
-                      </button>
-                      {task.parentTaskId && <small>协作</small>}
-                    </div>
-                    {value.text ? (
-                      <div className="markdown pi-content">
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
-                          components={{ a: (props) => <a {...props} target="_blank" rel="noreferrer noopener" /> }}
-                        >
-                          {value.text}
-                        </ReactMarkdown>
+                    <div className="message-bubble">
+                      <div className="message-meta">
+                        <button className="text-link" onClick={() => openTask(task.id)}>
+                          {task.config.name}
+                        </button>
+                        {task.parentTaskId && <small>协作</small>}
                       </div>
-                    ) : null}
-                    {value.tool && (
-                      <p className="live-tool-status" role="status">
-                        <LoaderCircle size={13} className="spin" />
-                        正在处理
-                      </p>
-                    )}
-                    {!value.text && !value.tool && (
-                      <span className="live-typing" role="status" aria-label="正在思考">
-                        <i />
-                        <i />
-                        <i />
-                      </span>
-                    )}
+                      {value.text ? (
+                        <div className="markdown pi-content">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{ a: (props) => <a {...props} target="_blank" rel="noreferrer noopener" /> }}
+                          >
+                            {value.text}
+                          </ReactMarkdown>
+                        </div>
+                      ) : null}
+                      {value.tool && (
+                        <p className="live-tool-status" role="status">
+                          <LoaderCircle size={13} className="spin" />
+                          正在处理
+                        </p>
+                      )}
+                      {!value.text && !value.tool && (
+                        <span className="live-typing" role="status" aria-label="正在思考">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </article>
               )
@@ -925,14 +864,24 @@ function MessageList({
     </div>
   )
 }
-function MessageMemory({
+function MessageItem({
   message,
+  arrived,
+  attachments,
+  tasks,
   snapshot,
   refresh,
+  settings,
+  openTask,
 }: {
   message: Message
+  arrived: boolean
+  attachments: Attachment[]
+  tasks: Task[]
   snapshot: Snapshot
   refresh: () => Promise<void>
+  settings: (tab: string) => void
+  openTask: (id: string) => void
 }) {
   const [editing, setEditing] = useState(false)
   const action = useAction(refresh)
@@ -943,47 +892,132 @@ function MessageMemory({
   const memory = snapshot.memories.find(
     (item) => item.sourceMessageId === message.id && item.scope === scope && item.targetId === targetId,
   )
+  const isUser = message.role === 'user'
+  const messageTasks = tasks.filter((task) => task.sourceMessageId === message.id)
+  const childTasks = messageTasks.filter((task) => task.parentTaskId)
   function close() {
     setEditing(false)
     requestAnimationFrame(() => trigger.current?.focus({ preventScroll: true }))
   }
-  return (
-    <div className="message-memory">
-      <div className="inline-actions">
-        <button ref={trigger} className="text-link" aria-expanded={editing} onClick={() => setEditing(true)}>
-          {memory ? '编辑记忆' : '记住这条'}
+  const memoryActions = (
+    <span className={cn('message-memory-actions', (Boolean(memory) || editing) && 'is-pinned')}>
+      <button ref={trigger} className="text-link" aria-expanded={editing} onClick={() => setEditing((value) => !value)}>
+        {memory ? '编辑记忆' : '记住这条'}
+      </button>
+      {memory && (
+        <button
+          className="text-link"
+          disabled={Boolean(action.busy)}
+          onClick={() =>
+            void action.run(memory.id, () =>
+              request(`/memories/${memory.id}`, { method: 'DELETE', body: { revision: memory.revision } }),
+            )
+          }
+        >
+          撤销记忆
         </button>
-        {memory && (
-          <button
-            className="text-link"
-            disabled={Boolean(action.busy)}
-            onClick={() =>
-              void action.run(memory.id, () =>
-                request(`/memories/${memory.id}`, { method: 'DELETE', body: { revision: memory.revision } }),
-              )
-            }
-          >
-            撤销记忆
-          </button>
-        )}
-      </div>
-      {editing && (
-        <div className="task-interaction-card">
-          <MemoryEditor
-            item={memory}
-            defaults={{
-              scope,
-              targetId,
-              title: message.content.split('\n')[0].slice(0, 120) || '消息记忆',
-              content: message.content,
-              sourceMessageId: message.id,
-            }}
-            {...{ snapshot, refresh, close }}
-          />
-        </div>
       )}
-      <ErrorText error={action.error} />
-    </div>
+    </span>
+  )
+  const timeFormatted = new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return (
+    <article
+      className={cn('message', isUser && 'from-user', arrived && 'chat-message-arrival')}
+      id={`message-${message.id}`}
+      data-message-id={message.id}
+    >
+      <Avatar name={message.authorName} avatar={message.avatar} user={isUser} />
+      <div className="message-body">
+        <div className="message-bubble">
+          {!isUser && (
+            <div className="message-meta">
+              <strong>{message.authorName}</strong>
+              <div className="message-meta-actions">
+                <time dateTime={message.createdAt}>{timeFormatted}</time>
+                {message.source === 'qq' && <small>QQ</small>}
+                {message.taskId && (
+                  <button className="text-link message-task-link" onClick={() => openTask(message.taskId!)}>
+                    任务
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          <div className="markdown pi-content">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{ a: (props) => <a {...props} target="_blank" rel="noreferrer noopener" /> }}
+            >
+              {message.content}
+            </ReactMarkdown>
+          </div>
+          {message.attachmentIds.map((id) => {
+            const attachment = attachments.find((item) => item.id === id)
+            return attachment ? (
+              <a className="attachment" key={id} href={attachmentUrl(id)} target="_blank" rel="noreferrer">
+                {attachment.mime.startsWith('image/') ? (
+                  <img src={attachmentUrl(id)} alt={attachment.name} loading="lazy" />
+                ) : (
+                  <Paperclip size={16} />
+                )}
+                <span>{attachment.name}</span>
+              </a>
+            ) : null
+          })}
+        </div>
+        {isUser ? (
+          <div className="message-meta">
+            <div className="message-meta-actions">
+              {memoryActions}
+              <time dateTime={message.createdAt}>{timeFormatted}</time>
+              {message.source === 'qq' && <small>QQ</small>}
+            </div>
+          </div>
+        ) : (
+          <div className="message-footer">{memoryActions}</div>
+        )}
+        {(editing || Boolean(action.error)) && (
+          <div className="message-memory">
+            {editing && (
+              <div className="task-interaction-card">
+                <MemoryEditor
+                  item={memory}
+                  defaults={{
+                    scope,
+                    targetId,
+                    title: message.content.split('\n')[0].slice(0, 120) || '消息记忆',
+                    content: message.content,
+                    sourceMessageId: message.id,
+                  }}
+                  {...{ snapshot, refresh, close }}
+                />
+              </div>
+            )}
+            <ErrorText error={action.error} />
+          </div>
+        )}
+        <TaskInteractionCards tasks={messageTasks} {...{ refresh, settings }} />
+        {childTasks.map((task) => (
+          <details className="collaboration" key={task.id}>
+            <summary>
+              <button
+                className="text-link"
+                onClick={(event) => {
+                  event.preventDefault()
+                  openTask(task.id)
+                }}
+              >
+                {task.config.name}
+              </button>{' '}
+              <Status value={task.status} />
+            </summary>
+            <div className="markdown">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{task.result ?? task.error ?? task.prompt}</ReactMarkdown>
+            </div>
+          </details>
+        ))}
+      </div>
+    </article>
   )
 }
 type ChatDraft = { text: string; ids: string[]; recipientIds: string[]; mode: 'queue' | 'steer'; version: string }

@@ -159,7 +159,7 @@
 }
 
 .chats-page .composer textarea {
-  min-height: 64px;
+  min-height: 36px;
   max-height: 220px;
   resize: none;
   line-height: 1.7;
@@ -168,7 +168,7 @@
 
 .chats-page .composer-actions {
   min-width: 0;
-  align-items: flex-end;
+  align-items: center;
 }
 
 .chats-page .composer-actions > .inline-actions:first-child {
@@ -203,6 +203,7 @@
 }
 
 .chats-page .draft-attachment-preview {
+  flex-shrink: 0;
   width: 56px;
   height: 56px;
   border-radius: 6px;
@@ -296,14 +297,13 @@
   overflow-wrap: anywhere;
 }
 
-.chats-page .message,
-.chats-page .composer-wrap {
+.chats-page .message {
   width: min(100%, 980px);
   margin-inline: auto;
 }
 
 .chats-page .message-body {
-  max-width: min(760px, calc(100% - 46px));
+  max-width: min(760px, calc(100% - 42px));
 }
 
 .chats-page .chat-header-actions .button {
@@ -371,13 +371,14 @@
   gap: 8px;
 }
 
-.task-interaction-card form {
+.task-interaction-card form:not(.form) {
   display: grid;
   justify-items: start;
   gap: 10px;
 }
 
-.task-interaction-card form .control {
+.task-interaction-card form:not(.form) .control,
+.task-interaction-card form:not(.form) .bot-select {
   width: 100%;
 }
 

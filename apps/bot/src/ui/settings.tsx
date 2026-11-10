@@ -138,31 +138,33 @@ export function SettingsPage(
                 )}
                 {tab === 'tools' && <Explore snapshot={snapshot} />}
                 {tab === 'appearance' && (
-                  <>
-                    <Field label="主题">
-                      <Select
-                        value={snapshot.settings.theme}
-                        disabled={action.busy === 'theme'}
-                        onChange={(theme) =>
-                          void action.run('theme', () => request('/settings', { method: 'PATCH', body: { theme } }))
+                  <div className="form">
+                    <fieldset>
+                      <Field label="主题">
+                        <Select
+                          value={snapshot.settings.theme}
+                          disabled={action.busy === 'theme'}
+                          onChange={(theme) =>
+                            void action.run('theme', () => request('/settings', { method: 'PATCH', body: { theme } }))
+                          }
+                        >
+                          <option value="system">跟随系统</option>
+                          <option value="light">浅色</option>
+                          <option value="dark">深色</option>
+                        </Select>
+                      </Field>
+                      <Check
+                        checked={snapshot.settings.reducedMotion}
+                        onChange={(reducedMotion) =>
+                          void action.run('motion', () =>
+                            request('/settings', { method: 'PATCH', body: { reducedMotion } }),
+                          )
                         }
                       >
-                        <option value="system">跟随系统</option>
-                        <option value="light">浅色</option>
-                        <option value="dark">深色</option>
-                      </Select>
-                    </Field>
-                    <Check
-                      checked={snapshot.settings.reducedMotion}
-                      onChange={(reducedMotion) =>
-                        void action.run('motion', () =>
-                          request('/settings', { method: 'PATCH', body: { reducedMotion } }),
-                        )
-                      }
-                    >
-                      减少动态效果
-                    </Check>
-                  </>
+                        减少动态效果
+                      </Check>
+                    </fieldset>
+                  </div>
                 )}
                 {tab === 'memories' && (
                   <Memories {...props} onDirtyChange={setMemoryDirty} onSavingChange={setMemorySaving} />
