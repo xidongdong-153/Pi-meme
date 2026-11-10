@@ -1,4 +1,4 @@
-import { Activity, useEffect, useState, ViewTransition } from 'react'
+import { Activity, useEffect, useState } from 'react'
 import { Plus } from 'lucide-react'
 import type { AppProject } from '@pi-meme/contracts/app-host'
 import { request } from '../client/api'
@@ -39,11 +39,10 @@ export function Connections({ snapshot, refresh, navigate }: PageProps) {
           className={`category ${activeTab === 'hosts' ? 'selected' : ''}`}
           aria-current={activeTab === 'hosts' ? 'page' : undefined}
           onClick={() => {
-            if (activeTab !== 'hosts')
-              motionTransition('bot-tab', () => {
-                setVisited((values) => (values.includes('hosts') ? values : [...values, 'hosts']))
-                setTab('hosts')
-              })
+            if (activeTab !== 'hosts') {
+              setVisited((values) => (values.includes('hosts') ? values : [...values, 'hosts']))
+              setTab('hosts')
+            }
             window.dispatchEvent(new Event('bots:close-list'))
           }}
         >
@@ -53,11 +52,10 @@ export function Connections({ snapshot, refresh, navigate }: PageProps) {
           className={`category ${activeTab === 'qq' ? 'selected' : ''}`}
           aria-current={activeTab === 'qq' ? 'page' : undefined}
           onClick={() => {
-            if (activeTab !== 'qq')
-              motionTransition('bot-tab', () => {
-                setVisited((values) => (values.includes('qq') ? values : [...values, 'qq']))
-                setTab('qq')
-              })
+            if (activeTab !== 'qq') {
+              setVisited((values) => (values.includes('qq') ? values : [...values, 'qq']))
+              setTab('qq')
+            }
             window.dispatchEvent(new Event('bots:close-list'))
           }}
         >
@@ -68,97 +66,82 @@ export function Connections({ snapshot, refresh, navigate }: PageProps) {
         .filter((id) => visited.includes(id))
         .map((tab) => (
           <Activity key={tab} mode={activeTab === tab ? 'visible' : 'hidden'}>
-            <ViewTransition
-              default="none"
-              enter={{ 'bot-tab': 'fade-in', default: 'none' }}
-              update={{ 'bot-tab': 'fade-in', default: 'none' }}
-            >
-              <section className="editor-page">
-                <div className="section-heading">
-                  <h1>{tab === 'hosts' ? 'Pi meme' : 'QQ 官方机器人'}</h1>
-                  {tab === 'hosts' && (
-                    <Button variant="outline" onClick={() => motionTransition('bot-modal', () => setEditing(null))}>
-                      <Plus size={15} />
-                      连接 Pi meme
-                    </Button>
-                  )}
-                </div>
-                <ErrorText error={action.error} />
-                {tab === 'hosts' ? (
-                  <>
-                    {snapshot.hosts.length ? (
-                      snapshot.hosts.map((h) => (
-                        <div className="record" key={h.id}>
-                          <div className="record-heading">
-                            <div>
-                              <h2>{h.name}</h2>
-                              <p className="break-word muted">{h.url}</p>
-                            </div>
-                            <Status value={h.status} />
-                          </div>
-                          {h.error && <ErrorText error={h.error} />}
-                          <small className="muted">上次确认 {date(h.checkedAt)}</small>
-                          <div className="inline-actions">
-                            <Button
-                              variant="outline"
-                              disabled={action.busy === h.id}
-                              onClick={() =>
-                                void action.run(h.id, () =>
-                                  request(`/hosts/${h.id}/check`, { method: 'POST', body: {} }),
-                                )
-                              }
-                            >
-                              检查连接
-                            </Button>
-                            <Button variant="ghost" onClick={() => motionTransition('bot-modal', () => setEditing(h))}>
-                              编辑连接
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              onClick={() => motionTransition('bot-modal', () => setDelegating(h))}
-                            >
-                              委派项目任务
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              className="danger"
-                              onClick={() => {
-                                if (confirm('解除这条 Pi meme 连接？请先处理进行中的委派任务。'))
-                                  void action.run(h.id, () =>
-                                    request(`/hosts/${h.id}`, { method: 'DELETE', body: { revision: h.revision } }),
-                                  )
-                              }}
-                            >
-                              解除连接
-                            </Button>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <Empty
-                        action={
-                          <Button onClick={() => motionTransition('bot-modal', () => setEditing(null))}>
-                            连接 Pi meme
-                          </Button>
-                        }
-                      >
-                        连接本机或远程 Pi meme
-                      </Empty>
-                    )}
-                  </>
-                ) : (
-                  <QqSettings snapshot={snapshot} refresh={refresh} />
+            <section className="editor-page">
+              <div className="section-heading">
+                <h1>{tab === 'hosts' ? 'Pi meme' : 'QQ 官方机器人'}</h1>
+                {tab === 'hosts' && (
+                  <Button variant="outline" onClick={() => motionTransition('bot-modal', () => setEditing(null))}>
+                    <Plus size={15} />
+                    连接 Pi meme
+                  </Button>
                 )}
-              </section>
-            </ViewTransition>
+              </div>
+              <ErrorText error={action.error} />
+              {tab === 'hosts' ? (
+                <>
+                  {snapshot.hosts.length ? (
+                    snapshot.hosts.map((h) => (
+                      <div className="record" key={h.id}>
+                        <div className="record-heading">
+                          <div>
+                            <h2>{h.name}</h2>
+                            <p className="break-word muted">{h.url}</p>
+                          </div>
+                          <Status value={h.status} />
+                        </div>
+                        {h.error && <ErrorText error={h.error} />}
+                        <small className="muted">上次确认 {date(h.checkedAt)}</small>
+                        <div className="inline-actions">
+                          <Button
+                            variant="outline"
+                            disabled={action.busy === h.id}
+                            onClick={() =>
+                              void action.run(h.id, () => request(`/hosts/${h.id}/check`, { method: 'POST', body: {} }))
+                            }
+                          >
+                            检查连接
+                          </Button>
+                          <Button variant="ghost" onClick={() => motionTransition('bot-modal', () => setEditing(h))}>
+                            编辑连接
+                          </Button>
+                          <Button variant="ghost" onClick={() => motionTransition('bot-modal', () => setDelegating(h))}>
+                            委派项目任务
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            className="danger"
+                            onClick={() => {
+                              if (confirm('解除这条 Pi meme 连接？请先处理进行中的委派任务。'))
+                                void action.run(h.id, () =>
+                                  request(`/hosts/${h.id}`, { method: 'DELETE', body: { revision: h.revision } }),
+                                )
+                            }}
+                          >
+                            解除连接
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <Empty
+                      action={
+                        <Button onClick={() => motionTransition('bot-modal', () => setEditing(null))}>
+                          连接 Pi meme
+                        </Button>
+                      }
+                    >
+                      连接本机或远程 Pi meme
+                    </Empty>
+                  )}
+                </>
+              ) : (
+                <QqSettings snapshot={snapshot} refresh={refresh} />
+              )}
+            </section>
           </Activity>
         ))}
       {editing !== undefined && (
-        <HostEditor
-          host={editing ?? undefined}
-          close={() => motionTransition('bot-modal', () => setEditing(undefined))}
-          refresh={refresh}
-        />
+        <HostEditor host={editing ?? undefined} close={() => setEditing(undefined)} refresh={refresh} />
       )}
       {delegating && (
         <DelegationForm
@@ -166,7 +149,7 @@ export function Connections({ snapshot, refresh, navigate }: PageProps) {
           snapshot={snapshot}
           refresh={refresh}
           navigate={navigate}
-          close={() => motionTransition('bot-modal', () => setDelegating(undefined))}
+          close={() => setDelegating(undefined)}
         />
       )}
     </div>
@@ -210,6 +193,7 @@ function HostEditor({
       >
         <Field label="URL">
           <Input
+            autoFocus
             required
             type="url"
             maxLength={2048}

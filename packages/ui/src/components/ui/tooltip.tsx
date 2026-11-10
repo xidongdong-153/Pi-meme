@@ -24,7 +24,7 @@ export const TooltipContent = React.forwardRef<
       collisionPadding={collisionPadding}
       className={cn(
         tooltipSurfaceClassName,
-        'z-50 max-w-[min(24rem,var(--radix-tooltip-content-available-width,calc(100vw-24px)),calc(100vw-24px))] max-h-[min(24rem,var(--radix-tooltip-content-available-height,calc(100dvh-24px)))] overflow-hidden whitespace-pre-line [overflow-wrap:anywhere] select-none pointer-events-none animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 motion-reduce:animate-none',
+        'z-50 max-w-[min(24rem,var(--radix-tooltip-content-available-width,calc(100vw-24px)),calc(100vw-24px))] max-h-[min(24rem,var(--radix-tooltip-content-available-height,calc(100dvh-24px)))] overflow-hidden whitespace-pre-line [overflow-wrap:anywhere] select-none pointer-events-none animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:fill-mode-forwards data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 motion-reduce:animate-none',
         className,
       )}
       {...props}

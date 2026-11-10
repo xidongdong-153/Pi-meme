@@ -60,13 +60,18 @@ export function ConversationOverview({
             <Pencil size={13} />
             {bot ? '编辑 Bot' : '编辑群组'}
           </Button>
-          <DropdownMenu>
+          <DropdownMenu modal={false}>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon-sm" aria-label="更多会话操作">
                 <MoreHorizontal size={18} />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent className="conversation-actions-menu" side="bottom" align="end" sideOffset={6}>
+            <DropdownMenuContent
+              className="bot-dropdown-content conversation-actions-menu"
+              side="bottom"
+              align="end"
+              sideOffset={6}
+            >
               <DropdownMenuItem
                 disabled={Boolean(action.busy)}
                 onSelect={() => void action.run('pin', () => changeConversation({ pinned: !conversation.pinned }))}

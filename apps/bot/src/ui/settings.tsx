@@ -322,7 +322,7 @@ function Memories({
   return (
     <>
       <div className="form-actions">
-        <Button variant="outline" onClick={() => motionTransition('bot-modal', () => setEditing(null))}>
+        <Button variant="outline" onClick={() => setEditing(null)}>
           <Plus size={15} />
           新增记忆
         </Button>
@@ -345,7 +345,7 @@ function Memories({
             <>
               <div className="record-heading">
                 <h2>{item.title}</h2>
-                <Button variant="ghost" onClick={() => motionTransition('bot-modal', () => setEditing(item))}>
+                <Button variant="ghost" onClick={() => setEditing(item)}>
                   编辑
                 </Button>
               </div>

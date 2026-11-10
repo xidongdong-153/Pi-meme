@@ -152,12 +152,14 @@
 .bot-modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 80;
-  background: #0008;
+  z-index: var(--modal-overlay-z, 80);
+  background: var(--overlay, #0008);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 .bot-modal {
   position: fixed;
-  z-index: 81;
+  z-index: var(--modal-content-z, 81);
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);

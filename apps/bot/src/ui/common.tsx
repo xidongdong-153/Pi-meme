@@ -1,4 +1,15 @@
-import { Children, cloneElement, isValidElement, useEffect, useId, useRef, useState, ViewTransition } from 'react'
+import {
+  Children,
+  cloneElement,
+  createContext,
+  isValidElement,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  ViewTransition,
+} from 'react'
 import type { FormEvent, ReactElement, ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { createPortal } from 'react-dom'
@@ -166,7 +177,7 @@ export function Form({
       <ErrorText error={error} />
       <div className="form-actions">
         {onCancel && (
-          <Button type="button" variant="ghost" disabled={busy} onClick={() => motionTransition('bot-modal', onCancel)}>
+          <Button type="button" variant="ghost" disabled={busy} onClick={onCancel}>
             取消
           </Button>
         )}
@@ -178,6 +189,12 @@ export function Form({
     </form>
   )
 }
+const ModalDepthContext = createContext(0)
+
+export function useModalDepth() {
+  return useContext(ModalDepthContext)
+}
+
 export function Modal({
   title,
   children,
@@ -189,6 +206,9 @@ export function Modal({
   onClose: () => void
   className?: string
 }) {
+  const depth = useContext(ModalDepthContext)
+  const overlayZ = 80 + depth * 10
+  const contentZ = 81 + depth * 10
   const [opener] = useState(() => document.activeElement as HTMLElement | null)
   function close() {
     motionTransition('bot-modal', onClose)
@@ -201,14 +221,16 @@ export function Modal({
       }}
     >
       {createPortal(
-        <>
+        <ModalDepthContext.Provider value={depth + 1}>
           <ViewTransition default="none" enter="fade-in" exit="fade-out">
-            <Dialog.Overlay className="bot-modal-overlay" />
+            <Dialog.Overlay className="bot-modal-overlay" style={{ zIndex: overlayZ }} />
           </ViewTransition>
           <ViewTransition default="none" enter="slide-up" exit="slide-down">
             <Dialog.Content
               className={`bot-modal ${className}`}
+              style={{ zIndex: contentZ }}
               data-bot-modal=""
+              data-modal-depth={depth}
               aria-describedby={undefined}
               onEscapeKeyDown={(event) => {
                 if (event.isComposing || event.keyCode === 229) event.preventDefault()
@@ -227,7 +249,7 @@ export function Modal({
               {children}
             </Dialog.Content>
           </ViewTransition>
-        </>,
+        </ModalDepthContext.Provider>,
         document.body,
       )}
     </Dialog.Root>

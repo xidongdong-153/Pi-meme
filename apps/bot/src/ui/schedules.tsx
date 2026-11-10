@@ -17,7 +17,6 @@ import {
   useAction,
 } from './common'
 import type { PageProps } from './common'
-import { motionTransition } from './motion'
 
 export function Schedules({
   snapshot,
@@ -90,7 +89,7 @@ export function Schedules({
     <section className="full-page">
       <div className="section-heading">
         <h1>定时任务</h1>
-        <Button variant="outline" onClick={() => motionTransition('bot-modal', () => edit(null))}>
+        <Button variant="outline" onClick={() => edit(null)}>
           <Plus size={15} />
           新建定时任务
         </Button>
@@ -107,7 +106,7 @@ export function Schedules({
                   {s.enabled ? `下一次 ${date(s.nextRunAt)}` : '已暂停'} · {s.timezone}
                 </p>
               </div>
-              <Button variant="outline" onClick={() => motionTransition('bot-modal', () => edit(s))}>
+              <Button variant="outline" onClick={() => edit(s)}>
                 编辑
               </Button>
             </div>
@@ -184,9 +183,7 @@ export function Schedules({
           </div>
         ))
       ) : (
-        <Empty action={<Button onClick={() => motionTransition('bot-modal', () => edit(null))}>新建定时任务</Button>}>
-          安排一项 Bot 工作
-        </Empty>
+        <Empty action={<Button onClick={() => edit(null)}>新建定时任务</Button>}>安排一项 Bot 工作</Empty>
       )}
     </section>
   )

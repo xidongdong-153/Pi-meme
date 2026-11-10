@@ -591,6 +591,8 @@
 }
 .bot-modal-overlay {
   background: var(--overlay);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
 }
 .bot-modal {
   background: var(--popover);

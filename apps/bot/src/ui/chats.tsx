@@ -1468,7 +1468,7 @@ function Composer({
                   {isUploading ? <LoaderCircle size={17} className="spin" /> : <Plus size={19} />}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" align="start" sideOffset={8}>
+              <DropdownMenuContent className="bot-dropdown-content" side="top" align="start" sideOffset={8}>
                 <DropdownMenuItem onSelect={() => file.current?.click()}>
                   <Paperclip size={14} />
                   添加图片或附件
@@ -1556,7 +1556,7 @@ function Composer({
                     <ChevronDown size={13} />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent side="top" align="end" sideOffset={8}>
+                <DropdownMenuContent className="bot-dropdown-content" side="top" align="end" sideOffset={8}>
                   <DropdownMenuItem disabled={!canSend} onSelect={() => void send()}>
                     排队发送
                   </DropdownMenuItem>
