@@ -1,5 +1,6 @@
 import { CircleAlert, X } from 'lucide-react'
 import { cn } from '../lib/utils'
+import { CollapsibleSection } from './ui/collapsible'
 
 const extensionPattern = /Failed to load extension|无法加载 Pi 扩展/
 const settingsPattern = /Pi.*路径|CLI|Node\.js|models\.json|API Key|API key|apiKey|模型配置|服务商配置/
@@ -67,14 +68,17 @@ export function SystemErrorCard({
           <p className="font-medium text-foreground">{title}</p>
           {body && <p className="mt-0.5 break-words text-muted-foreground">{body}</p>}
           {expandable && (
-            <details className="mt-1">
-              <summary className="w-fit cursor-pointer list-none text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-                详情
-              </summary>
+            <CollapsibleSection
+              title="详情"
+              variant="inline"
+              className="mt-1"
+              triggerClassName="rounded-md px-0 py-1 text-muted-foreground"
+              contentClassName="px-0 pb-1"
+            >
               <pre className="mt-1 max-h-56 overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] font-mono leading-relaxed text-muted-foreground select-text">
                 {detail}
               </pre>
-            </details>
+            </CollapsibleSection>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">

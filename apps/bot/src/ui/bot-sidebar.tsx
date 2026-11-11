@@ -7,6 +7,7 @@ import { cn } from './utils'
 
 export function BotSidebar({
   snapshot,
+  open,
   selectedId,
   messages,
   openBot,
@@ -17,6 +18,7 @@ export function BotSidebar({
   logout,
 }: {
   snapshot: Snapshot
+  open: boolean
   selectedId?: string
   messages: Record<string, Message[]>
   openBot: (bot: Bot) => void
@@ -74,121 +76,130 @@ export function BotSidebar({
     return id ? messages[id]?.at(-1)?.content.replace(/\s+/g, ' ').trim() || fallback : fallback
   }
   return (
-    <aside className="list-pane bot-sidebar" aria-label="Bot 与群组">
-      <div className="sidebar-heading">
-        <span className="sidebar-brand">
-          <BrandMark />
-          <strong>Pi Bot</strong>
-        </span>
-        <div className="inline-actions">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={searching ? '关闭搜索' : '搜索 Bot 与群组'}
-            onClick={() => {
-              setSearching((value) => !value)
-              setSearch('')
-              if (!searching) requestAnimationFrame(() => searchInput.current?.focus())
-            }}
-          >
-            {searching ? <X size={18} /> : <Search size={18} />}
-          </Button>
+    <aside
+      id="bot-list"
+      className="list-pane bot-sidebar"
+      data-state={open ? 'open' : 'closed'}
+      aria-label="Bot 与群组"
+      aria-hidden={!open}
+      inert={!open}
+    >
+      <div className="bot-sidebar-content">
+        <div className="sidebar-heading">
+          <span className="sidebar-brand">
+            <BrandMark />
+            <strong>Pi Bot</strong>
+          </span>
+          <div className="inline-actions">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={searching ? '关闭搜索' : '搜索 Bot 与群组'}
+              onClick={() => {
+                setSearching((value) => !value)
+                setSearch('')
+                if (!searching) requestAnimationFrame(() => searchInput.current?.focus())
+              }}
+            >
+              {searching ? <X size={18} /> : <Search size={18} />}
+            </Button>
+            <Menu
+              label="创建"
+              items={[
+                { label: '创建 Bot', icon: BotIcon, onSelect: createBot },
+                { label: '创建群组', icon: Users, onSelect: createGroup },
+              ]}
+            >
+              <Plus size={20} strokeWidth={1.7} />
+            </Menu>
+            <DrawerClose />
+          </div>
+        </div>
+        {searching && (
+          <div className="sidebar-search">
+            <Search size={15} aria-hidden="true" />
+            <Input
+              ref={searchInput}
+              aria-label="搜索 Bot 与群组"
+              placeholder="搜索"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  setSearch('')
+                  setSearching(false)
+                }
+              }}
+            />
+          </div>
+        )}
+        <div className="list-scroll">
+          {lead && !query && (
+            <div className="lead-bot-wrap">
+              <button
+                className={cn('lead-bot', selectedId === lead.webConversationId && 'selected')}
+                aria-label={`与 ${lead.name} 聊天`}
+                aria-current={selectedId === lead.webConversationId ? 'page' : undefined}
+                onClick={() => openBot(lead)}
+              >
+                <Avatar name={lead.name} avatar={lead.avatar} />
+                <strong>{lead.name}</strong>
+                {lead.id === snapshot.modelSettings.defaultAssistantId && <small>默认助理</small>}
+              </button>
+            </div>
+          )}
+          {entries.map((entry) => (
+            <button
+              key={entry.id}
+              className={cn('list-item bot-list-item', entry.conversationId === selectedId && 'selected')}
+              aria-current={entry.conversationId === selectedId ? 'page' : undefined}
+              onClick={() => (entry.bot ? openBot(entry.bot) : openGroup(entry.id))}
+            >
+              {entry.group ? (
+                <span className="group-avatar" aria-hidden="true">
+                  {entry.group.memberIds.slice(0, 3).map((id) => {
+                    const bot = snapshot.bots.find((item) => item.id === id)
+                    return <Avatar key={id} name={bot?.name ?? ''} avatar={bot?.avatar} />
+                  })}
+                  {!entry.group.memberIds.length && <Users size={24} />}
+                </span>
+              ) : (
+                <Avatar name={entry.name} avatar={entry.avatar} />
+              )}
+              <span>
+                <strong>{entry.name}</strong>
+                <small>{preview(entry.conversationId, entry.description)}</small>
+              </span>
+            </button>
+          ))}
+          {query && !entries.length && <p className="sidebar-empty">没有找到 Bot 或群组</p>}
+          {!snapshot.bots.length && !query && (
+            <div className="sidebar-first-bot">
+              <BotIcon size={28} strokeWidth={1.4} />
+              <Button variant="outline" onClick={createBot}>
+                <Plus size={15} />
+                创建 Bot
+              </Button>
+            </div>
+          )}
+        </div>
+        <div className="sidebar-footer">
           <Menu
-            label="创建"
+            label="个人菜单"
+            side="top"
+            className="account-menu"
             items={[
-              { label: '创建 Bot', icon: BotIcon, onSelect: createBot },
-              { label: '创建群组', icon: Users, onSelect: createGroup },
+              { label: '设置', icon: Settings, onSelect: () => openSettings() },
+              { label: '退出登录', icon: LogOut, onSelect: logout },
             ]}
           >
-            <Plus size={20} strokeWidth={1.7} />
-          </Menu>
-          <DrawerClose />
-        </div>
-      </div>
-      {searching && (
-        <div className="sidebar-search">
-          <Search size={15} aria-hidden="true" />
-          <Input
-            ref={searchInput}
-            aria-label="搜索 Bot 与群组"
-            placeholder="搜索"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                setSearch('')
-                setSearching(false)
-              }
-            }}
-          />
-        </div>
-      )}
-      <div className="list-scroll">
-        {lead && !query && (
-          <div className="lead-bot-wrap">
-            <button
-              className={cn('lead-bot', selectedId === lead.webConversationId && 'selected')}
-              aria-label={`与 ${lead.name} 聊天`}
-              aria-current={selectedId === lead.webConversationId ? 'page' : undefined}
-              onClick={() => openBot(lead)}
-            >
-              <Avatar name={lead.name} avatar={lead.avatar} />
-              <strong>{lead.name}</strong>
-              {lead.id === snapshot.modelSettings.defaultAssistantId && <small>默认助理</small>}
-            </button>
-          </div>
-        )}
-        {entries.map((entry) => (
-          <button
-            key={entry.id}
-            className={cn('list-item bot-list-item', entry.conversationId === selectedId && 'selected')}
-            aria-current={entry.conversationId === selectedId ? 'page' : undefined}
-            onClick={() => (entry.bot ? openBot(entry.bot) : openGroup(entry.id))}
-          >
-            {entry.group ? (
-              <span className="group-avatar" aria-hidden="true">
-                {entry.group.memberIds.slice(0, 3).map((id) => {
-                  const bot = snapshot.bots.find((item) => item.id === id)
-                  return <Avatar key={id} name={bot?.name ?? ''} avatar={bot?.avatar} />
-                })}
-                {!entry.group.memberIds.length && <Users size={24} />}
-              </span>
-            ) : (
-              <Avatar name={entry.name} avatar={entry.avatar} />
-            )}
-            <span>
-              <strong>{entry.name}</strong>
-              <small>{preview(entry.conversationId, entry.description)}</small>
+            <span className="account-avatar">
+              <BrandMark />
             </span>
-          </button>
-        ))}
-        {query && !entries.length && <p className="sidebar-empty">没有找到 Bot 或群组</p>}
-        {!snapshot.bots.length && !query && (
-          <div className="sidebar-first-bot">
-            <BotIcon size={28} strokeWidth={1.4} />
-            <Button variant="outline" onClick={createBot}>
-              <Plus size={15} />
-              创建 Bot
-            </Button>
-          </div>
-        )}
-      </div>
-      <div className="sidebar-footer">
-        <Menu
-          label="个人菜单"
-          side="top"
-          className="account-menu"
-          items={[
-            { label: '设置', icon: Settings, onSelect: () => openSettings() },
-            { label: '退出登录', icon: LogOut, onSelect: logout },
-          ]}
-        >
-          <span className="account-avatar">
-            <BrandMark />
-          </span>
-          <span>个人空间</span>
-          <ChevronUp size={15} />
-        </Menu>
+            <span>个人空间</span>
+            <ChevronUp size={15} />
+          </Menu>
+        </div>
       </div>
     </aside>
   )

@@ -4,7 +4,20 @@ import { request } from '../client/api'
 import type { Memory } from '../shared/types'
 import { ModelSettingsPanel } from './model-settings'
 import { MemoryEditor } from './memory-editor'
-import { Button, Check, DrawerClose, Empty, ErrorText, Field, Form, Input, Select, Textarea, useAction } from './common'
+import {
+  Button,
+  Check,
+  CollapsibleSection,
+  DrawerClose,
+  Empty,
+  ErrorText,
+  Field,
+  Form,
+  Input,
+  Select,
+  Textarea,
+  useAction,
+} from './common'
 import type { PageProps } from './common'
 import { motionTransition } from './motion'
 
@@ -250,8 +263,7 @@ function PasswordForm() {
   const [password, setPassword] = useState('')
   const [saved, setSaved] = useState(false)
   return (
-    <details className="help-details">
-      <summary>修改访问密码</summary>
+    <CollapsibleSection className="help-details" title="修改访问密码">
       <Form
         submit="更新密码并撤销其他登录"
         onSubmit={async () => {
@@ -289,7 +301,7 @@ function PasswordForm() {
         </Field>
       </Form>
       {saved && <p role="status">访问密码已更新，其他登录已撤销。</p>}
-    </details>
+    </CollapsibleSection>
   )
 }
 function Memories({
@@ -351,13 +363,11 @@ function Memories({
               </div>
               <p className="memory-content">{item.content}</p>
               {item.sourceMessageId && (
-                <details>
-                  <summary>来源</summary>
+                <CollapsibleSection title="来源" variant="inline">
                   <p>{item.sourceMessageId}</p>
-                </details>
+                </CollapsibleSection>
               )}
-              <details className="more-actions">
-                <summary>更多操作</summary>
+              <CollapsibleSection className="more-actions" title="更多操作">
                 <Button
                   variant="ghost"
                   className="danger"
@@ -370,7 +380,7 @@ function Memories({
                 >
                   删除记忆
                 </Button>
-              </details>
+              </CollapsibleSection>
             </>
           ) : (
             <Empty>选择一条记忆</Empty>

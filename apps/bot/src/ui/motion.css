@@ -63,6 +63,14 @@
     var(--duration-exit) ease-in both fade reverse,
     var(--duration-move) ease-in-out both slide reverse;
 }
+::view-transition-new(.drawer-from-right) {
+  --slide-offset: 100%;
+  animation: var(--duration-move) cubic-bezier(0.22, 1, 0.36, 1) both slide;
+}
+::view-transition-old(.drawer-to-right) {
+  --slide-offset: 100%;
+  animation: var(--duration-move) cubic-bezier(0.32, 0, 0.67, 0) both slide reverse;
+}
 ::view-transition-old(.nav-forward) {
   --slide-offset: -60px;
   animation:

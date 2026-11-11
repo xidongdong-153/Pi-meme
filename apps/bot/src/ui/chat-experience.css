@@ -235,11 +235,19 @@
   overflow-wrap: anywhere;
 }
 
-.chats-page .recipient-menu > div {
-  max-width: calc(100vw - 96px);
+.bot-recipient-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 220px;
+  max-width: calc(100vw - 24px);
   max-height: 240px;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+.bot-recipient-content .check {
+  align-items: flex-start;
+  overflow-wrap: anywhere;
 }
 
 .chats-page .recipient-count {
@@ -279,7 +287,7 @@
     gap: 6px;
   }
 
-  .chats-page .recipient-menu summary {
+  .chats-page .recipient-menu-trigger {
     min-height: 30px;
   }
 

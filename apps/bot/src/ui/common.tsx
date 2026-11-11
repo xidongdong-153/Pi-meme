@@ -21,6 +21,7 @@ import { motionTransition } from './motion'
 
 export { Button, Input, Textarea }
 export { Select } from './select'
+export { CollapsibleSection } from '@pi-meme/ui/components/ui/collapsible'
 export type PageProps = {
   snapshot: Snapshot
   refresh: () => Promise<void>
@@ -200,11 +201,13 @@ export function Modal({
   children,
   onClose,
   className = '',
+  placement = 'center',
 }: {
   title: string
   children: ReactNode
   onClose: () => void
   className?: string
+  placement?: 'center' | 'right'
 }) {
   const depth = useContext(ModalDepthContext)
   const overlayZ = 80 + depth * 10
@@ -225,7 +228,11 @@ export function Modal({
           <ViewTransition default="none" enter="fade-in" exit="fade-out">
             <Dialog.Overlay className="bot-modal-overlay" style={{ zIndex: overlayZ }} />
           </ViewTransition>
-          <ViewTransition default="none" enter="slide-up" exit="slide-down">
+          <ViewTransition
+            default="none"
+            enter={placement === 'right' ? 'drawer-from-right' : 'slide-up'}
+            exit={placement === 'right' ? 'drawer-to-right' : 'slide-down'}
+          >
             <Dialog.Content
               className={`bot-modal ${className}`}
               style={{ zIndex: contentZ }}

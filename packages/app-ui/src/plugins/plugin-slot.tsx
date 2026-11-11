@@ -1,8 +1,8 @@
 import { Fragment, useSyncExternalStore, type ReactNode } from 'react'
-import { ChevronRight } from 'lucide-react'
 import type { UiContribution, UiContributionProps, UiPluginSlot } from '@pi-meme/plugin-sdk/ui'
 import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
+import { CollapsibleSection } from '@pi-meme/ui/components/ui/collapsible'
 import type { UiPluginRegistry } from './plugin-registry'
 import { usePluginSnapshot } from './plugin-snapshot'
 
@@ -57,16 +57,15 @@ export function PluginSlot({
             contribution
           )
         return slot === 'message' ? (
-          <details key={key} className="group/contribution min-w-0 py-1 text-sm">
-            <summary className="flex min-w-0 cursor-pointer list-none items-center gap-1.5 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-              <span className="truncate">{entry.title ?? props.customType ?? '插件信息'}</span>
-              <ChevronRight
-                aria-hidden="true"
-                className="size-3 shrink-0 transition-transform group-open/contribution:rotate-90"
-              />
-            </summary>
+          <CollapsibleSection
+            key={key}
+            title={entry.title ?? props.customType ?? '插件信息'}
+            variant="inline"
+            className="min-w-0 py-1"
+            triggerClassName="text-sm text-muted-foreground"
+          >
             {content}
-          </details>
+          </CollapsibleSection>
         ) : (
           <Fragment key={key}>{content}</Fragment>
         )

@@ -6,6 +6,7 @@ import type { HostConnection, QqConfig } from '../shared/types'
 import {
   Button,
   Check,
+  CollapsibleSection,
   date,
   DrawerClose,
   Empty,
@@ -343,12 +344,11 @@ function QqSettings({ snapshot, refresh }: { snapshot: PageProps['snapshot']; re
           <p className="muted">有效至 {date(binding.expiresAt)}</p>
         </div>
       )}
-      <details className="help-details">
-        <summary>QQ 私聊指令</summary>
+      <CollapsibleSection className="help-details" title="QQ 私聊指令">
         <p>
           绑定后通过官方机器人私聊。发送“/角色”查看角色，“/切换 角色名”切换接待角色，“/状态”查看工作，“/停止”请求停止。
         </p>
-      </details>
+      </CollapsibleSection>
     </>
   )
 }

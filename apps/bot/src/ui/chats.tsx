@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useSta
 import {
   ArrowDown,
   ArrowUp,
+  ArrowUpRight,
   ChevronDown,
   ListTodo,
   LoaderCircle,
@@ -18,6 +19,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@pi-meme/ui/components/ui/dropdown-menu'
+import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from './utils'
@@ -46,6 +48,7 @@ import {
   BrandMark,
   Button,
   Check,
+  CollapsibleSection,
   date,
   Empty,
   ErrorText,
@@ -80,11 +83,13 @@ export function Chats({
   refresh,
   navigate,
   selectedId,
+  listOpen,
   online,
   openSettings,
   logout,
 }: PageProps & {
   selectedId?: string
+  listOpen: boolean
   online: boolean
   openSettings: (tab?: string) => void
   logout: () => void
@@ -109,6 +114,15 @@ export function Chats({
   >(undefined)
   const returnToTaskList = useRef(false)
   const detailTrigger = useRef<HTMLButtonElement>(null)
+  const pendingDetails = useRef<string | undefined>(undefined)
+  const showDetails = useCallback(
+    (view: 'overview' | 'edit' | 'tasks') => {
+      if (!selectedId) return
+      pendingDetails.current = selectedId
+      motionTransition('chat-detail', () => setDetailStates((previous) => ({ ...previous, [selectedId]: view })))
+    },
+    [selectedId],
+  )
   const taskTrigger = useRef<HTMLElement | null>(null)
   const [taskSelection, setTaskSelection] = useState<{ id: string; conversationId: string }>()
   const [messages, setMessages] = useState<Record<string, Message[]>>({})
@@ -130,6 +144,29 @@ export function Chats({
   const title = currentBot?.name ?? conversation?.name ?? ''
   const tasks = snapshot.tasks.filter((t) => t.conversationId === selectedId)
   const deliveries = snapshot.deliveries.filter((delivery) => delivery.conversationId === selectedId)
+  useEffect(() => {
+    pendingDetails.current = undefined
+  }, [details, selectedId])
+  useEffect(() => {
+    const cancelOpening = (event: KeyboardEvent) => {
+      const target = pendingDetails.current
+      if (
+        !target ||
+        event.key !== 'Escape' ||
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.keyCode === 229 ||
+        document.querySelector('[data-bot-modal], .bot-sidebar[aria-modal="true"]')
+      )
+        return
+      event.preventDefault()
+      pendingDetails.current = undefined
+      // Cancel urgently so the queued opening cannot reappear after Escape.
+      setDetailStates((previous) => ({ ...previous, [target]: undefined }))
+    }
+    window.addEventListener('keydown', cancelOpening)
+    return () => window.removeEventListener('keydown', cancelOpening)
+  }, [])
   useEffect(() => setLive((previous) => mergeLive(previous, snapshot.live ?? [])), [snapshot.live])
   useEffect(() => {
     const receive = (event: Event) =>
@@ -144,12 +181,11 @@ export function Chats({
       if (!target) return
       if ('bot' in target) setEditingBot(target.bot)
       else if (target.task) setTaskSelection(target.task)
-      else if (target.conversationId === selectedId && target.view)
-        setDetailStates((previous) => ({ ...previous, [target.conversationId!]: target.view }))
+      else if (target.conversationId === selectedId && target.view) showDetails(target.view)
     }
     window.addEventListener('bots:settings-closed', restore)
     return () => window.removeEventListener('bots:settings-closed', restore)
-  }, [selectedId])
+  }, [selectedId, showDetails])
   function configure(tab = 'models') {
     if (editingBot !== undefined) {
       settingsReturn.current = { bot: editingBot }
@@ -275,6 +311,7 @@ export function Chats({
   }
   const closeDetails = useCallback(() => {
     if (!selectedId || detailSaving || (detailDirty && !confirm('离开当前编辑？仍有未保存的修改。'))) return
+    pendingDetails.current = undefined
     motionTransition('chat-detail', () => setDetailStates((previous) => ({ ...previous, [selectedId]: undefined })))
   }, [selectedId, detailDirty, detailSaving])
 
@@ -282,6 +319,7 @@ export function Chats({
     <div className={cn('split-page chats-page', selectedId && 'has-selection')}>
       <BotSidebar
         snapshot={snapshot}
+        open={listOpen}
         selectedId={selectedId}
         messages={messages}
         openBot={(bot) => void selectBot(bot)}
@@ -300,7 +338,7 @@ export function Chats({
                 aria-label={`${title} · 详情`}
                 aria-haspopup="dialog"
                 aria-expanded={Boolean(details)}
-                onClick={() => setDetailStates((previous) => ({ ...previous, [conversation.id]: 'overview' }))}
+                onClick={() => showDetails('overview')}
               >
                 {conversation.kind === 'group' ? (
                   <Users size={20} strokeWidth={1.7} />
@@ -325,7 +363,7 @@ export function Chats({
                       aria-label={`任务记录${tasks.some((task) => task.status === 'waiting') ? '，有待处理事项' : ''}`}
                       aria-haspopup="dialog"
                       aria-expanded={details === 'tasks'}
-                      onClick={() => setDetailStates((previous) => ({ ...previous, [conversation.id]: 'tasks' }))}
+                      onClick={() => showDetails('tasks')}
                     >
                       <ListTodo size={19} strokeWidth={1.7} />
                       {tasks.some((task) => task.status === 'waiting') && (
@@ -404,6 +442,7 @@ export function Chats({
       </section>
       {details && conversation && (
         <Modal
+          placement="right"
           title={
             details === 'tasks' ? '任务记录' : details === 'edit' ? (currentBot ? '编辑 Bot' : '编辑群组') : '详情'
           }
@@ -415,8 +454,8 @@ export function Chats({
               <ConversationOverview
                 {...{ conversation, snapshot, refresh }}
                 bot={currentBot}
-                edit={() => setDetailStates((previous) => ({ ...previous, [conversation.id]: 'edit' }))}
-                tasks={() => setDetailStates((previous) => ({ ...previous, [conversation.id]: 'tasks' }))}
+                edit={() => showDetails('edit')}
+                tasks={() => showDetails('tasks')}
                 settings={configure}
                 openBot={(bot) => {
                   closeDetails()
@@ -437,7 +476,7 @@ export function Chats({
                     onDirtyChange={setDetailDirty}
                     onSavingChange={setDetailSaving}
                     onSettings={configure}
-                    close={() => setDetailStates((previous) => ({ ...previous, [conversation.id]: 'overview' }))}
+                    close={() => showDetails('overview')}
                   />
                 </Suspense>
               ) : (
@@ -446,7 +485,7 @@ export function Chats({
                   {...{ conversation, snapshot, refresh, navigate }}
                   onDirtyChange={setDetailDirty}
                   onSavingChange={setDetailSaving}
-                  done={() => setDetailStates((previous) => ({ ...previous, [conversation.id]: 'overview' }))}
+                  done={() => showDetails('overview')}
                 />
               )
             ) : (
@@ -998,23 +1037,30 @@ function MessageItem({
         )}
         <TaskInteractionCards tasks={messageTasks} {...{ refresh, settings }} />
         {childTasks.map((task) => (
-          <details className="collaboration" key={task.id}>
-            <summary>
-              <button
-                className="text-link"
-                onClick={(event) => {
-                  event.preventDefault()
-                  openTask(task.id)
-                }}
+          <CollapsibleSection
+            className="collaboration"
+            key={task.id}
+            title={
+              <span className="inline-flex flex-wrap items-center gap-2">
+                <span>{task.config.name}</span>
+                <Status value={task.status} />
+              </span>
+            }
+            actions={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`查看 ${task.config.name} 的任务详情`}
+                onClick={() => openTask(task.id)}
               >
-                {task.config.name}
-              </button>{' '}
-              <Status value={task.status} />
-            </summary>
+                <ArrowUpRight size={15} />
+              </Button>
+            }
+          >
             <div className="markdown">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{task.result ?? task.error ?? task.prompt}</ReactMarkdown>
             </div>
-          </details>
+          </CollapsibleSection>
         ))}
       </div>
     </article>
@@ -1115,7 +1161,7 @@ function Composer({
   const stoppingLocks = useRef(new Set<string>())
   const file = useRef<HTMLInputElement>(null)
   const textarea = useRef<HTMLTextAreaElement>(null)
-  const recipientMenu = useRef<HTMLDetailsElement>(null)
+  const [recipientMenuOpen, setRecipientMenuOpen] = useState(false)
   const composing = useRef(false)
   const id = conversation.id
   const draft = drafts[id] ?? readDraft(id)
@@ -1180,7 +1226,7 @@ function Composer({
   }, [id, draft.text])
   useEffect(() => {
     composing.current = false
-    if (recipientMenu.current) recipientMenu.current.open = false
+    setRecipientMenuOpen(false)
   }, [id])
   async function send(targetTask?: Task) {
     if (!(targetTask ? canSteer : canSend) || sendingLocks.current.has(id) || uploadingLocks.current.has(id)) return
@@ -1491,38 +1537,51 @@ function Composer({
               </DropdownMenuContent>
             </DropdownMenu>
             {conversation.kind === 'group' && (
-              <details className="recipient-menu" ref={recipientMenu}>
-                <summary>
-                  @成员
-                  {draft.recipientIds.some((member) => conversation.memberIds.includes(member)) && (
-                    <span className="recipient-count">
-                      {draft.recipientIds.filter((member) => conversation.memberIds.includes(member)).length}
-                    </span>
-                  )}
-                  <ChevronDown size={12} />
-                </summary>
-                <div>
-                  {conversation.memberIds.map((member) => {
-                    const bot = bots.find((value) => value.id === member)
-                    return (
-                      <Check
-                        key={member}
-                        checked={draft.recipientIds.includes(member)}
-                        onChange={(checked) =>
-                          updateDraft(id, (value) => ({
-                            ...value,
-                            recipientIds: checked
-                              ? [...value.recipientIds, member]
-                              : value.recipientIds.filter((item) => item !== member),
-                          }))
-                        }
-                      >
-                        {bot?.name ?? member}
-                      </Check>
-                    )
-                  })}
-                </div>
-              </details>
+              <div className="recipient-menu">
+                <Popover open={recipientMenuOpen} onOpenChange={setRecipientMenuOpen}>
+                  <PopoverTrigger asChild>
+                    <button type="button" className="recipient-menu-trigger">
+                      @成员
+                      {draft.recipientIds.some((member) => conversation.memberIds.includes(member)) && (
+                        <span className="recipient-count">
+                          {draft.recipientIds.filter((member) => conversation.memberIds.includes(member)).length}
+                        </span>
+                      )}
+                      <ChevronDown size={12} aria-hidden="true" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="bot-recipient-content"
+                    side="top"
+                    align="start"
+                    collisionPadding={12}
+                    aria-label="选择接收成员"
+                    onEscapeKeyDown={(event) => {
+                      if (event.isComposing || event.keyCode === 229) event.preventDefault()
+                    }}
+                  >
+                    {conversation.memberIds.map((member) => {
+                      const bot = bots.find((value) => value.id === member)
+                      return (
+                        <Check
+                          key={member}
+                          checked={draft.recipientIds.includes(member)}
+                          onChange={(checked) =>
+                            updateDraft(id, (value) => ({
+                              ...value,
+                              recipientIds: checked
+                                ? [...value.recipientIds, member]
+                                : value.recipientIds.filter((item) => item !== member),
+                            }))
+                          }
+                        >
+                          {bot?.name ?? member}
+                        </Check>
+                      )
+                    })}
+                  </PopoverContent>
+                </Popover>
+              </div>
             )}
           </div>
           <div className="inline-actions">
@@ -1676,8 +1735,10 @@ function NewGroup({ bots, close, done }: { bots: Bot[]; close: () => void; done:
         <Check checked={collaboration} onChange={setCollaboration}>
           允许成员在本群协作
         </Check>
-        <details className="advanced">
-          <summary>协调者：{bots.find((bot) => bot.id === coordinator)?.name ?? '首位成员'}</summary>
+        <CollapsibleSection
+          className="advanced"
+          title={`协调者：${bots.find((bot) => bot.id === coordinator)?.name ?? '首位成员'}`}
+        >
           <Field label="协调者">
             <Select value={coordinator} onChange={setCoordinator}>
               <option value="">选择协调者</option>
@@ -1688,7 +1749,7 @@ function NewGroup({ bots, close, done }: { bots: Bot[]; close: () => void; done:
               ))}
             </Select>
           </Field>
-        </details>
+        </CollapsibleSection>
       </Form>
     </Modal>
   )

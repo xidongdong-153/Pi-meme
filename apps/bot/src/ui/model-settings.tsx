@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { CheckCircle2, CircleAlert, LoaderCircle, Pencil, Plus, ShieldCheck, X } from 'lucide-react'
 import { request, RequestError } from '../client/api'
 import type { ModelConfig, ModelProtocol, ModelProvider, ModelService, ModelSettings } from '../shared/types'
-import { BrandMark, Button, ErrorText, Field, Form, Input, Select } from './common'
+import { BrandMark, Button, CollapsibleSection, ErrorText, Field, Form, Input, Select } from './common'
 import type { PageProps } from './common'
 
 const providers: Record<ModelProvider, { name: string; url: string; protocol: ModelProtocol; placeholder: string }> = {
@@ -267,10 +267,9 @@ export function ModelSettingsPanel({
             )}
             {textModels.map((model) => renderModel(model, service))}
             {imageModels.length > 0 && (
-              <details className="model-image-section">
-                <summary>图片生成 · {imageModels.length}</summary>
+              <CollapsibleSection className="model-image-section" title={`图片生成 · ${imageModels.length}`}>
                 {imageModels.map((model) => renderModel(model, service))}
-              </details>
+              </CollapsibleSection>
             )}
             {editor?.key === `add:${service.id}` ? (
               <ModelConnectionEditor
@@ -515,8 +514,7 @@ export function ModelConnectionEditor({
           />
         </Field>
         {!onboarding && (
-          <details className="model-advanced">
-            <summary>高级参数</summary>
+          <CollapsibleSection className="model-advanced" title="高级参数">
             <Field label={connectionOnly ? '服务名称' : '显示名称'}>
               <Input maxLength={80} value={name} onChange={(event) => setName(event.target.value)} />
             </Field>
@@ -565,7 +563,7 @@ export function ModelConnectionEditor({
                 </Field>
               </div>
             )}
-          </details>
+          </CollapsibleSection>
         )}
         {Boolean(phase) && (
           <p className="model-progress" role="status">

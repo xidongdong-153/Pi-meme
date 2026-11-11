@@ -1,7 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { request } from '../client/api'
 import type { Bot } from '../shared/types'
-import { Avatar, Button, Check, ErrorText, Field, Form, Input, Modal, Select, Textarea, useAction } from './common'
+import {
+  Avatar,
+  Button,
+  Check,
+  CollapsibleSection,
+  ErrorText,
+  Field,
+  Form,
+  Input,
+  Modal,
+  Select,
+  Textarea,
+  useAction,
+} from './common'
 import type { PageProps } from './common'
 
 type BotEditorProps = PageProps & {
@@ -251,8 +264,7 @@ export function BotEditor({
               onChange={(e) => setInstructions(e.target.value)}
             />
           </Field>
-          <details className="bot-editor-advanced">
-            <summary>角色设置</summary>
+          <CollapsibleSection className="bot-editor-advanced" title="角色设置">
             <Field label="对话模型">
               <Select
                 value={modelId}
@@ -300,7 +312,7 @@ export function BotEditor({
             <Check checked={enabled} onChange={setEnabled}>
               启用角色
             </Check>
-          </details>
+          </CollapsibleSection>
           {!enabled &&
             snapshot.tasks.some(
               (task) => task.botId === bot?.id && ['queued', 'running', 'waiting', 'stopping'].includes(task.status),
@@ -318,8 +330,7 @@ export function BotEditor({
                 </Select>
               </Field>
             )}
-          <details className="bot-editor-advanced">
-            <summary>任务预算</summary>
+          <CollapsibleSection className="bot-editor-advanced" title="任务预算">
             <Field label="每次任务工具调用上限">
               <Input
                 type="number"
@@ -329,7 +340,7 @@ export function BotEditor({
                 onChange={(e) => setMaxTools(Number(e.target.value))}
               />
             </Field>
-          </details>
+          </CollapsibleSection>
           {dirty && (
             <p className="muted" role="status">
               有未保存修改
@@ -344,8 +355,7 @@ export function BotEditor({
         </p>
       )}
       {bot && (
-        <details className="more-actions">
-          <summary>更多操作</summary>
+        <CollapsibleSection className="more-actions" title="更多操作">
           <Button
             variant="outline"
             onClick={() =>
@@ -375,7 +385,7 @@ export function BotEditor({
           >
             删除角色
           </Button>
-        </details>
+        </CollapsibleSection>
       )}
     </>
   )

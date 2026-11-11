@@ -1,7 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { Bot, PanelLeft } from 'lucide-react'
+import { Bot, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { cn } from './utils'
-import { motionTransition } from './motion'
 import { useBotNavigation } from './navigation'
 import { useListDrawer } from './list-drawer'
 import { getSnapshot, request, RequestError } from '../client/api'
@@ -32,7 +31,7 @@ export function App() {
       setIsNarrow(media.matches)
       setDrawerOpen(false)
     }
-    const close = () => motionTransition('bot-layout', () => setDrawerOpen(false))
+    const close = () => setDrawerOpen(false)
     media.addEventListener('change', resize)
     window.addEventListener('bots:close-list', close)
     return () => {
@@ -43,10 +42,14 @@ export function App() {
   useEffect(() => {
     if (!isNarrow || !drawerOpen) return
     const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !event.defaultPrevented && !event.isComposing && event.keyCode !== 229) {
-        motionTransition('bot-layout', () => setDrawerOpen(false))
-        listToggle.current?.focus()
-      }
+      if (
+        event.key === 'Escape' &&
+        !event.defaultPrevented &&
+        !event.isComposing &&
+        event.keyCode !== 229 &&
+        !document.querySelector('[data-bot-modal]')
+      )
+        setDrawerOpen(false)
     }
     window.addEventListener('keydown', escape)
     return () => window.removeEventListener('keydown', escape)
@@ -237,29 +240,34 @@ export function App() {
             </Button>
           </div>
         )}
-        {isNarrow && drawerOpen && (
-          <button className="list-scrim" tabIndex={-1} aria-label="关闭列表" onClick={() => setDrawerOpen(false)} />
-        )}
+        <button
+          className="list-scrim"
+          data-state={isNarrow && drawerOpen ? 'open' : 'closed'}
+          tabIndex={-1}
+          aria-label="关闭列表"
+          aria-hidden={!isNarrow || !drawerOpen}
+          inert={!isNarrow || !drawerOpen}
+          onClick={() => setDrawerOpen(false)}
+        />
         <Button
           ref={listToggle}
           variant="ghost"
           size="icon"
           className="sidebar-toggle"
           aria-label={listOpen ? '收起 Bot 列表' : '展开 Bot 列表'}
+          aria-controls="bot-list"
           aria-expanded={listOpen}
           inert={isNarrow && drawerOpen}
-          onClick={() =>
-            motionTransition('bot-layout', () => {
-              if (isNarrow) setDrawerOpen((open) => !open)
-              else
-                setDesktopListOpen((open) => {
-                  localStorage.setItem('bots.layout.v1', open ? 'closed' : 'open')
-                  return !open
-                })
-            })
-          }
+          onClick={() => {
+            if (isNarrow) setDrawerOpen((open) => !open)
+            else
+              setDesktopListOpen((open) => {
+                localStorage.setItem('bots.layout.v1', open ? 'closed' : 'open')
+                return !open
+              })
+          }}
         >
-          <PanelLeft size={19} strokeWidth={1.7} />
+          {listOpen ? <PanelLeftClose size={19} strokeWidth={1.7} /> : <PanelLeftOpen size={19} strokeWidth={1.7} />}
         </Button>
         {!props ? (
           <div className="empty" role="status">
@@ -270,6 +278,7 @@ export function App() {
             <Chats
               {...props}
               selectedId={location.id}
+              listOpen={listOpen}
               online={online}
               openSettings={(tab = 'appearance') => setSettingsTab(tab)}
               logout={() => void logout()}

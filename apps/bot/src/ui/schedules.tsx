@@ -5,6 +5,7 @@ import type { Schedule } from '../shared/types'
 import {
   Button,
   Check,
+  CollapsibleSection,
   date,
   Empty,
   ErrorText,
@@ -135,9 +136,6 @@ export function Schedules({
               >
                 立即运行
               </Button>
-              <Button variant="ghost" onClick={() => setExpanded((value) => (value === s.id ? '' : s.id))}>
-                运行记录
-              </Button>
               <Button variant="ghost" onClick={() => navigate('chats', s.conversationId)}>
                 来源会话
               </Button>
@@ -154,7 +152,12 @@ export function Schedules({
                 删除
               </Button>
             </div>
-            {expanded === s.id && (
+            <CollapsibleSection
+              title="运行记录"
+              className="mt-4"
+              open={expanded === s.id}
+              onOpenChange={(open) => setExpanded(open ? s.id : '')}
+            >
               <div className="run-list">
                 {snapshot.scheduleRuns
                   .filter((r) => r.scheduleId === s.id)
@@ -179,7 +182,7 @@ export function Schedules({
                   ))}
                 {!snapshot.scheduleRuns.some((r) => r.scheduleId === s.id) && <p className="muted">尚无运行记录</p>}
               </div>
-            )}
+            </CollapsibleSection>
           </div>
         ))
       ) : (

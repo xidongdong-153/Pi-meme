@@ -468,8 +468,6 @@ h3 {
 }
 .collaboration {
   margin-top: 14px;
-  padding: 10px 0;
-  border-top: 1px solid var(--border);
 }
 .composer-wrap {
   padding: 12px max(20px, calc((100% - 800px) / 2)) 20px;
@@ -529,21 +527,29 @@ h3 {
 .recipient-menu {
   position: relative;
 }
-.recipient-menu summary {
+.recipient-menu-trigger {
   display: flex;
   align-items: center;
   gap: 4px;
-  cursor: pointer;
-}
-.recipient-menu > div {
-  position: absolute;
-  bottom: 30px;
-  width: 200px;
-  background: var(--popover);
-  padding: 12px;
-  border: 1px solid var(--border);
+  min-height: 30px;
+  padding: 4px 8px;
   border-radius: 8px;
-  z-index: 20;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast),
+    color var(--motion-fast);
+}
+.recipient-menu-trigger:hover,
+.recipient-menu-trigger[aria-expanded='true'] {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+.recipient-menu-trigger > svg {
+  transition: transform var(--motion-fast);
+}
+.recipient-menu-trigger[aria-expanded='true'] > svg {
+  transform: rotate(180deg);
 }
 .detail-pane {
   width: 300px;
@@ -736,15 +742,7 @@ select {
   white-space: pre-wrap;
 }
 .more-actions {
-  margin-top: 28px;
-  padding-top: 20px;
-  border-top: 1px solid var(--border);
-}
-.more-actions summary,
-.help-details summary {
-  cursor: pointer;
-  color: var(--muted-foreground);
-  margin-bottom: 16px;
+  margin-top: 20px;
 }
 .category {
   transition:
@@ -897,9 +895,6 @@ select {
   margin-top: 28px;
   line-height: 1.8;
 }
-.list-collapsed .list-pane {
-  display: none;
-}
 @keyframes bot-spin {
   to {
     transform: rotate(360deg);
@@ -964,6 +959,16 @@ select {
     z-index: 35;
     background: #0005;
     cursor: default;
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity var(--duration-move) cubic-bezier(0.22, 1, 0.36, 1),
+      visibility 0s linear var(--duration-move);
+  }
+  .list-scrim[data-state='open'] {
+    opacity: 1;
+    visibility: visible;
+    transition-delay: 0s;
   }
   .rail-button {
     width: 34px;
@@ -989,12 +994,6 @@ select {
     max-width: 100%;
     z-index: 40;
     box-shadow: 12px 0 30px #0003;
-  }
-  .bot-app:not(.narrow-list-open) .list-pane {
-    display: none;
-  }
-  .bot-app.narrow-list-open .list-pane {
-    display: flex;
   }
   .bot-app .chats-page:not(.has-selection) .list-pane,
   .bot-app .bots-page:not(.has-selection) .list-pane {
