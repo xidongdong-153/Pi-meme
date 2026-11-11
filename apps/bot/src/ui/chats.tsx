@@ -25,6 +25,7 @@ import { motionTransition } from './motion'
 import { attachmentUrl, openBotConversation, request, RequestError } from '../client/api'
 import { BotSidebar } from './bot-sidebar'
 import { formatChatTime, hasTimeBreak } from './chat-time'
+import { buildMessageTimeline } from './chat-timeline'
 import { CopyButton, MessageContent } from './message-content'
 import { Tooltip, TooltipContent, TooltipTrigger } from './primitives'
 import type {
@@ -650,6 +651,7 @@ function MessageList({
   const [arrivalIds, setArrivalIds] = useState<string[]>([])
   const hasOlder = Boolean(older)
   const conversation = snapshot.conversations.find((item) => item.id === conversationId)
+  const items = loaded ? buildMessageTimeline(messages, tasks, hasOlder) : []
   const savePosition = useCallback(() => {
     const node = ref.current
     if (!node || !node.clientHeight || !target.current || restoring.current) return
@@ -759,62 +761,50 @@ function MessageList({
               )}
             </Button>
           )}
-          {loaded && !messages.length && (
+          {loaded && !items.length && (
             <div className="empty" role="status">
               发送第一条消息
             </div>
           )}
-          {messages.map((message, index) => {
-            const previous = messages[index - 1]
-            const timeBreak = hasTimeBreak(message.createdAt, previous?.createdAt)
-            const continued =
-              !timeBreak &&
-              previous?.role === message.role &&
-              previous?.botId === message.botId &&
-              previous?.authorName === message.authorName
+          {items.map((item, index) => {
+            const previous = items[index - 1]
+            const timeBreak = hasTimeBreak(item.createdAt, previous?.createdAt)
+            const previousMessage = previous?.kind === 'message' ? previous.message : undefined
             return (
-              <Fragment key={message.id}>
+              <Fragment key={item.id}>
                 {timeBreak && (
                   <div className="message-time-separator">
-                    <time dateTime={message.createdAt}>{formatChatTime(message.createdAt)}</time>
+                    <time dateTime={item.createdAt}>{formatChatTime(item.createdAt)}</time>
                   </div>
                 )}
-                <MessageItem
-                  message={message}
-                  continued={continued}
-                  arrived={arrivalIds.includes(message.id)}
-                  attachments={attachments}
-                  tasks={tasks}
-                  snapshot={snapshot}
-                  refresh={refresh}
-                  settings={settings}
-                  openTask={openTask}
-                />
+                {item.kind === 'message' ? (
+                  <MessageItem
+                    message={item.message}
+                    continued={
+                      !timeBreak &&
+                      previousMessage?.role === item.message.role &&
+                      previousMessage?.botId === item.message.botId &&
+                      previousMessage?.authorName === item.message.authorName
+                    }
+                    arrived={arrivalIds.includes(item.id)}
+                    attachments={attachments}
+                    tasks={tasks}
+                    snapshot={snapshot}
+                    refresh={refresh}
+                    settings={settings}
+                    openTask={openTask}
+                  />
+                ) : (
+                  <PartialReply
+                    task={item.task}
+                    createdAt={item.createdAt}
+                    showAuthor={conversation?.kind === 'group' || item.task.botId !== conversation?.coordinatorId}
+                    openTask={openTask}
+                  />
+                )}
               </Fragment>
             )
           })}
-          {tasks
-            .filter((task) => task.publicReply && task.partialResult && !active.has(task.status))
-            .map((task) => (
-              <article
-                className="message message-partial"
-                key={`partial:${task.id}`}
-                aria-label={`${task.config.name} 的部分回复`}
-              >
-                <div className="message-body">
-                  <div className="message-bubble">
-                    <div className="message-meta">
-                      <button className="text-link" onClick={() => openTask(task.id)}>
-                        {task.config.name}
-                      </button>
-                      <span>部分回复</span>
-                      <Status value={task.status} />
-                    </div>
-                    <MessageContent text={task.partialResult!} />
-                  </div>
-                </div>
-              </article>
-            ))}
           {live
             .filter(
               (value) =>
@@ -915,6 +905,52 @@ function MessageList({
         </button>
       )}
     </div>
+  )
+}
+function PartialReply({
+  task,
+  createdAt,
+  showAuthor,
+  openTask,
+}: {
+  task: Task
+  createdAt: string
+  showAuthor: boolean
+  openTask: (id: string) => void
+}) {
+  return (
+    <article
+      className={cn('message message-partial', showAuthor && 'with-author')}
+      id={`message-partial:${task.id}`}
+      data-message-id={`partial:${task.id}`}
+      aria-label={`${task.config.name} 的部分回复，${formatChatTime(createdAt)}`}
+    >
+      {showAuthor && <Avatar name={task.config.name} avatar={task.config.avatar} />}
+      <div className="message-body">
+        <div className="message-bubble">
+          {showAuthor && (
+            <div className="message-meta">
+              <strong>{task.config.name}</strong>
+            </div>
+          )}
+          <MessageContent text={task.partialResult!} />
+        </div>
+        <div className="message-footer">
+          <time dateTime={createdAt}>
+            {new Date(createdAt).toLocaleTimeString('zh-CN', {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false,
+            })}
+          </time>
+          <Status value={task.status} />
+          <CopyButton text={task.partialResult!} />
+          <button className="text-link message-task-link" onClick={() => openTask(task.id)}>
+            任务
+          </button>
+        </div>
+      </div>
+    </article>
   )
 }
 function MessageItem({
