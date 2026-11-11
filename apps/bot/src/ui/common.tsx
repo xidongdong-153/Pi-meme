@@ -16,7 +16,7 @@ import { createPortal } from 'react-dom'
 import { Bot as BotIcon, Check as CheckIcon, LoaderCircle, X } from 'lucide-react'
 import { agentAvatars, botAvatars, defaultUserAvatar } from '@pi-meme/assets/builtin'
 import { isBotAvatarPreset } from '@pi-meme/assets/bot-avatars'
-import type { Snapshot } from '../shared/types'
+import type { Bot, Snapshot } from '../shared/types'
 import { Button, Input, Textarea } from './primitives'
 import { motionTransition } from './motion'
 
@@ -68,10 +68,20 @@ export function Check({
 }
 export function Avatar({ name, avatar, user = false }: { name: string; avatar?: string; user?: boolean }) {
   const source = user ? defaultUserAvatar : isBotAvatarPreset(avatar) ? botAvatars[avatar] : agentAvatars[0]
-  const textAvatar = !user && typeof avatar === 'string' && avatar && !avatar.startsWith('bot:')
   return (
     <span className="avatar" aria-hidden="true">
-      {textAvatar ? <span className="avatar-text">{avatar}</span> : <img src={source} alt={name} draggable={false} />}
+      <img src={source} alt={name} draggable={false} />
+    </span>
+  )
+}
+export function GroupAvatar({ memberIds, bots }: { memberIds: string[]; bots: Bot[] }) {
+  return (
+    <span className="group-avatar" aria-hidden="true">
+      {memberIds.slice(0, 3).map((id) => {
+        const bot = bots.find((item) => item.id === id)
+        return <Avatar key={id} name={bot?.name ?? 'Bot'} avatar={bot?.avatar} />
+      })}
+      {!memberIds.length && <Avatar name="群组" />}
     </span>
   )
 }

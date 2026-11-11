@@ -1,4 +1,4 @@
-import { ChevronRight, MoreHorizontal, Pencil, Users } from 'lucide-react'
+import { ChevronRight, MoreHorizontal, Pencil } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -7,7 +7,7 @@ import {
 } from '@pi-meme/ui/components/ui/dropdown-menu'
 import { request } from '../client/api'
 import type { Bot, Conversation, Snapshot } from '../shared/types'
-import { Avatar, Button, Check, date, ErrorText, Status, useAction } from './common'
+import { Avatar, Button, Check, date, ErrorText, GroupAvatar, Status, useAction } from './common'
 
 export function ConversationOverview({
   conversation,
@@ -52,7 +52,11 @@ export function ConversationOverview({
   return (
     <div className="conversation-overview">
       <div className="ds-details-identity">
-        {bot ? <Avatar name={bot.name} avatar={bot.avatar} /> : <Users size={38} strokeWidth={1.3} />}
+        {bot ? (
+          <Avatar name={bot.name} avatar={bot.avatar} />
+        ) : (
+          <GroupAvatar memberIds={conversation.memberIds} bots={snapshot.bots} />
+        )}
         <h2>{bot?.name ?? conversation.name}</h2>
         {bot?.description && <p>{bot.description}</p>}
         <div className="inline-actions">

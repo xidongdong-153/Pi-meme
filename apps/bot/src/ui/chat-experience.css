@@ -41,6 +41,8 @@
 
 .chats-page .message-timeline {
   min-width: 0;
+  width: min(100%, 980px);
+  margin-inline: auto;
 }
 
 .chats-page .message-timeline.is-restoring {
@@ -300,8 +302,8 @@
 .chats-page .markdown,
 .chats-page .collaboration .markdown,
 .ds-bot-details .markdown {
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: var(--text-body);
+  line-height: 1.65;
   overflow-wrap: anywhere;
 }
 
@@ -349,6 +351,278 @@
   height: 4px;
   border-radius: 50%;
   background: var(--muted-foreground);
+  animation: bot-typing 1.2s ease-in-out infinite;
+}
+
+.live-typing i:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+.live-typing i:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+@keyframes bot-typing {
+  0%,
+  70%,
+  100% {
+    opacity: 0.45;
+    transform: translateY(0);
+  }
+  35% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+.message-time-separator {
+  margin: 24px 0 20px;
+  color: var(--muted-foreground);
+  text-align: center;
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.message-time-separator:first-child {
+  margin-top: 6px;
+}
+
+.chats-page .from-system {
+  justify-content: center;
+}
+
+.chats-page .from-system .message-bubble {
+  padding: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+
+.chats-page .from-system .markdown {
+  font-size: 13px;
+}
+
+.chats-page .message-bubble.is-thinking {
+  padding-top: 3px;
+  background: transparent;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown p {
+  white-space: pre-wrap;
+}
+
+.markdown li {
+  margin-block: 3px;
+}
+
+.markdown li > p {
+  margin-block: 0 6px;
+}
+
+.markdown ul ul,
+.markdown ol ol,
+.markdown ul ol,
+.markdown ol ul {
+  margin-block: 4px;
+}
+
+.markdown strong {
+  font-weight: 600;
+}
+
+.markdown h1 {
+  font-size: 1.3em;
+  line-height: 1.4;
+}
+
+.markdown h2 {
+  font-size: 1.18em;
+  line-height: 1.45;
+}
+
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin-block: 18px 8px;
+  font-size: 1.05em;
+  font-weight: 600;
+}
+
+.markdown a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 3px;
+}
+
+.markdown a:hover {
+  text-decoration-color: currentColor;
+}
+
+.markdown hr {
+  margin-block: 18px;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.markdown blockquote {
+  margin: 12px 0;
+  border-left: 3px solid color-mix(in srgb, currentColor 25%, transparent);
+  padding-left: 12px;
+  color: inherit;
+}
+
+.markdown .contains-task-list {
+  padding-left: 0;
+  list-style: none;
+}
+
+.markdown .task-list-item input {
+  width: 13px;
+  height: 13px;
+  margin-right: 6px;
+  accent-color: var(--foreground);
+}
+
+.chat-copy-button,
+.message-memory-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted-foreground);
+  background: transparent;
+}
+
+.chat-copy-button:hover,
+.message-memory-button:hover {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+
+.chat-code {
+  min-width: 0;
+  max-width: 100%;
+  margin-block: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--foreground);
+}
+
+.chat-code-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 34px;
+  padding: 3px 8px 3px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+.chat-code-heading > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-code-content,
+.chat-table {
+  min-width: 0;
+  max-width: 100%;
+  overflow: auto;
+  overscroll-behavior-x: contain;
+}
+
+.markdown .chat-code pre {
+  width: 100%;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 0;
+  background: transparent !important;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre;
+  overflow-wrap: normal;
+  tab-size: 2;
+}
+
+.markdown .chat-code code {
+  padding: 0;
+  background: transparent;
+  font-size: inherit;
+}
+
+.markdown .chat-code-content pre {
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  overflow: visible;
+}
+
+.chat-table {
+  margin-block: 14px;
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: 9px;
+}
+
+.markdown .chat-table table {
+  display: table;
+  width: 100%;
+  min-width: max-content;
+  margin: 0;
+  font-size: 0.92em;
+}
+
+.markdown .chat-table th,
+.markdown .chat-table td {
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  padding: 8px 12px;
+}
+
+.markdown .chat-table th {
+  background: color-mix(in srgb, currentColor 5%, transparent);
+  font-weight: 600;
+}
+
+.markdown .chat-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.chat-code-content:focus-visible,
+.chat-code pre:focus-visible,
+.chat-table:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+@media (hover: none) {
+  .chat-copy-button,
+  .message-memory-button {
+    width: 32px;
+    height: 32px;
+  }
 }
 
 .task-inline-interactions:empty {
@@ -424,7 +698,8 @@
 }
 
 .ds-details-identity > .avatar,
-.ds-details-identity > .avatar img {
+.ds-details-identity > .avatar img,
+.ds-details-identity > .group-avatar {
   width: 64px;
   height: 64px;
   border-radius: 20px;

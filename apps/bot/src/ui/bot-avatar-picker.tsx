@@ -9,7 +9,8 @@ import {
 import { Avatar, Button } from './common'
 
 export function BotAvatarPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  const label = isBotAvatarPreset(value) ? botAvatarLabels[value] : value ? '原有头像' : '默认'
+  const selected = isBotAvatarPreset(value) ? value : ''
+  const label = selected ? botAvatarLabels[selected] : '默认'
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
@@ -33,7 +34,7 @@ export function BotAvatarPicker({ value, onChange }: { value: string; onChange: 
           if (event.nativeEvent.isComposing || event.keyCode === 229) event.stopPropagation()
         }}
       >
-        <DropdownMenuRadioGroup className="bot-avatar-options" value={value} onValueChange={onChange}>
+        <DropdownMenuRadioGroup className="bot-avatar-options" value={selected} onValueChange={onChange}>
           <DropdownMenuRadioItem value="" textValue="默认" className="bot-avatar-option bot-avatar-default">
             <Avatar name="默认" />
             <span>默认</span>
