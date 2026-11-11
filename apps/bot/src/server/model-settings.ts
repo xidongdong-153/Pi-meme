@@ -291,7 +291,7 @@ function activateDefault(state: AppState) {
   const bot: Bot = {
     ...modelResource(),
     name: '默认助理',
-    avatar: '🤖',
+    avatar: '',
     description: '',
     instructions: '你是用户的个人助理。通过对话帮用户完成工作并管理 Bot 配置，遇到缺少的信息时提出具体问题。',
     modelId: null,

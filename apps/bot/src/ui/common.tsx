@@ -14,7 +14,8 @@ import type { FormEvent, ReactElement, ReactNode } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { createPortal } from 'react-dom'
 import { Bot as BotIcon, Check as CheckIcon, LoaderCircle, X } from 'lucide-react'
-import { agentAvatars, defaultUserAvatar } from '@pi-meme/assets/builtin'
+import { agentAvatars, botAvatars, defaultUserAvatar } from '@pi-meme/assets/builtin'
+import { isBotAvatarPreset } from '@pi-meme/assets/bot-avatars'
 import type { Snapshot } from '../shared/types'
 import { Button, Input, Textarea } from './primitives'
 import { motionTransition } from './motion'
@@ -66,13 +67,11 @@ export function Check({
   )
 }
 export function Avatar({ name, avatar, user = false }: { name: string; avatar?: string; user?: boolean }) {
+  const source = user ? defaultUserAvatar : isBotAvatarPreset(avatar) ? botAvatars[avatar] : agentAvatars[0]
+  const textAvatar = !user && typeof avatar === 'string' && avatar && !avatar.startsWith('bot:')
   return (
     <span className="avatar" aria-hidden="true">
-      {!user && avatar ? (
-        <span className="avatar-text">{avatar}</span>
-      ) : (
-        <img src={user ? defaultUserAvatar : agentAvatars[0]} alt={name} draggable={false} />
-      )}
+      {textAvatar ? <span className="avatar-text">{avatar}</span> : <img src={source} alt={name} draggable={false} />}
     </span>
   )
 }

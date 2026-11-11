@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { request } from '../client/api'
 import type { Bot } from '../shared/types'
+import { BotAvatarPicker } from './bot-avatar-picker'
 import {
-  Avatar,
   Button,
   Check,
   CollapsibleSection,
@@ -116,7 +116,7 @@ export function BotEditor({
   const [baseRevision, setBaseRevision] = useState(stored.revision ?? bot?.revision)
   const clean = useRef(false)
   const [name, setName] = useState(stored.name ?? bot?.name ?? '')
-  const [avatar, setAvatar] = useState(stored.avatar ?? bot?.avatar ?? '')
+  const [avatar, setAvatar] = useState(typeof stored.avatar === 'string' ? stored.avatar : (bot?.avatar ?? ''))
   const [description, setDescription] = useState(stored.description ?? bot?.description ?? '')
   const [instructions, setInstructions] = useState(stored.instructions ?? bot?.instructions ?? '')
   const [modelId, setModelId] = useState(stored.modelId ?? bot?.modelId ?? '')
@@ -251,7 +251,14 @@ export function BotEditor({
               <Input required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
             </Field>
             <div className="bot-editor-avatar">
-              <Avatar name={name || 'Bot'} />
+              <BotAvatarPicker
+                value={avatar}
+                onChange={(value) => {
+                  if (value === avatar) return
+                  markDirty()
+                  setAvatar(value)
+                }}
+              />
             </div>
           </div>
           <Field label="角色职责">

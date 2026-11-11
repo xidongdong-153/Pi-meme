@@ -1,3 +1,4 @@
+import { isBotAvatarPreset } from '@pi-meme/assets/bot-avatars'
 import type { AppState, Bot } from '../shared/types.js'
 import { BotError, requireItem, text } from './errors.js'
 import { modelResource } from './model-settings.js'
@@ -33,10 +34,13 @@ export function botFields(input: Record<string, unknown>, state: AppState, curre
     throw new BotError(400, 'invalid-input', '工具调用预算须为1–128整数')
   if (value.enabled !== undefined && typeof value.enabled !== 'boolean')
     throw new BotError(400, 'invalid-input', '启用状态须为布尔值')
+  const avatar = text(value.avatar, '头像', 100, true)
+  if (avatar.startsWith('bot:') && !isBotAvatarPreset(avatar) && avatar !== current?.avatar)
+    throw new BotError(400, 'invalid-input', '请选择有效的 Bot 头像')
   const bot: Bot = {
     ...(current ?? modelResource()),
     name: text(value.name, '名称', 80),
-    avatar: text(value.avatar ?? '🤖', '头像', 100, true),
+    avatar,
     description: text(value.description, '简介', 1000, true),
     instructions: text(value.instructions, '角色指令', 32000, !!current),
     modelId,

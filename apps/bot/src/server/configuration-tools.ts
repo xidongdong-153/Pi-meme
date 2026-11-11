@@ -1,4 +1,5 @@
 import { createHash, createHmac } from 'node:crypto'
+import { botAvatarLabels } from '@pi-meme/assets/bot-avatars'
 import type {
   AppState,
   Conversation,
@@ -173,7 +174,13 @@ export function configurationTools(
         action: choice('create', 'update', 'copy', 'delete'),
         botId: id,
         name: string,
-        avatar: string,
+        avatar: {
+          type: 'string',
+          maxLength: 100,
+          description: `留空使用原始主题头像，也可使用文字或 emoji。可选内置职业头像为 ${Object.entries(botAvatarLabels)
+            .map(([id, label]) => `${id}（${label}）`)
+            .join('、')}。`,
+        },
         description: string,
         instructions: string,
         modelId: { anyOf: [id, { type: 'null' }] },

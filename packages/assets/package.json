@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./bot-avatars": "./src/bot-avatars.ts",
     "./file-icons": "./src/file-icons.ts",
     "./file-icons.css": "./src/file-icons.css",
     "./builtin": "./src/builtin.ts"
