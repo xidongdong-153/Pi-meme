@@ -18,6 +18,10 @@ export class BotLiveEvents {
   private publish(task: Task, state?: LiveState) {
     const previous = this.values.get(task.id)
     const message = state?.generation?.message
+    const submissionIds = state?.run?.inputs.map(String) ?? []
+    const sameInputs =
+      previous?.submissionIds.length === submissionIds.length &&
+      submissionIds.every((id, index) => previous.submissionIds[index] === id)
     const value: TaskLive = {
       taskId: task.id,
       conversationId: task.conversationId,
@@ -25,13 +29,12 @@ export class BotLiveEvents {
       version: (previous?.version ?? 0) + 1,
       generation: task.liveGeneration ?? 0,
       runId: task.runtimeId,
+      submissionIds,
       text:
         message?.content
           .filter((part) => part.type === 'text')
           .map((part) => part.text)
-          .join('') ??
-        previous?.text ??
-        '',
+          .join('') ?? (submissionIds.length && !sameInputs ? '' : (previous?.text ?? '')),
       tool:
         state?.tools
           ?.filter((slot) => slot.status === 'running')

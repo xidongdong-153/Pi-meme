@@ -346,7 +346,8 @@ function QqSettings({ snapshot, refresh }: { snapshot: PageProps['snapshot']; re
       )}
       <CollapsibleSection className="help-details" title="QQ 私聊指令">
         <p>
-          绑定后通过官方机器人私聊。发送“/角色”查看角色，“/切换 角色名”切换接待角色，“/状态”查看工作，“/停止”请求停止。
+          发送“/角色”查看角色，“/切换 角色名”进入对应主对话，“/状态”查看工作，“/补充
+          内容”补充当前任务，“/停止”请求停止。
         </p>
       </CollapsibleSection>
     </>

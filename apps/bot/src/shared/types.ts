@@ -16,7 +16,7 @@ export interface Bot extends Resource {
   resolvedModelId?: string
   enabled: boolean
   maxToolCalls: number
-  webConversationId?: string
+  conversationId: string
 }
 export type ModelProvider = 'openai' | 'anthropic' | 'google' | 'openai-compatible'
 export type ModelProtocol = 'openai-responses' | 'openai-completions' | 'anthropic-messages' | 'google-generative-ai'
@@ -61,15 +61,13 @@ export interface ModelConfig extends Resource {
 }
 export interface Conversation extends Resource {
   name: string
-  kind: 'direct' | 'group' | 'qq'
+  kind: 'direct' | 'group'
   memberIds: string[]
   coordinatorId: string
   memberSince: Record<string, number>
   pinned: boolean
   archived: boolean
   sequence: number
-  qqUserId?: string
-  qqAppId?: string
   collaborationEnabled?: boolean
   contextSummaries?: Record<string, ConversationSummary>
 }
@@ -91,10 +89,12 @@ export interface Message extends Resource {
   taskId?: string
   sourceMessageId?: string
   assistantEntryId?: string
+  interactionId?: string
   platformMessageId?: string
   attachmentIds: string[]
   source: 'web' | 'api' | 'qq' | 'schedule'
   recipientIds?: string[]
+  qqTarget?: QqTarget
 }
 export interface HostDelegation {
   hostId: string
@@ -139,6 +139,7 @@ export interface TaskLive {
   tool?: string
   status: TaskStatus
   runId?: string
+  submissionIds: string[]
 }
 export interface CapabilityBlocker {
   code: 'missing-config' | 'model-unavailable'
@@ -179,6 +180,7 @@ export interface Task extends Resource {
   startedAt?: string
   finishedAt?: string
   notification?: 'web' | 'qq'
+  qqTarget?: QqTarget
   modelConfig?: ModelConfig
   mode?: 'queue' | 'steer'
   contextThroughSequence?: number
@@ -204,6 +206,7 @@ export interface QqConfig {
   hasCredential?: boolean
   defaultBotId: string
   boundUserId?: string
+  bindingId?: string
   bindingCodeHash?: string
   bindingExpiresAt?: string
   status: 'disabled' | 'connecting' | 'online' | 'offline'
@@ -211,6 +214,11 @@ export interface QqConfig {
   sessionId?: string
   gatewaySequence?: number
   lastEventAt?: string
+}
+export interface QqTarget {
+  appId: string
+  userId: string
+  bindingId: string
 }
 export interface Schedule extends Resource {
   name: string
@@ -227,6 +235,7 @@ export interface Schedule extends Resource {
   lastRunAt?: string
   activeTaskId?: string
   notification: 'web' | 'qq'
+  qqTarget?: QqTarget
   executionGrant?: string
 }
 export interface ScheduleRun extends Resource {
@@ -275,6 +284,7 @@ export interface Delivery extends Resource {
   channel: 'qq'
   targetUserId: string
   appId: string
+  bindingId: string
   status: 'pending' | 'sending' | 'sent' | 'failed' | 'unknown' | 'blocked'
   attempts: number
   platformMessageId?: string
@@ -356,6 +366,7 @@ export interface MessageInput {
   notification?: 'web' | 'qq'
   platformMessageId?: string
   scheduleRunId?: string
+  qqTarget?: QqTarget
 }
 export interface AcceptedMessage {
   messageId: string

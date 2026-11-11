@@ -4,40 +4,41 @@ import { BotError, requireItem, touch } from './errors.js'
 
 export type BotInputPart = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
 const tokens = (value: string) => Math.ceil(Buffer.byteLength(value, 'utf8') / 3)
-export function contextMessages(state: AppState, task: Task): Message[] {
+function visibleMessages(state: AppState, task: Task): Message[] {
   const conversation = requireItem(state.conversations[task.conversationId], '会话')
   const since = conversation.memberSince[task.botId] ?? 0
-  if ((!task.publicReply && task.parentTaskId) || task.mode === 'steer') return []
+  const source = requireItem(state.messages[task.sourceMessageId], '来源消息')
   return Object.values(state.messages)
-    .filter(
-      (message) =>
-        message.conversationId === conversation.id &&
-        message.sequence >= since &&
-        message.sequence <= (task.contextThroughSequence ?? conversation.sequence) &&
-        message.id !== task.sourceMessageId &&
-        (conversation.kind !== 'qq' ||
-          message.botId === task.botId ||
-          (message.role === 'user' && message.recipientIds?.includes(task.botId))),
-    )
+    .filter((message) => {
+      if (message.conversationId !== conversation.id || message.sequence < since) return false
+      if (message.id === source.id) return true
+      if (message.sequence > (task.contextThroughSequence ?? conversation.sequence)) return false
+      // Earlier requests may finish after this request was queued. Later queued inputs stay private to their turn.
+      const origin = message.sourceMessageId ? state.messages[message.sourceMessageId] : message
+      return (origin?.sequence ?? message.sequence) < source.sequence
+    })
     .sort((a, b) => a.sequence - b.sequence)
 }
+export function contextMessages(state: AppState, task: Task): Message[] {
+  if ((!task.publicReply && task.parentTaskId) || task.mode === 'steer') return []
+  return visibleMessages(state, task).filter((message) => message.id !== task.sourceMessageId)
+}
 export function allowedAttachmentIds(state: AppState, task: Task): Set<string> {
-  const conversation = requireItem(state.conversations[task.conversationId], '会话')
-  const since = conversation.memberSince[task.botId] ?? 0
-  return new Set(
-    Object.values(state.messages)
+  const visible = visibleMessages(state, task)
+  let root = task
+  while (root.parentTaskId) root = requireItem(state.tasks[root.parentTaskId], '父任务')
+  const supplements = new Set(
+    Object.values(state.tasks)
       .filter(
-        (message) =>
-          message.conversationId === task.conversationId &&
-          message.sequence >= since &&
-          (message.sequence <= (task.contextThroughSequence ?? conversation.sequence) ||
-            message.id === task.sourceMessageId) &&
-          (conversation.kind !== 'qq' ||
-            message.botId === task.botId ||
-            (message.role === 'user' && message.recipientIds?.includes(task.botId))),
+        (item) => item.mode === 'steer' && item.parentTaskId === root.id && item.submissionId && !item.stopRequested,
       )
-      .flatMap((message) => message.attachmentIds),
+      .map((item) => item.sourceMessageId),
   )
+  const since = state.conversations[task.conversationId].memberSince[task.botId] ?? 0
+  for (const message of Object.values(state.messages))
+    if (supplements.has(message.id) && message.conversationId === task.conversationId && message.sequence >= since)
+      visible.push(message)
+  return new Set(visible.flatMap((message) => message.attachmentIds))
 }
 export async function conversationInput(
   services: BotServices,
@@ -60,16 +61,17 @@ export async function conversationInput(
   const format = (message: Message) =>
     `[${message.id}] ${message.authorName}: ${message.content}${message.attachmentIds.length ? `\n附件ID：${message.attachmentIds.join('、')}` : ''}`
   const budget = Math.max(1024, (config.contextWindow ?? 16384) - (config.maxTokens ?? 2048) - 4000)
+  const source = requireItem(state.messages[task.sourceMessageId], '来源消息')
   let summary = !privateTask ? conversation.contextSummaries?.[task.botId] : undefined
   if (
     summary &&
     (summary.memberSince !== since ||
       summary.modelId !== config.id ||
+      summary.throughSequence >= source.sequence ||
       summary.throughSequence > (task.contextThroughSequence ?? conversation.sequence))
   )
     summary = undefined
   let recent = messages.filter((message) => message.sequence > (summary?.throughSequence ?? -1))
-  const source = state.messages[task.sourceMessageId]
   const requiredAttachments = privateTask ? task.attachmentIds : (source?.attachmentIds ?? [])
   const attachmentCost = (id: string) => (state.attachments[id]?.mime.startsWith('image/') ? 1600 : 2000)
   const attachments = new Set(requiredAttachments)
@@ -100,7 +102,8 @@ export async function conversationInput(
       keep--
       cost += tokens(format(recent[keep]))
     }
-    const older = recent.slice(0, keep)
+    // Cache only a contiguous historical prefix so summaries cannot skip queued inputs between late replies.
+    const older = recent.slice(0, keep).filter((message) => message.sequence < source.sequence)
     if (older.length) {
       let content = summary?.content ?? ''
       let offset = 0
@@ -137,7 +140,7 @@ export async function conversationInput(
         }
       })
       summary = candidate
-      recent = recent.slice(keep)
+      recent = recent.slice(older.length)
     }
   }
   const prompt =

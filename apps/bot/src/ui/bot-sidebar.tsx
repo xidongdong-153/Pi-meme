@@ -85,16 +85,16 @@ export function BotSidebar({
   }
   const entries = [
     ...snapshot.bots.map((bot) => {
-      const conversation = bot.webConversationId ? conversations.get(bot.webConversationId) : undefined
+      const conversation = conversations.get(bot.conversationId)
       return {
         id: bot.id,
-        conversationId: bot.webConversationId,
+        conversationId: bot.conversationId,
         name: bot.name,
         avatar: bot.avatar,
         description: bot.enabled ? bot.description || '开始聊天' : '已停用',
         updatedAt: conversation?.updatedAt ?? bot.updatedAt,
         pinned: conversation?.pinned ?? false,
-        preview: preview(bot.webConversationId, bot.enabled ? bot.description || '开始聊天' : '已停用'),
+        preview: preview(bot.conversationId, bot.enabled ? bot.description || '开始聊天' : '已停用'),
         bot,
         group: undefined,
       }

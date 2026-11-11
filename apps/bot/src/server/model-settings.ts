@@ -103,54 +103,6 @@ export function modelSettingsView(state: AppState): ModelSettings {
   }
 }
 
-/** Document v1 contained independent model credentials. Never merge them by provider or URL. */
-export function migrateModelState(state: AppState): AppState {
-  state.modelServices = Object.create(null) as Record<string, ModelService>
-  for (const model of Object.values(state.models)) {
-    const service: ModelService = {
-      ...modelResource(model.id),
-      name: model.name,
-      provider: model.provider,
-      protocol: defaultProtocol(model.provider),
-      baseUrl: model.baseUrl,
-      credentialRef: model.credentialRef,
-      createdAt: model.createdAt,
-      updatedAt: model.updatedAt,
-    }
-    state.modelServices[service.id] = service
-    model.serviceId = service.id
-    model.protocol = service.protocol
-    Object.assign(model, modelMetadata(model))
-    delete model.credentialRef
-    model.verification = { status: 'unverified' }
-  }
-  const bots = Object.values(state.bots).sort(
-    (a, b) =>
-      Number(b.enabled) - Number(a.enabled) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
-  )
-  const first = bots[0]
-  const defaultModel =
-    (first?.modelId ? state.models[first.modelId] : undefined) ??
-    Object.values(state.models).find((model) => model.kind === 'text')
-  state.modelSettings = {
-    revision: 1,
-    defaultModelId: first && defaultModel?.kind === 'text' ? defaultModel.id : null,
-    defaultAssistantId: first?.id ?? null,
-    initialized: !!first && defaultModel?.kind === 'text',
-  }
-  for (const bot of bots) if (!bot.modelId) bot.modelId = null
-  for (const task of Object.values(state.tasks)) {
-    const config = task.modelConfig
-    if (config && state.models[config.id]) {
-      config.serviceId = state.models[config.id].serviceId
-      config.protocol = config.protocol ?? defaultProtocol(config.provider)
-      Object.assign(config, modelMetadata(config))
-    }
-  }
-  state.schemaVersion = 2
-  return state
-}
-
 function inputObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new BotError(400, 'invalid-input', '模型或服务内容须为对象')
@@ -290,6 +242,7 @@ function activateDefault(state: AppState) {
   }
   const bot: Bot = {
     ...modelResource(),
+    conversationId: randomUUID(),
     name: '默认助理',
     avatar: '',
     description: '',

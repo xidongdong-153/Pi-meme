@@ -3,6 +3,7 @@ import type { AppState, Schedule, ScheduleRun } from '../shared/types.js'
 import type { BotServices } from './contracts.js'
 import { BotError } from './errors.js'
 import { nextOccurrence } from './schedules-time.js'
+import { isCurrentQqTarget } from './qq-identity.js'
 
 const activeStatuses = new Set(['queued', 'running', 'waiting', 'stopping'])
 const nowIso = () => new Date().toISOString()
@@ -16,13 +17,11 @@ export function validateScheduleTarget(state: AppState, schedule: Schedule) {
   if (!bot?.enabled) throw new BotError(403, 'forbidden', '执行 Bot 未启用')
   if (
     schedule.notification === 'qq' &&
-    (conversation.kind !== 'qq' ||
-      !state.qq.enabled ||
-      !state.qq.boundUserId ||
-      conversation.qqUserId !== state.qq.boundUserId ||
-      conversation.qqAppId !== state.qq.appId)
+    (conversation.kind !== 'direct' ||
+      bot.conversationId !== conversation.id ||
+      !isCurrentQqTarget(state, schedule.qqTarget))
   )
-    throw new BotError(409, 'capability-unavailable', 'QQ 通知需要当前已绑定的 QQ 来源会话')
+    throw new BotError(409, 'capability-unavailable', 'QQ 通知需要 Bot 主对话和有效的本人绑定，请重新保存通知渠道')
 }
 
 export function validateScheduleAdmission(state: AppState, run: ScheduleRun) {
@@ -58,6 +57,7 @@ export function createScheduleRuntime(services: BotServices) {
         recipientIds: [snapshot.botId],
         source: 'schedule',
         notification: snapshot.notification,
+        qqTarget: snapshot.qqTarget,
         requestId: `schedule-run:${run.id}`,
         scheduleRunId: run.id,
       })

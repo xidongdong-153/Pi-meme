@@ -17,7 +17,7 @@ if (publicOrigin) {
 }
 if (!['127.0.0.1', 'localhost', '::1'].includes(hostname) && (!publicOrigin || !publicOrigin.startsWith('https://')))
   throw new Error('非回环监听须配置HTTPS的PI_BOT_ORIGIN，并由反向代理提供TLS')
-const service = await createBotService({ publicOrigin, port })
+const service = await createBotService({ publicOrigin, port, dataDirectory: process.env.PI_BOT_DATA_DIR })
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const webRoot = join(root, 'dist', 'web')
 let webAvailable = false

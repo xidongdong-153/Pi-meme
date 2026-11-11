@@ -60,7 +60,7 @@ export function TaskInteractionCards({
   ))
 }
 
-function InteractionCard({
+export function InteractionCard({
   task,
   interaction,
   refresh,

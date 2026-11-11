@@ -229,6 +229,12 @@ function ScheduleEditor({
   const [time, setTime] = useState(schedule?.time ?? '09:00')
   const [weekdays, setWeekdays] = useState(schedule?.weekdays ?? [1])
   const [notification, setNotification] = useState(schedule?.notification ?? 'web')
+  const qqRequirement =
+    !snapshot.qq.enabled || !snapshot.qq.boundUserId
+      ? '需绑定账号'
+      : snapshot.conversations.find((item) => item.id === conversationId)?.kind !== 'direct'
+        ? '需选择 Bot 私聊'
+        : undefined
   const [preview, setPreview] = useState('')
   const [previewError, setPreviewError] = useState<unknown>()
   const [dirty, setDirty] = useState(false)
@@ -382,7 +388,9 @@ function ScheduleEditor({
             }}
           >
             <option value="web">Web</option>
-            <option value="qq">QQ</option>
+            <option value="qq" disabled={Boolean(qqRequirement)}>
+              {qqRequirement ? `QQ（${qqRequirement}）` : 'QQ'}
+            </option>
           </Select>
         </Field>
         <Button

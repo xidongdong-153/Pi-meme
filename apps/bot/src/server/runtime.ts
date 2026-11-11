@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { setTimeout as delay } from 'node:timers/promises'
 import { AssistantEntry, defineExtension, defineTool } from '@earendil-works/pi-durable'
 import type { ConversationId, EntryId, Registry, SubmissionId, ToolExecutionApi } from '@earendil-works/pi-durable'
 import type { MutableModels } from '@earendil-works/pi-ai/models'
@@ -18,6 +19,7 @@ import { context } from './store.js'
 import { BotError, ids, requireItem, text, touch } from './errors.js'
 import { installModel, modelProviderId } from './models.js'
 import { queueQqDeliveries } from './qq-outbox.js'
+import { isCurrentQqTarget } from './qq-identity.js'
 import { releaseModelCredential, resolveBotModel } from './model-settings.js'
 import { allowedAttachmentIds, conversationInput } from './conversation-context.js'
 import { BotLiveEvents } from './live-events.js'
@@ -30,6 +32,11 @@ import { completeConfigurationAction } from './domain-mutations.js'
 
 const terminal = new Set(['completed', 'failed', 'stopped', 'unknown', 'blocked'])
 export const activeTask = (task: Task) => !terminal.has(task.status)
+function hasActiveSupplements(state: AppState, taskId: string) {
+  return Object.values(state.tasks).some(
+    (task) => task.mode === 'steer' && task.parentTaskId === taskId && activeTask(task),
+  )
+}
 function stamp() {
   const now = new Date().toISOString()
   return { id: randomUUID(), revision: 1, createdAt: now, updatedAt: now }
@@ -141,7 +148,7 @@ export class BotRuntime {
             const prompt = text(args.prompt, '协作内容', 32000)
             const attachmentIds = ids(args.attachmentIds ?? [], '协作附件', 10)
             const internalKey = `collaborate:${parent.id}:${callId}`
-            if (this.active.size + this.reservedChildren >= 12)
+            if (this.executionCount() >= 12)
               throw new BotError(429, 'rate-limited', '已达到12项协作并发上限，请等待已有协作结束')
             this.reservedChildren++
             let child: Task
@@ -430,6 +437,7 @@ export class BotRuntime {
       publicReply,
       depth: parent ? parent.depth + 1 : 0,
       notification: parent?.notification,
+      qqTarget: parent?.qqTarget,
       contextThroughSequence: state.conversations[conversationId]?.sequence ?? 0,
     }
   }
@@ -490,11 +498,15 @@ export class BotRuntime {
         )
           throw new BotError(403, 'forbidden', '定时运行输入与已授权规则不一致')
       }
-      if (
-        input.source === 'qq' &&
-        (!state.qq.enabled || conversation.qqAppId !== state.qq.appId || conversation.qqUserId !== state.qq.boundUserId)
-      )
-        throw new BotError(403, 'forbidden', 'QQ绑定或渠道授权已改变')
+      const qqTarget = input.source === 'qq' || input.notification === 'qq' ? input.qqTarget : undefined
+      if (input.source === 'qq' || input.notification === 'qq') {
+        if (
+          !isCurrentQqTarget(state, qqTarget) ||
+          conversation.kind !== 'direct' ||
+          state.bots[conversation.coordinatorId]?.conversationId !== conversation.id
+        )
+          throw new BotError(403, 'forbidden', 'QQ 绑定或 Bot 主对话已改变')
+      }
       if (input.mode !== undefined && input.mode !== 'queue' && input.mode !== 'steer')
         throw new BotError(400, 'invalid-input', '发送模式无效')
       if (conversation.archived) throw new BotError(409, 'capability-unavailable', '会话已归档，请先恢复')
@@ -538,6 +550,7 @@ export class BotRuntime {
         source: input.source,
         recipientIds: recipients,
         platformMessageId: input.platformMessageId,
+        qqTarget,
       }
       state.messages[message.id] = message
       state.inboundIds[`input:${input.requestId}`] = message.id
@@ -563,7 +576,12 @@ export class BotRuntime {
         const task = this.makeTask(state, botId, conversation.id, message.id, content, true, undefined, target)
         task.mode = input.mode ?? 'queue'
         task.notification = input.notification ?? (input.source === 'qq' ? 'qq' : 'web')
+        task.qqTarget = qqTarget
         if (target) {
+          // A supplement continues the same turn, including its original reply destination.
+          state.messages[message.id].sourceMessageId = target.sourceMessageId
+          task.notification = target.notification
+          task.qqTarget = target.qqTarget
           task.runtimeId = target.runtimeId
           task.parentTaskId = target.id
           task.contextThroughSequence = target.contextThroughSequence
@@ -580,6 +598,11 @@ export class BotRuntime {
 
   private assertAuthorized(state: AppState, task: Task) {
     assertTaskAuthorized(state, task)
+  }
+
+  private executionCount() {
+    const state = this.store.read()
+    return [...this.active].filter((id) => state.tasks[id]?.mode !== 'steer').length + this.reservedChildren
   }
 
   private async authorizeTool(runtimeId: string, capability: Capability | undefined, callId: string) {
@@ -684,6 +707,29 @@ export class BotRuntime {
     }
   }
 
+  private async waitForSupplements(id: string) {
+    while (!this.closing) {
+      const state = this.store.read()
+      const task = requireItem(state.tasks[id], '任务')
+      if (!activeTask(task)) return
+      if (!task.stopRequested && !hasActiveSupplements(state, id)) {
+        const completed = await this.store.update((draft) => {
+          const current = requireItem(draft.tasks[id], '任务')
+          if (!activeTask(current)) return true
+          // Admission and completion share the transaction so a late supplement cannot lose its parent.
+          if (current.stopRequested || hasActiveSupplements(draft, id)) return false
+          current.status = 'completed'
+          current.finishedAt = new Date().toISOString()
+          completeConfigurationAction(draft, current)
+          touch(current)
+          return true
+        })
+        if (completed) return
+      }
+      await delay(100, undefined, { ref: false })
+    }
+  }
+
   private async run(id: string, child = false) {
     if (this.active.has(id) || this.closing) return
     this.active.add(id)
@@ -728,6 +774,8 @@ export class BotRuntime {
         if (item.stopRequested) throw new BotError(409, 'task-stopped', '任务已停止')
         item.status = item.interactions?.some((interaction) => interaction.status === 'pending') ? 'waiting' : 'running'
         item.startedAt ??= new Date().toISOString()
+        if (!item.submissionId && !item.parentTaskId)
+          item.contextThroughSequence = state.conversations[item.conversationId].sequence
         if (item.mode !== 'steer') item.liveGeneration = (item.liveGeneration ?? 0) + 1
         touch(item)
         return item
@@ -778,37 +826,52 @@ export class BotRuntime {
       await this.store.update((state) => {
         const current = requireItem(state.tasks[id])
         if (current.stopRequested || current.status === 'stopped') return
-        current.status = 'completed'
         current.result = result
-        current.finishedAt = new Date().toISOString()
         current.usage = { input: response.usage.input, output: response.usage.output, cost: null }
+        if (!hasActiveSupplements(state, id)) {
+          current.status = 'completed'
+          current.finishedAt = new Date().toISOString()
+          completeConfigurationAction(state, current)
+        }
         touch(current)
-        completeConfigurationAction(state, current)
         if (
           current.publicReply &&
           !Object.values(state.messages).some((message) => message.assistantEntryId === String(settled.answer))
         ) {
           const conversation = requireItem(state.conversations[current.conversationId])
+          const replyTask =
+            current.mode === 'steer' && current.parentTaskId
+              ? requireItem(state.tasks[current.parentTaskId], '运行任务')
+              : current
           const message = {
             ...stamp(),
             conversationId: conversation.id,
             sequence: ++conversation.sequence,
             role: 'assistant' as const,
             content: result,
-            botId: current.botId,
-            authorName: current.config.name,
-            avatar: current.config.avatar,
-            taskId: id,
-            sourceMessageId: current.sourceMessageId,
+            botId: replyTask.botId,
+            authorName: replyTask.config.name,
+            avatar: replyTask.config.avatar,
+            taskId: replyTask.id,
+            sourceMessageId: replyTask.sourceMessageId,
             assistantEntryId: String(settled.answer),
-            attachmentIds: current.attachmentIds,
-            source: current.notification === 'qq' ? ('qq' as const) : ('web' as const),
+            attachmentIds: [
+              ...new Set([
+                ...replyTask.attachmentIds,
+                ...Object.values(state.tasks)
+                  .filter((task) => task.mode === 'steer' && task.parentTaskId === replyTask.id)
+                  .flatMap((task) => task.attachmentIds),
+              ]),
+            ],
+            source: replyTask.notification === 'qq' ? ('qq' as const) : ('web' as const),
+            qqTarget: replyTask.qqTarget,
           }
           state.messages[message.id] = message
           touch(conversation)
           queueQqDeliveries(state, message)
         }
       })
+      if (task.mode !== 'steer') await this.waitForSupplements(id)
     } catch (cause) {
       if (!this.closing)
         await this.store.update((state) => {
@@ -878,8 +941,8 @@ export class BotRuntime {
 
   pump() {
     if (this.closing) return
+    let executions = this.executionCount()
     for (const task of Object.values(this.store.read().tasks)) {
-      if (this.active.size + this.reservedChildren >= 4) break
       if (
         !['queued', 'running', 'waiting'].includes(task.status) ||
         this.active.has(task.id) ||
@@ -888,7 +951,10 @@ export class BotRuntime {
       )
         continue
       const lane = `${task.conversationId}:${task.botId}`
-      if (this.lanes.has(lane) && task.mode !== 'steer') continue
+      if (task.mode !== 'steer') {
+        if (this.lanes.has(lane) || executions >= 4) continue
+        executions++
+      }
       void this.run(task.id)
     }
   }
@@ -1058,6 +1124,7 @@ export class BotRuntime {
       const next = this.makeTask(state, old.botId, old.conversationId, old.sourceMessageId, old.prompt, old.publicReply)
       next.previousTaskId = old.id
       next.notification = old.notification
+      next.qqTarget = old.qqTarget
       state.tasks[next.id] = next
       return next
     })

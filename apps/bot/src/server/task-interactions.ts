@@ -3,6 +3,7 @@ import type { AppState, Task, TaskInteraction, TaskResponse } from '../shared/ty
 import type { BotStore, QqInteractionSource } from './contracts.js'
 import { BotError, requireItem, revision, text, touch } from './errors.js'
 import { queueQqDeliveries } from './qq-outbox.js'
+import { isCurrentQqTarget } from './qq-identity.js'
 
 export function collaborationAllowed(state: AppState, task: Task, botId: string): boolean {
   const bot = state.bots[task.botId]
@@ -77,7 +78,8 @@ export class TaskInteractions {
       task.status = 'waiting'
       touch(task)
       const conversation = state.conversations[task.conversationId]
-      if (conversation.kind === 'qq') {
+      if (task.notification === 'qq' && task.qqTarget) {
+        const sourceTask = task.mode === 'steer' && task.parentTaskId ? state.tasks[task.parentTaskId] : task
         const messageId = randomUUID()
         const choices = item.options?.map((option, index) => `${index + 1}. ${option.label}`).join('\n')
         state.messages[messageId] = {
@@ -89,13 +91,16 @@ export class TaskInteractions {
           sequence: ++conversation.sequence,
           role: 'system',
           authorName: task.config.name,
+          botId: task.botId,
           taskId,
-          sourceMessageId: task.sourceMessageId,
+          interactionId: item.id,
+          sourceMessageId: sourceTask.sourceMessageId,
           content: [item.question, choices, item.kind === 'confirmation' ? '回复“确认”或“取消”' : '直接回复答案']
             .filter(Boolean)
             .join('\n'),
           attachmentIds: [],
           source: 'qq',
+          qqTarget: task.qqTarget,
         }
         queueQqDeliveries(state, state.messages[messageId])
         touch(conversation)
@@ -138,11 +143,9 @@ export class TaskInteractions {
       if (qqIdentity) {
         const conversation = requireItem(state.conversations[task.conversationId], '会话')
         if (
-          !state.qq.enabled ||
-          state.qq.appId !== qqIdentity.appId ||
-          state.qq.boundUserId !== qqIdentity.userId ||
-          conversation.qqAppId !== qqIdentity.appId ||
-          conversation.qqUserId !== qqIdentity.userId
+          !isCurrentQqTarget(state, qqIdentity) ||
+          conversation.kind !== 'direct' ||
+          state.bots[conversation.coordinatorId]?.conversationId !== conversation.id
         )
           throw new BotError(403, 'forbidden', 'QQ 账号绑定已经改变')
       }
@@ -181,8 +184,36 @@ export class TaskInteractions {
       item.responseRequestId = requestId
       item.status = 'answered'
       if (qqIdentity) {
+        const sourceTask = task.mode === 'steer' && task.parentTaskId ? state.tasks[task.parentTaskId] : task
         state.inboundIds[qqIdentity.inboundKey] = item.id
-        state.inboundIds[`qq-reply:${task.sourceMessageId}`] = qqIdentity.platformMessageId
+        state.inboundIds[`qq-reply:${sourceTask.sourceMessageId}`] = qqIdentity.platformMessageId
+        const conversation = state.conversations[task.conversationId]
+        const messageId = randomUUID()
+        const now = new Date().toISOString()
+        state.messages[messageId] = {
+          id: messageId,
+          revision: 1,
+          createdAt: now,
+          updatedAt: now,
+          conversationId: conversation.id,
+          sequence: ++conversation.sequence,
+          role: 'user',
+          authorName: '你',
+          content: response.decision
+            ? response.decision === 'approve'
+              ? '确认'
+              : '取消'
+            : Array.isArray(response.answer)
+              ? response.answer.join('\n')
+              : response.answer!,
+          attachmentIds: [],
+          recipientIds: [conversation.coordinatorId],
+          source: 'qq',
+          sourceMessageId: sourceTask.sourceMessageId,
+          platformMessageId: qqIdentity.platformMessageId,
+          qqTarget: { appId: qqIdentity.appId, userId: qqIdentity.userId, bindingId: qqIdentity.bindingId },
+        }
+        touch(conversation)
       }
       touch(item)
       task.status = task.interactions?.some((interaction) => interaction.status === 'pending') ? 'waiting' : 'running'

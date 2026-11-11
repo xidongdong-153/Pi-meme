@@ -6,6 +6,7 @@ import { BotError, ids, requireItem, revision, text, touch } from './errors.js'
 import { validateScheduleTarget } from './schedules-runtime.js'
 import { nextOccurrence, validateRule } from './schedules-time.js'
 import { fallbackDefaultAssistant } from './model-settings.js'
+import { currentQqTarget } from './qq-identity.js'
 
 function resource() {
   const now = new Date().toISOString()
@@ -76,7 +77,7 @@ export function validateConversationArchive(
 ): Conversation {
   const conversation = requireItem(state.conversations[id], '会话')
   revision(conversation, expected)
-  if (state.bots[conversation.coordinatorId]?.webConversationId === id)
+  if (state.bots[conversation.coordinatorId]?.conversationId === id)
     throw new BotError(409, 'fixed-conversation', '固定私聊随 Bot 管理，请停用或删除对应 Bot')
   if (
     Object.values(state.tasks).some(
@@ -119,12 +120,8 @@ export function conversationFields(
   current?: Conversation,
 ): Conversation {
   const value = { ...current, ...input }
-  const kind = value.kind ?? 'direct'
-  if (
-    !['direct', 'group', 'qq'].includes(String(kind)) ||
-    (!current && kind === 'qq') ||
-    (current && kind !== current.kind)
-  )
+  const kind = value.kind ?? 'group'
+  if (!['direct', 'group'].includes(String(kind)) || (current && kind !== current.kind))
     throw new BotError(400, 'invalid-input', '会话类型无效或不可改变')
   const memberIds = ids(value.memberIds ?? [], '成员', 16)
   if (!memberIds.length || (kind === 'direct' && memberIds.length !== 1) || (kind === 'group' && memberIds.length < 2))
@@ -160,8 +157,9 @@ export function conversationFields(
 
 export function createConversation(state: AppState, input: Record<string, unknown>): Conversation {
   if (Object.keys(state.conversations).length >= 2000) throw new BotError(409, 'limit-exceeded', '最多2000个会话')
+  if (input.kind !== undefined && input.kind !== 'group')
+    throw new BotError(400, 'invalid-input', '此入口用于创建群聊，私聊由 Bot 创建时建立')
   const conversation = conversationFields(input, state)
-  if (conversation.kind === 'direct') return ensureBotConversation(state, conversation.coordinatorId)
   state.conversations[conversation.id] = conversation
   return conversation
 }
@@ -193,7 +191,7 @@ export function saveMemory(state: AppState, input: Record<string, unknown>, curr
   return memory
 }
 
-export function scheduleFields(input: Record<string, unknown>, current?: Schedule): Schedule {
+export function scheduleFields(input: Record<string, unknown>, state: AppState, current?: Schedule): Schedule {
   const now = new Date().toISOString()
   const value = { ...current, ...input }
   const weekdays = value.weekdays ?? []
@@ -218,6 +216,12 @@ export function scheduleFields(input: Record<string, unknown>, current?: Schedul
     time: typeof value.time === 'string' ? value.time : '',
     weekdays: [...new Set(weekdays as number[])],
     notification: value.notification === 'qq' ? 'qq' : 'web',
+    qqTarget:
+      value.notification === 'qq'
+        ? input.notification === 'qq'
+          ? currentQqTarget(state)
+          : current?.qqTarget
+        : undefined,
     lastRunAt: current?.lastRunAt,
     activeTaskId: current?.activeTaskId,
     executionGrant: randomUUID(),
@@ -231,7 +235,7 @@ export function scheduleFields(input: Record<string, unknown>, current?: Schedul
 }
 
 export function createSchedule(state: AppState, input: Record<string, unknown>): Schedule {
-  const schedule = scheduleFields(input)
+  const schedule = scheduleFields(input, state)
   validateScheduleTarget(state, schedule)
   if (Object.keys(state.schedules).length >= 500) throw new BotError(409, 'limit-exceeded', '最多保存 500 个定时任务')
   state.schedules[schedule.id] = schedule

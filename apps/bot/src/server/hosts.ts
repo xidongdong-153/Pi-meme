@@ -670,6 +670,7 @@ export function registerHostRoutes(app: BotApp, services: BotServices): HostAdap
         taskId,
         attachmentIds: [],
         source: draft.messages[task.sourceMessageId]?.source ?? 'api',
+        qqTarget: task.qqTarget,
         sourceMessageId: task.sourceMessageId,
       }
       queueQqDeliveries(draft, draft.messages[id])

@@ -40,7 +40,7 @@ import type {
   TaskLive,
 } from '../shared/types'
 import { ConversationOverview } from './conversation-overview'
-import { TaskInteractionCards } from './task-interactions'
+import { InteractionCard, TaskInteractionCards } from './task-interactions'
 import { TaskTree } from './task-tree'
 import { MemoryEditor } from './memory-editor'
 import { attachmentAccept, imageMimeTypes, readableAttachment } from '../shared/attachment-types'
@@ -209,8 +209,8 @@ export function Chats({
   async function selectBot(bot: Bot) {
     const generation = ++openGeneration.current
     setOpeningError(undefined)
-    if (bot.webConversationId && snapshot.conversations.some((item) => item.id === bot.webConversationId)) {
-      navigate('chats', bot.webConversationId)
+    if (snapshot.conversations.some((item) => item.id === bot.conversationId)) {
+      navigate('chats', bot.conversationId)
       return
     }
     try {
@@ -809,11 +809,12 @@ function MessageList({
             .filter(
               (value) =>
                 active.has(tasks.find((task) => task.id === value.taskId)?.status ?? '') &&
-                !messages.some(
-                  (message) =>
-                    message.role === 'assistant' &&
-                    (message.taskId === value.taskId ||
-                      (!!value.runId && tasks.find((task) => task.id === message.taskId)?.runtimeId === value.runId)),
+                tasks.some(
+                  (task) =>
+                    task.runtimeId === value.runId &&
+                    task.submissionId &&
+                    value.submissionIds.includes(task.submissionId) &&
+                    task.result === undefined,
                 ),
             )
             .map((value) => {
@@ -989,6 +990,11 @@ function MessageItem({
     message.role !== 'system' &&
     (conversation?.kind === 'group' || (message.botId && message.botId !== conversation?.coordinatorId))
   const messageTasks = tasks.filter((task) => task.sourceMessageId === message.id)
+  const inlineTasks = messageTasks.map((task) => (task.notification === 'qq' ? { ...task, interactions: [] } : task))
+  const questionTask = message.interactionId ? tasks.find((task) => task.id === message.taskId) : undefined
+  const interaction = questionTask?.interactions?.find(
+    (item) => item.id === message.interactionId && item.status === 'pending',
+  )
   const childTasks = messageTasks.filter((task) => task.parentTaskId)
   function close() {
     setEditing(false)
@@ -1041,13 +1047,17 @@ function MessageItem({
     >
       {showAuthor && <Avatar name={message.authorName} avatar={message.avatar} />}
       <div className="message-body">
-        <div className="message-bubble">
+        <div className={interaction ? undefined : 'message-bubble'}>
           {showAuthor && !continued && (
             <div className="message-meta">
               <strong>{message.authorName}</strong>
             </div>
           )}
-          <MessageContent text={message.content} />
+          {interaction && questionTask ? (
+            <InteractionCard key={interaction.id} task={questionTask} {...{ interaction, refresh }} />
+          ) : (
+            <MessageContent text={message.content} />
+          )}
           {message.attachmentIds.map((id) => {
             const attachment = attachments.find((item) => item.id === id)
             return attachment ? (
@@ -1099,7 +1109,7 @@ function MessageItem({
             <ErrorText error={action.error} />
           </div>
         )}
-        <TaskInteractionCards tasks={messageTasks} {...{ refresh, settings }} />
+        <TaskInteractionCards tasks={inlineTasks} {...{ refresh, settings }} />
         {childTasks.map((task) => (
           <CollapsibleSection
             className="collaboration"

@@ -13,8 +13,6 @@ import type { ConversationId, JsonObject, Registry, Tx } from '@earendil-works/p
 import type { AppState } from '../shared/types.js'
 import type { BotStore } from './contracts.js'
 import { BotError, requireItem } from './errors.js'
-import { ensureBotConversation, fixedBotConversation } from './bot-conversations.js'
-import { migrateModelState } from './model-settings.js'
 import { assertTaskAuthorized } from './task-interactions.js'
 
 export const context = BACKGROUND_CONTEXT
@@ -44,12 +42,12 @@ function resourceMaps(state: AppState): AppState {
 }
 export const businessState = defineDoc<JsonObject>({
   kind: 'pi-meme-bot.state',
-  version: 3,
+  version: 4,
   scope: 'conversation',
   history: 'latest',
   fork: 'initial',
   initial: () => ({
-    schemaVersion: 3,
+    schemaVersion: 4,
     epoch: randomUUID(),
     seq: 0,
     credentialGeneration: 1,
@@ -81,24 +79,8 @@ export const businessState = defineDoc<JsonObject>({
       timezone: new Intl.DateTimeFormat().resolvedOptions().timeZone,
     },
   }),
-  migrate: (value, fromVersion) => {
-    if (![1, 2].includes(fromVersion)) throw new Error('Bots 数据版本不兼容，请先备份并迁移')
-    const state = fromVersion === 1 ? migrateModelState(value as unknown as AppState) : (value as unknown as AppState)
-    for (const bot of [...Object.values(state.bots), ...Object.values(state.tasks).map((task) => task.config)])
-      for (const key of ['capabilities', 'collaboratorIds', 'hostIds', 'hostGrants']) Reflect.deleteProperty(bot, key)
-    for (const host of Object.values(state.hosts)) Reflect.deleteProperty(host, 'projectIds')
-    for (const task of Object.values(state.tasks)) {
-      Reflect.deleteProperty(task, 'grants')
-      if (task.interactions?.some((item) => item.kind !== 'question' && item.status === 'pending')) {
-        task.status = 'blocked'
-        task.error = 'Bot 配置方式已升级，请重新发起任务'
-      }
-      task.interactions = task.interactions?.filter((item) => item.kind === 'question')
-    }
-    state.settings.theme = 'system'
-    state.settings.timezone = new Intl.DateTimeFormat().resolvedOptions().timeZone
-    state.schemaVersion = 3
-    return JSON.parse(JSON.stringify(state)) as JsonObject
+  migrate: () => {
+    throw new Error('Bots 主对话数据模型已更新至 v4，请使用新的数据目录')
   },
   checkpointWhen: () => true,
 })
@@ -150,19 +132,14 @@ export class DurableBotStore implements BotStore {
         await tx.doc(businessState, root.id)
       }, context)
       store.cache = (await store.harness.snapshot(businessState, root.id, context)) as unknown as AppState
-      if (store.cache.schemaVersion !== 3) throw new Error('Bots 数据版本不兼容，请先备份并迁移')
-      if (
-        Object.values(store.cache.bots).some((bot) => {
-          const conversation = fixedBotConversation(store.cache, bot)
-          return !conversation || conversation.archived || bot.webConversationId !== conversation.id
-        })
-      )
-        await store.update((state) => {
-          for (const bot of Object.values(state.bots)) ensureBotConversation(state, bot.id)
-        })
+      if (store.cache.schemaVersion !== 4) throw new Error('Bots 主对话数据模型已更新至 v4，请使用新的数据目录')
       return store
     } catch (cause) {
-      await store.release()
+      try {
+        await store.harness?.close(context)
+      } finally {
+        await store.release()
+      }
       throw cause
     }
   }

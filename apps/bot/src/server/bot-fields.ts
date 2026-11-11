@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { isBotAvatarPreset } from '@pi-meme/assets/bot-avatars'
 import type { AppState, Bot } from '../shared/types.js'
 import { BotError, requireItem, text } from './errors.js'
@@ -39,6 +40,7 @@ export function botFields(input: Record<string, unknown>, state: AppState, curre
     throw new BotError(400, 'invalid-input', '请选择有效的 Bot 头像')
   const bot: Bot = {
     ...(current ?? modelResource()),
+    conversationId: current?.conversationId ?? randomUUID(),
     name: text(value.name, '名称', 80),
     avatar,
     description: text(value.description, '简介', 1000, true),

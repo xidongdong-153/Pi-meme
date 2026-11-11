@@ -1,9 +1,11 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import WebSocket from 'ws'
 import type { BotApp, BotServices, ChannelAdapter } from './contracts.js'
-import type { Conversation, Delivery, Message, QqConfig, TaskResponse } from '../shared/types.js'
+import type { Conversation, Delivery, Message, QqConfig, QqTarget, TaskResponse } from '../shared/types.js'
 import { queueQqDeliveries } from './qq-outbox.js'
 import { BotError } from './errors.js'
+import { ensureBotConversation } from './bot-conversations.js'
+import { currentQqTarget, isCurrentQqTarget } from './qq-identity.js'
 
 const api = 'https://api.sgroup.qq.com'
 const digest = (value: string | Uint8Array, algorithm = 'sha256') => createHash(algorithm).update(value).digest('hex')
@@ -242,68 +244,37 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
       throw error
     }
   }
-  async function conversationFor(appId: string, userId: string): Promise<Conversation> {
-    const state = store.read()
-    const routeId = state.inboundIds[`qq-route:${appId}:${userId}`] ?? state.qq.defaultBotId
-    const bot = [state.bots[routeId], state.bots[state.qq.defaultBotId], ...Object.values(state.bots)].find(
-      (bot) => bot?.enabled,
-    )
-    if (!bot) throw new BotError(409, 'capability-unavailable', '当前 QQ 接待角色不可用，请在 Web 配置默认角色')
-    const existing = Object.values(state.conversations).find(
-      (c) => c.kind === 'qq' && c.qqAppId === appId && c.qqUserId === userId,
-    )
-    if (existing?.coordinatorId === bot.id) return existing
+  async function conversationFor(target: QqTarget): Promise<Conversation> {
     return store.update((draft) => {
-      if (draft.qq.appId !== appId || draft.qq.boundUserId !== userId || !draft.qq.enabled)
-        throw new BotError(403, 'forbidden', 'QQ 绑定已失效')
-      const duplicate = Object.values(draft.conversations).find(
-        (c) => c.kind === 'qq' && c.qqAppId === appId && c.qqUserId === userId,
-      )
-      if (duplicate) {
-        duplicate.coordinatorId = bot.id
-        if (!duplicate.memberIds.includes(bot.id)) {
-          duplicate.memberIds.push(bot.id)
-          duplicate.memberSince[bot.id] = duplicate.sequence + 1
-        }
-        touch(duplicate)
-        return duplicate
-      }
-      const conversation: Conversation = {
-        ...resource(),
-        name: 'QQ 私聊',
-        kind: 'qq',
-        memberIds: [bot.id],
-        coordinatorId: bot.id,
-        memberSince: { [bot.id]: 0 },
-        pinned: false,
-        archived: false,
-        sequence: 0,
-        qqAppId: appId,
-        qqUserId: userId,
-      }
-      draft.conversations[conversation.id] = conversation
-      return conversation
+      if (!isCurrentQqTarget(draft, target)) throw new BotError(403, 'forbidden', 'QQ 绑定已失效')
+      const routeId = draft.inboundIds[`qq-route:${target.appId}:${target.userId}`] ?? draft.qq.defaultBotId
+      const bot = draft.bots[routeId] ?? draft.bots[draft.qq.defaultBotId]
+      if (!bot) throw new BotError(409, 'capability-unavailable', '当前 QQ 接待角色不可用，请在 Web 配置默认角色')
+      return ensureBotConversation(draft, bot.id)
     })
   }
-  async function reply(conversation: Conversation, platformMessageId: string, content: string, dedupe: string) {
+  async function reply(
+    target: QqTarget,
+    conversation: Conversation,
+    platformMessageId: string,
+    content: string,
+    dedupe: string,
+  ) {
     await store.update((draft) => {
       if (draft.inboundIds[dedupe]) return
-      if (
-        !draft.qq.enabled ||
-        draft.qq.appId !== conversation.qqAppId ||
-        draft.qq.boundUserId !== conversation.qqUserId
-      )
-        return
+      if (!isCurrentQqTarget(draft, target)) return
       const conv = draft.conversations[conversation.id]
       const message: Message = {
         ...resource(),
         conversationId: conv.id,
         sequence: ++conv.sequence,
         role: 'system',
+        botId: conv.coordinatorId,
         content,
         authorName: 'QQ',
         attachmentIds: [],
         source: 'qq',
+        qqTarget: target,
       }
       draft.messages[message.id] = message
       draft.inboundIds[`qq-reply:${message.id}`] = platformMessageId
@@ -353,40 +324,49 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
         )
           return
         draft.qq.boundUserId = userId
+        draft.qq.bindingId = randomUUID()
         draft.qq.bindingCodeHash = undefined
         draft.qq.bindingExpiresAt = undefined
         draft.qq.revision++
       })
       if (store.read().qq.boundUserId !== userId) return
-      const conversation = await conversationFor(appId, userId)
+      const target = currentQqTarget(store.read())
+      if (target.appId !== appId || target.userId !== userId) return
+      const conversation = await conversationFor(target)
       await reply(
+        target,
         conversation,
         event.id,
-        '账号绑定成功。发送 /角色 查看角色，/切换 角色名 切换，/状态 查看任务，/停止 停止当前任务。',
+        '账号绑定成功。QQ 与 Web 共用各 Bot 的主对话。发送 /角色 查看角色，/切换 角色名 切换，/状态 查看任务，/补充 内容 补充当前任务，/停止 停止当前任务。',
         key,
       )
       return
     }
     if (config.boundUserId !== userId) return
-    let conversation = await conversationFor(appId, userId)
+    const target = currentQqTarget(store.read())
+    if (target.appId !== appId || target.userId !== userId) return
+    let conversation = await conversationFor(target)
     const switchMatch = content.match(/^\/(?:切换|switch)\s+(\S.*)$/)
     if (switchMatch) {
       const matches = Object.values(store.read().bots).filter(
         (bot) => bot.enabled && (bot.id === switchMatch[1] || bot.name === switchMatch[1]),
       )
       if (matches.length !== 1) {
-        await reply(conversation, event.id, '角色不存在或名称重名，请发送 /角色 并使用准确名称或 ID。', key)
+        await reply(target, conversation, event.id, '角色不存在或名称重名，请发送 /角色 并使用准确名称或 ID。', key)
         return
       }
       await store.update((draft) => {
+        if (!isCurrentQqTarget(draft, target) || !draft.bots[matches[0].id]?.enabled)
+          throw new BotError(409, 'conflict', 'QQ 绑定或接待角色已改变，请重新选择')
         draft.inboundIds[`qq-route:${appId}:${userId}`] = matches[0].id
       })
-      conversation = await conversationFor(appId, userId)
-      await reply(conversation, event.id, `已切换至 ${matches[0].name}。其他角色的历史不会自动共享。`, key)
+      conversation = await conversationFor(target)
+      await reply(target, conversation, event.id, `已切换至 ${matches[0].name}，继续该 Bot 的主对话。`, key)
       return
     }
     if (/^\/(?:角色|bots)$/.test(content)) {
       await reply(
+        target,
         conversation,
         event.id,
         Object.values(store.read().bots)
@@ -402,6 +382,7 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
         .filter((task) => task.conversationId === conversation.id && task.botId === conversation.coordinatorId)
         .slice(-8)
       await reply(
+        target,
         conversation,
         event.id,
         tasks.map((task) => `${task.config.name} · ${task.status} · ${task.id}`).join('\n') || '当前角色没有任务。',
@@ -418,6 +399,7 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
       )
       for (const task of tasks.filter((task) => !task.parentTaskId)) await services.stopTask(task.id)
       await reply(
+        target,
         conversation,
         event.id,
         tasks.length ? '已提交停止请求；Pi meme 任务以实际停止回执为准，可在 Web 查看。' : '没有进行中的任务。',
@@ -431,14 +413,20 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
         (task.interactions ?? []).filter((item) => item.status === 'pending').map((item) => ({ task, item })),
       )
     const explicitReply = content.match(/^\/(?:回复|reply)\s+(\S+)\s+(\S[\s\S]*)$/)
-    if (pending.length || explicitReply) {
-      const target = explicitReply
+    const supplement = content.match(/^\/(?:补充|steer)(?:\s+(\S[\s\S]*))?$/)
+    if (supplement && !supplement[1] && !event.attachments?.length) {
+      await reply(target, conversation, event.id, '请在“/补充”后填写内容，或附上需要补充的附件。', key)
+      return
+    }
+    if ((pending.length || explicitReply) && !supplement) {
+      const interaction = explicitReply
         ? pending.find(({ item }) => item.id === explicitReply[1])
         : pending.length === 1
           ? pending[0]
           : undefined
-      if (!target) {
+      if (!interaction) {
         await reply(
+          target,
           conversation,
           event.id,
           pending.length
@@ -451,7 +439,7 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
         return
       }
       const answer = (explicitReply?.[2] ?? content).trim()
-      const { task, item } = target
+      const { task, item } = interaction
       const response: TaskResponse = { interactionId: item.id, revision: item.revision }
       if (item.kind === 'confirmation') {
         const decision = answer.toLowerCase().replace(/[。！!.]$/, '')
@@ -460,7 +448,7 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
         else if (['取消', '拒绝', '否', '不同意', '不用了', 'no', 'cancel', 'deny'].includes(decision))
           response.decision = 'deny'
         else {
-          await reply(conversation, event.id, `${item.question}\n请回复“确认”或“取消”。`, key)
+          await reply(target, conversation, event.id, `${item.question}\n请回复“确认”或“取消”。`, key)
           return
         }
       } else if (item.options?.length) {
@@ -469,6 +457,7 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
         )
         if (!option) {
           await reply(
+            target,
             conversation,
             event.id,
             `${item.question}\n${item.options.map((option, index) => `${index + 1}. ${option.label}`).join('\n')}\n请回复选项名称或序号。`,
@@ -480,20 +469,19 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
       } else response.answer = answer
       try {
         await services.respondToTask(task.id, response, requestId, {
-          appId,
-          userId,
+          ...target,
           inboundKey: key,
           platformMessageId: event.id,
         })
       } catch (cause) {
         if (!(cause instanceof BotError) || cause.status >= 500) throw cause
-        await reply(conversation, event.id, cause.message, key)
+        await reply(target, conversation, event.id, cause.message, key)
       }
       return
     }
     const attachmentIds: string[] = []
     if ((event.attachments?.length ?? 0) > 8) {
-      await reply(conversation, event.id, '单条消息最多支持 8 个附件，请拆分发送或在 Web 上传。', key)
+      await reply(target, conversation, event.id, '单条消息最多支持 8 个附件，请拆分发送或在 Web 上传。', key)
       return
     }
     for (const attachment of event.attachments ?? []) {
@@ -501,19 +489,19 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
       try {
         url = new URL(attachment.url)
       } catch {
-        await reply(conversation, event.id, 'QQ 附件地址无效，请在 Web 上传。', key)
+        await reply(target, conversation, event.id, 'QQ 附件地址无效，请在 Web 上传。', key)
         return
       }
       if (
         url.protocol !== 'https:' ||
         !['.qq.com', '.qpic.cn', '.gtimg.cn', '.myqcloud.com'].some((suffix) => url.hostname.endsWith(suffix))
       ) {
-        await reply(conversation, event.id, '该附件地址不属于支持的 QQ 官方媒体域，请在 Web 上传。', key)
+        await reply(target, conversation, event.id, '该附件地址不属于支持的 QQ 官方媒体域，请在 Web 上传。', key)
         return
       }
       const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(30000) })
       if (!response.ok || Number(response.headers.get('content-length')) > 20 * 1024 * 1024) {
-        await reply(conversation, event.id, '附件不可下载或超过 20 MiB，请在 Web 处理。', key)
+        await reply(target, conversation, event.id, '附件不可下载或超过 20 MiB，请在 Web 处理。', key)
         return
       }
       const reader = response.body?.getReader()
@@ -540,25 +528,49 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
       attachmentIds.push(saved.id)
     }
     if (!content && !attachmentIds.length) {
-      await reply(conversation, event.id, '当前只支持文字和可下载附件，请在 Web 查看其他内容。', key)
+      await reply(target, conversation, event.id, '当前只支持文字和可下载附件，请在 Web 查看其他内容。', key)
       return
     }
-    const currentBinding = store.read().qq
-    if (!currentBinding.enabled || currentBinding.appId !== appId || currentBinding.boundUserId !== userId) return
-    const accepted = await services.acceptMessage({
-      conversationId: conversation.id,
-      content: content || '请查看附件。',
-      attachmentIds,
-      source: 'qq',
-      requestId,
-      platformMessageId: event.id,
-      recipientIds: [conversation.coordinatorId],
-    })
-    await store.update((draft) => {
-      draft.inboundIds[key] = accepted.messageId
-      draft.inboundIds[`qq-reply:${accepted.messageId}`] = event.id
-      if (draft.messages[accepted.messageId]) draft.messages[accepted.messageId].platformMessageId = event.id
-    })
+    const current = store.read()
+    if (!isCurrentQqTarget(current, target)) return
+    const running = supplement
+      ? Object.values(current.tasks).find(
+          (task) =>
+            task.conversationId === conversation.id &&
+            task.botId === conversation.coordinatorId &&
+            task.status === 'running' &&
+            !task.parentTaskId &&
+            task.mode !== 'steer' &&
+            !task.stopRequested,
+        )
+      : undefined
+    if (supplement && !running) {
+      await reply(target, conversation, event.id, '当前没有可补充的运行任务，请先处理待确认问题或直接发送新消息。', key)
+      return
+    }
+    const messageContent = supplement ? supplement[1] : content
+    try {
+      const accepted = await services.acceptMessage({
+        conversationId: conversation.id,
+        content: messageContent || '请查看附件。',
+        attachmentIds,
+        source: 'qq',
+        qqTarget: target,
+        requestId,
+        platformMessageId: event.id,
+        recipientIds: [conversation.coordinatorId],
+        mode: supplement ? 'steer' : 'queue',
+        targetTaskId: running?.id,
+      })
+      await store.update((draft) => {
+        draft.inboundIds[key] = accepted.messageId
+        draft.inboundIds[`qq-reply:${accepted.messageId}`] = event.id
+      })
+      if (supplement) await reply(target, conversation, event.id, '已补充当前任务。', `qq-steer:${key}`)
+    } catch (cause) {
+      if (!(cause instanceof BotError) || cause.status >= 500) throw cause
+      await reply(target, conversation, event.id, cause.message, key)
+    }
   }
   async function upload(delivery: Delivery, guard: () => void): Promise<string> {
     const request = (path: string, body?: unknown) => apiRequest(path, body, guard)
@@ -669,8 +681,7 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
       try {
         const snapshot = store.read()
         const unqueued = Object.values(snapshot.messages).filter((message) => {
-          const conversation = snapshot.conversations[message.conversationId]
-          if (conversation?.kind !== 'qq' || message.source !== 'qq' || message.role === 'user') return false
+          if (!message.qqTarget || message.source !== 'qq' || message.role === 'user') return false
           const count = (message.content ? 1 : 0) + message.attachmentIds.length
           return Array.from({ length: count }, (_, index) => `qq-${message.id}-${index}`).some(
             (id) => !snapshot.deliveries[id],
@@ -688,7 +699,8 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
             !config.enabled ||
             !config.credentialRef ||
             config.appId !== pending.appId ||
-            config.boundUserId !== pending.targetUserId
+            config.boundUserId !== pending.targetUserId ||
+            config.bindingId !== pending.bindingId
           ) {
             await store.update((draft) => {
               const current = draft.deliveries[pending.id]
@@ -706,7 +718,8 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
               current.revision !== config.revision ||
               current.credentialRef !== config.credentialRef ||
               current.appId !== pending.appId ||
-              current.boundUserId !== pending.targetUserId
+              current.boundUserId !== pending.targetUserId ||
+              current.bindingId !== pending.bindingId
             )
               throw new QqRejection('QQ 配置或账号授权已改变，已阻止新的外发')
           }
@@ -806,7 +819,7 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
           sessionId: undefined,
           gatewaySequence: undefined,
           ...(appId !== old.appId
-            ? { boundUserId: undefined, bindingCodeHash: undefined, bindingExpiresAt: undefined }
+            ? { boundUserId: undefined, bindingId: undefined, bindingCodeHash: undefined, bindingExpiresAt: undefined }
             : {}),
         }
       })
@@ -851,6 +864,7 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
     await store.update((draft) => {
       if (input.revision !== draft.qq.revision) throw new BotError(409, 'revision-conflict', 'QQ 配置已修改')
       draft.qq.boundUserId = undefined
+      draft.qq.bindingId = undefined
       draft.qq.bindingCodeHash = undefined
       draft.qq.bindingExpiresAt = undefined
       draft.qq.revision++
@@ -874,9 +888,11 @@ export function registerQqRoutes(app: BotApp, services: BotServices): ChannelAda
     if (old.status === 'unknown' && input.confirmUnknown !== true)
       throw new BotError(409, 'outcome-unknown', '平台可能已收到消息；确认潜在重复后才能创建新投递尝试')
     const config = configured()
-    if (config.boundUserId !== old.targetUserId || config.appId !== old.appId)
+    if (config.boundUserId !== old.targetUserId || config.appId !== old.appId || config.bindingId !== old.bindingId)
       throw new BotError(403, 'forbidden', '该投递的 QQ 身份已失效')
     const attempt = await store.update((draft) => {
+      if (!isCurrentQqTarget(draft, { appId: old.appId, userId: old.targetUserId, bindingId: old.bindingId }))
+        throw new BotError(403, 'forbidden', '该投递的 QQ 身份已失效')
       const used = Object.values(draft.deliveries).filter(
         (item) =>
           old.replyMessageId &&

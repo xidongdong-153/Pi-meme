@@ -270,8 +270,13 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
       await store.update((state) => {
         const original = requireItem(state.bots[c.req.param('id')], 'Bot')
         if (Object.keys(state.bots).length >= 200) throw new BotError(409, 'limit-exceeded', '最多200个Bot')
-        const copy = { ...original, ...resource(), name: `${original.name.slice(0, 75)} 副本`, enabled: false }
-        delete copy.webConversationId
+        const copy = {
+          ...original,
+          ...resource(),
+          conversationId: randomUUID(),
+          name: `${original.name.slice(0, 75)} 副本`,
+          enabled: false,
+        }
         state.bots[copy.id] = copy
         ensureBotConversation(state, copy.id)
         return copy
@@ -314,7 +319,7 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
       await store.update((state) => {
         const current = requireItem(state.conversations[existing.id], '会话')
         revision(current, input.revision)
-        if (input.archived === true && state.bots[current.coordinatorId]?.webConversationId === current.id)
+        if (input.archived === true && state.bots[current.coordinatorId]?.conversationId === current.id)
           throw new BotError(409, 'fixed-conversation', 'Bot 的固定私聊不可归档；停用 Bot 可保留聊天记录')
         const archiveOnly =
           input.archived === true && Object.keys(input).every((key) => key === 'revision' || key === 'archived')
@@ -325,7 +330,7 @@ export function registerCoreRoutes(app: BotApp, services: BotServices, runtime: 
           throw new BotError(409, 'active-tasks', '请先停止关联任务')
         // Archiving old records must remain possible even when a removed Bot made their membership invalid.
         const updated = archiveOnly ? { ...current, archived: true } : conversationFields(input, state, current)
-        if (state.bots[current.coordinatorId]?.webConversationId === current.id)
+        if (state.bots[current.coordinatorId]?.conversationId === current.id)
           updated.name = state.bots[current.coordinatorId].name
         touch(updated)
         state.conversations[updated.id] = updated

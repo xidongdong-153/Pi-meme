@@ -181,7 +181,7 @@ export function App() {
     previousInitialized.current = snapshot.modelSettings.initialized
     if (!activated || location.id) return
     const assistant = snapshot.bots.find((bot) => bot.id === snapshot.modelSettings.defaultAssistantId)
-    if (assistant?.webConversationId) navigateTo('chats', assistant.webConversationId)
+    if (assistant?.conversationId) navigateTo('chats', assistant.conversationId)
   }, [location.id, snapshot, navigateTo])
   function navigate(page: string, id?: string) {
     setDrawerOpen(false)

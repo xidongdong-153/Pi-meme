@@ -93,7 +93,7 @@ export function registerCapabilityRoutes(app: BotApp, services: BotServices): Ca
       const current = draft.schedules[context.req.param('id')]
       if (!current) throw new BotError(404, 'not-found', '计划不存在')
       revision(current, input.revision)
-      const updated = scheduleFields(input, current)
+      const updated = scheduleFields(input, draft, current)
       validateScheduleTarget(draft, updated)
       draft.schedules[updated.id] = updated
       return updated
@@ -123,7 +123,7 @@ export function registerCapabilityRoutes(app: BotApp, services: BotServices): Ca
         const current = draft.schedules[context.req.param('id')]
         if (!current) throw new BotError(404, 'not-found', '计划不存在')
         revision(current, input.revision)
-        const updated = scheduleFields({ enabled: action === 'resume' }, current)
+        const updated = scheduleFields({ enabled: action === 'resume' }, draft, current)
         if (updated.enabled) validateScheduleTarget(draft, updated)
         draft.schedules[updated.id] = updated
         return updated

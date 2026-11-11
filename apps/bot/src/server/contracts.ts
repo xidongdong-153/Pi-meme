@@ -1,5 +1,13 @@
 import type { Hono } from 'hono'
-import type { AcceptedMessage, AppState, Attachment, MessageInput, Task, TaskResponse } from '../shared/types.js'
+import type {
+  AcceptedMessage,
+  AppState,
+  Attachment,
+  MessageInput,
+  QqTarget,
+  Task,
+  TaskResponse,
+} from '../shared/types.js'
 
 export interface BotStore {
   directory: string
@@ -9,9 +17,7 @@ export interface BotStore {
   writeSecret: (value: string) => Promise<string>
   deleteSecret: (ref: string | undefined) => Promise<void>
 }
-export interface QqInteractionSource {
-  appId: string
-  userId: string
+export interface QqInteractionSource extends QqTarget {
   inboundKey: string
   platformMessageId: string
 }
