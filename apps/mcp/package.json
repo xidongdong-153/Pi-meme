@@ -1,0 +1,32 @@
+{
+  "name": "@pi-meme/mcp-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "files": [
+    "README.md",
+    "config.example.json",
+    "dist"
+  ],
+  "scripts": {
+    "start": "node --import tsx src/main.ts",
+    "build": "vite build",
+    "serve": "node dist/main.js",
+    "generate-plugin": "node --import tsx src/plugin-manifest.ts",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@pi-meme/client": "workspace:*",
+    "@pi-meme/contracts": "workspace:*",
+    "ipaddr.js": "2.2.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15",
+    "vite": "^8.3.1"
+  }
+}

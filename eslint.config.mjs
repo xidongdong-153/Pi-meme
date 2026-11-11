@@ -47,6 +47,7 @@ export default antfu(
       'plugins/*/src/{server,agent,shared}/**/*.ts',
       'plugins/*/tests/**/*.ts',
       'apps/server/**/*.{ts,mts}',
+      'apps/mcp/**/*.{ts,mts}',
       'apps/bot/src/{server,shared}/**/*.ts',
       'apps/bot/*.config.ts',
       'apps/web/*.config.mts',

@@ -96,6 +96,8 @@ out/
 apps/web/dist/
 apps/server/dist/
 apps/bot/dist/
+apps/mcp/dist/
+apps/mcp/config.json
 packages/*/dist/
 plugins/*/dist/
 pi/skills/plugin-creator/dist/

@@ -1,0 +1,16 @@
+{
+  "transport": "http",
+  "hostname": "127.0.0.1",
+  "port": 4311,
+  "tokenEnv": "PI_MEME_MCP_TOKEN",
+  "clientId": "pi-meme-mcp",
+  "requestTimeoutMs": 30000,
+  "hosts": [
+    {
+      "name": "local",
+      "url": "http://127.0.0.1:3185",
+      "tokenEnv": "PI_MEME_HOST_TOKEN",
+      "allowWrites": false
+    }
+  ]
+}

@@ -14,6 +14,7 @@ pi-meme 的 Desktop 和 Web 共用 Node Host。Bots 在 `apps/bot` 独立运行�
 | ---------- | ------------------------------------------- | ----------------------------------------------- |
 | 使用与部署 | [快速开始](getting-started.md)              | 下载、安装、升级、源码启动与 Linux/WSL2 环境    |
 | 使用与部署 | [独立 Bots](bots.md)                        | 独立助理 Web、部署、QQ、多 Host、计划与认证 API |
+| 使用与部署 | [MCP App](../apps/mcp/README.md)            | Rakazo/其他 Bot 连接、独立部署、权限与工具      |
 | 使用与部署 | [配置与安全](configuration.md)              | 模型、MCP、指令、凭据、快捷键与权限边界         |
 | 使用与部署 | [数据目录与存储](storage.md)                | 文件布局、更改目录、缓存清理与升级恢复          |
 | 使用与部署 | [Remote](remote.md)                         | HTTPS 部署、SSH 连接、认证与断线排错            |
