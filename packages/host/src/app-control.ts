@@ -12,7 +12,7 @@ import {
 } from '@pi-meme/contracts/goal'
 import { skillMessageText } from '@pi-meme/contracts/skills'
 import { messageOptions } from '@pi-meme/contracts/ipc'
-import { thinkingLevels } from '@pi-meme/contracts/pi'
+import { isSessionThinkingLevel } from '@pi-meme/contracts/pi'
 import { randomUUID, createHash } from 'node:crypto'
 import path from 'node:path'
 import { projectUiMessage } from '@pi-meme/contracts/plugin-ui-message'
@@ -210,7 +210,7 @@ export async function createAppControl(options: Options) {
     if (config.accessMode !== undefined && !isAgentAccessMode(config.accessMode)) throw new Error('会话权限无效')
     if (config.mode !== undefined && config.mode !== 'default' && config.mode !== 'plan')
       throw new Error('会话模式无效')
-    if (config.thinkingLevel !== undefined && !thinkingLevels.includes(config.thinkingLevel as never))
+    if (config.thinkingLevel !== undefined && !isSessionThinkingLevel(config.thinkingLevel))
       throw new Error('思考强度无效')
     if (
       config.agentPlugins !== undefined &&
@@ -356,7 +356,7 @@ export async function createAppControl(options: Options) {
     validateConfiguration(config)
     if (config.mode !== undefined && config.mode !== 'default' && config.mode !== 'plan')
       throw new Error('会话模式无效')
-    if (config.thinkingLevel !== undefined && !thinkingLevels.includes(config.thinkingLevel))
+    if (config.thinkingLevel !== undefined && !isSessionThinkingLevel(config.thinkingLevel))
       throw new Error('思考强度无效')
     if (
       config.model !== undefined &&

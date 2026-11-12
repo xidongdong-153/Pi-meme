@@ -14,7 +14,7 @@ import { RetainedConversations } from './session/retained-conversations'
 import { HistoryDetails } from './session/history-details'
 import { HistoryMarkdown } from '@pi-meme/history/ui/history-markdown'
 import { MemorySettings } from '@pi-meme/memory/ui/memory-settings'
-import { resolveThinkingLevel } from '@pi-meme/contracts/pi'
+import { resolveModelThinkingLevel } from '@pi-meme/contracts/pi'
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
 import { BrowserFavicon, BrowserPanel } from '@pi-meme/browser/ui/browser-panel'
 import { BrowserSettings } from '@pi-meme/browser/ui/browser-settings'
@@ -1307,6 +1307,7 @@ function AppContent({
       ) : null,
     model: (
       <ModelPickerPopover
+        allowUltra
         {...{
           models: chat.models,
           currentModel: chat.selectedConfiguration.model,
@@ -2374,7 +2375,7 @@ function AppContent({
               }
               defaults={{
                 model: chat.state?.model ?? chat.models[0] ?? { provider: '', id: '' },
-                thinkingLevel: chat.state?.thinkingLevel ?? 'medium',
+                thinkingLevel: resolveModelThinkingLevel(chat.state?.model, chat.state?.thinkingLevel ?? 'medium'),
                 accessMode: settings.snapshot?.settings.defaultAccessMode ?? 'workspace-write',
                 agentPlugins: [...agentPlugins],
                 mode: 'default',
@@ -2405,10 +2406,15 @@ function AppContent({
                     onChange({
                       ...configuration,
                       model,
-                      thinkingLevel: resolveThinkingLevel(model, configuration.thinkingLevel),
+                      thinkingLevel: resolveModelThinkingLevel(model, configuration.thinkingLevel),
                     })
                   }
-                  onSelectThinkingLevel={(thinkingLevel) => onChange({ ...configuration, thinkingLevel })}
+                  onSelectThinkingLevel={(thinkingLevel) =>
+                    onChange({
+                      ...configuration,
+                      thinkingLevel: resolveModelThinkingLevel(configuration.model, thinkingLevel),
+                    })
+                  }
                 />
               )}
               onOpenSession={async (ref) => {

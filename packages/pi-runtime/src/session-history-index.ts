@@ -301,7 +301,7 @@ async function readIndex(file: string, background = false): Promise<Index | unde
   const target = indexFile(file)
   if (!target) return
   const expected = await signature(file)
-  const version = `5:${getPiVersion()}`
+  const version = `6:${getPiVersion()}`
   const retained = cache.get(file)
   if (retained?.signature === expected && retained.version === version) {
     remember(file, retained)

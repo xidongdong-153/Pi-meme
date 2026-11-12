@@ -1,7 +1,7 @@
 import { validateVisualizationContext } from './visualize'
 import { isTaskMode, type MessageOptions, type EditMessageOptions } from './plan'
 import type { SkillReference } from './skills'
-import { thinkingLevels, type PiImage } from './pi'
+import { sessionThinkingLevels, type PiImage } from './pi'
 
 export function text(value: unknown): asserts value is string {
   if (typeof value !== 'string' || !value.trim()) throw new Error('参数必须是非空文本')
@@ -83,7 +83,7 @@ export function messageOptions(value: unknown): MessageOptions | undefined {
     text(model.provider)
     text(model.id)
   }
-  if (thinkingLevel !== undefined && !thinkingLevels.includes(thinkingLevel)) throw new Error('思考强度无效')
+  if (thinkingLevel !== undefined && !sessionThinkingLevels.includes(thinkingLevel)) throw new Error('思考强度无效')
   if (
     clientProcessingAudit !== undefined &&
     (!Array.isArray(clientProcessingAudit) ||
@@ -126,7 +126,7 @@ export function editMessageOptions(value: unknown): EditMessageOptions | undefin
     text(model.provider)
     text(model.id)
   }
-  if (thinkingLevel !== undefined && !thinkingLevels.includes(thinkingLevel)) throw new Error('思考强度无效')
+  if (thinkingLevel !== undefined && !sessionThinkingLevels.includes(thinkingLevel)) throw new Error('思考强度无效')
   return {
     ...parsed,
     ...(model ? { model: { provider: model.provider, id: model.id } } : {}),

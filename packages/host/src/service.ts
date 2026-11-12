@@ -53,7 +53,7 @@ import {
   isBuiltinAgentToolAllowed,
   type AgentAccessMode,
 } from '@pi-meme/contracts/agent-access'
-import type { PiModel, ThinkingLevel } from '@pi-meme/contracts/pi'
+import type { PiModel, SessionThinkingLevel } from '@pi-meme/contracts/pi'
 import type { SelectWorkspace, PiSessionsSnapshot, PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { PiSessionPool, type ClientView, type RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import { AgentAccessStore } from '@pi-meme/pi-runtime/access-store'
@@ -1063,7 +1063,7 @@ export async function createHost(options: HostOptions = {}) {
                     notification: 'all | failures | off',
                     configuration: {
                       model: '{provider,id}，使用 models.list 查询',
-                      thinkingLevel: 'off | minimal | low | medium | high | xhigh',
+                      thinkingLevel: 'off | minimal | low | medium | high | xhigh | max',
                       accessMode: 'read-only | workspace-write | full-access',
                       agentPlugins: 'string[]',
                     },
@@ -1948,7 +1948,7 @@ export async function createHost(options: HostOptions = {}) {
           let targetCwd = options.cwd
           let targetAccess = options.accessMode
           let targetModel: PiModel | undefined
-          let targetThinking: ThinkingLevel | undefined
+          let targetThinking: SessionThinkingLevel | undefined
           let targetPlugins: string[] | undefined
 
           if (options.sourceSessionKey) {

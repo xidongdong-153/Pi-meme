@@ -1,14 +1,23 @@
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import * as React from 'react'
 import { Brain, Check, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Search, X, Zap } from 'lucide-react'
-import { modelThinkingLevels, resolveThinkingLevel, type PiModel, type ThinkingLevel } from '@pi-meme/contracts/pi'
+import {
+  modelSessionThinkingLevels,
+  modelThinkingLevels,
+  resolveModelThinkingLevel,
+  resolveSessionThinkingLevel,
+  type PiModel,
+  type SessionThinkingLevel,
+} from '@pi-meme/contracts/pi'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { THINKING_LEVEL_LABELS } from './thinking-config'
 import './model-picker-popover.css'
 
-const MAX_PARTICLES = [
+const ULTRA_DESCRIPTION = '最高可用思考强度与主动多代理协作，可能增加用量'
+
+const ULTRA_PARTICLES = [
   [7, 30, 2, 3, -2, 1.9],
   [13, 68, 1.5, -2, 3, 2.3],
   [20, 42, 3, 2, -3, 2.7],
@@ -47,14 +56,16 @@ function formatProviderName(provider?: string): string {
 export type ModelPickerPopoverProps = {
   models: PiModel[]
   currentModel?: PiModel
-  thinkingLevel?: ThinkingLevel
+  thinkingLevel?: SessionThinkingLevel
+  /** 仅聊天输入框开放 Ultra；模型默认、定时任务等配置继续使用原生档位。 */
+  allowUltra?: boolean
   disabled: boolean
   busy?: boolean
   active?: boolean
   openModelsVersion?: number
   shortcutLabel?: string
   onSelectModel: (model: PiModel) => void
-  onSelectThinkingLevel: (level: ThinkingLevel) => void
+  onSelectThinkingLevel: (level: SessionThinkingLevel) => void
 }
 
 type SliderGesture = {
@@ -70,6 +81,7 @@ export function ModelPickerPopover({
   models,
   currentModel,
   thinkingLevel = 'medium',
+  allowUltra = false,
   disabled,
   busy = false,
   active = true,
@@ -88,8 +100,14 @@ export function ModelPickerPopover({
 
   const selectedModel =
     models.find((model) => model.provider === currentModel?.provider && model.id === currentModel.id) ?? currentModel
-  const activeLevels = modelThinkingLevels(selectedModel)
-  const currentIndex = activeLevels.indexOf(resolveThinkingLevel(selectedModel, thinkingLevel))
+  const activeLevels: readonly SessionThinkingLevel[] = allowUltra
+    ? modelSessionThinkingLevels(selectedModel)
+    : modelThinkingLevels(selectedModel)
+  const currentIndex = activeLevels.indexOf(
+    allowUltra
+      ? resolveSessionThinkingLevel(selectedModel, thinkingLevel)
+      : resolveModelThinkingLevel(selectedModel, thinkingLevel),
+  )
 
   // 离散步进比例
   const stepRatio = activeLevels.length > 1 ? currentIndex / (activeLevels.length - 1) : 0.5
@@ -105,6 +123,12 @@ export function ModelPickerPopover({
   const activeLevel = activeLevels[activeIndex] || thinkingLevel
   const currentLevelLabel = THINKING_LEVEL_LABELS[activeLevel] || '中'
   const isMax = activeLevel === 'max'
+  const isUltra = activeLevel === 'ultra'
+  const accentClassName = isUltra
+    ? 'model-thinking-ultra-accent'
+    : isMax
+      ? 'model-thinking-max-accent'
+      : 'text-blue-500'
 
   const modelKey = (m: PiModel) => `${m.provider}:${m.id}`
   const choices = React.useMemo(() => {
@@ -227,7 +251,7 @@ export function ModelPickerPopover({
 
   // 默认级别重置
   const handleResetLevel = () => {
-    onSelectThinkingLevel(resolveThinkingLevel(selectedModel, 'medium'))
+    onSelectThinkingLevel(resolveModelThinkingLevel(selectedModel, 'medium'))
   }
 
   const triggerRef = React.useRef<HTMLButtonElement>(null)
@@ -313,7 +337,7 @@ export function ModelPickerPopover({
             <div className="hidden min-w-0 @min-[500px]:inline-flex items-center gap-1.5">
               <div className="flex min-w-0 items-center gap-1 max-w-[160px]">
                 <span className="min-w-0 truncate">{displayName}</span>
-                <span className="w-[2em] text-center text-muted-foreground shrink-0 text-[0.6875rem]">
+                <span className="min-w-[2em] text-center text-muted-foreground shrink-0 text-[0.6875rem]">
                   {currentLevelLabel}
                 </span>
               </div>
@@ -337,20 +361,15 @@ export function ModelPickerPopover({
       >
         {view === 'thinking' ? (
           /* 图 1：思考强度配置面板 */
-          <div className="model-thinking-panel flex flex-col gap-3 select-none" data-max={isMax || undefined}>
+          <div className="model-thinking-panel flex flex-col gap-3 select-none" data-thinking-level={activeLevel}>
             {/* 顶栏：中间高亮强度文字与模型入口，右侧重置按钮 */}
             <div className="flex items-center justify-between px-1">
               <div className="flex size-6 items-center justify-center">
-                {isMax && <Zap aria-hidden="true" className="model-thinking-max-accent size-3.5" />}
+                {isUltra && <Zap aria-hidden="true" className="model-thinking-ultra-accent size-3.5" />}
               </div>
               <div className="flex flex-col items-center">
-                <TooltipHint content={isMax ? 'Max · 超级模式' : undefined}>
-                  <span
-                    className={cn(
-                      'text-sm font-semibold tracking-wide leading-tight',
-                      isMax ? 'model-thinking-max-accent' : 'text-blue-500',
-                    )}
-                  >
+                <TooltipHint content={isUltra ? ULTRA_DESCRIPTION : isMax ? 'Max · 模型原生最大思考强度' : undefined}>
+                  <span className={cn('text-sm font-semibold tracking-wide leading-tight', accentClassName)}>
                     {currentLevelLabel}
                   </span>
                 </TooltipHint>
@@ -389,6 +408,7 @@ export function ModelPickerPopover({
                 aria-valuemax={activeLevels.length - 1}
                 aria-valuenow={activeIndex}
                 aria-valuetext={currentLevelLabel}
+                aria-description={isUltra ? ULTRA_DESCRIPTION : undefined}
                 aria-disabled={disabled || busy || activeLevels.length <= 1}
                 tabIndex={0}
                 onKeyDown={handleKeyDown}
@@ -418,12 +438,13 @@ export function ModelPickerPopover({
                       width: `calc(12px + ${activeRatio} * (100% - 24px))`,
                     }}
                   >
-                    {isMax && (
-                      <span aria-hidden="true" className="model-thinking-max-fill">
-                        {MAX_PARTICLES.map(([left, top, size, x, y, duration], index) => (
+                    {isMax && <span aria-hidden="true" className="model-thinking-fill model-thinking-max-fill" />}
+                    {isUltra && (
+                      <span aria-hidden="true" className="model-thinking-fill model-thinking-ultra-fill">
+                        {ULTRA_PARTICLES.map(([left, top, size, x, y, duration], index) => (
                           <span
                             key={index}
-                            className="model-thinking-max-particle"
+                            className="model-thinking-ultra-particle"
                             style={
                               {
                                 left: `${left}%`,
@@ -458,7 +479,7 @@ export function ModelPickerPopover({
                         }}
                         className={cn(
                           'absolute top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 size-1 rounded-full pointer-events-none transition-colors duration-150',
-                          isMax ? 'opacity-0' : isPassed ? 'bg-white/80' : 'bg-white/25',
+                          isUltra ? 'opacity-0' : isPassed ? 'bg-white/80' : 'bg-white/25',
                         )}
                       />
                     )

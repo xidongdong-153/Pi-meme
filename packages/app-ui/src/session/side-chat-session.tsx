@@ -197,6 +197,7 @@ export function SideChatSession({
   )
   const model = (
     <ModelPickerPopover
+      allowUltra
       models={chat.models}
       currentModel={chat.selectedConfiguration.model}
       thinkingLevel={chat.selectedConfiguration.thinkingLevel}

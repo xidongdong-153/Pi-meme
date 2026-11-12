@@ -1,6 +1,6 @@
 import type { AgentAccessMode } from './agent-access'
 import type { Snapshot } from './desktop'
-import type { PiExtensionDialogRequest, PiModel, ThinkingLevel } from './pi'
+import type { PiExtensionDialogRequest, PiModel, SessionThinkingLevel, ThinkingLevel } from './pi'
 import type { TaskMode } from './plan'
 
 export const collaborationLimits = { activeChildren: 4, depth: 1, identities: 16 } as const
@@ -87,7 +87,7 @@ export type AgentSummary = AgentExecution & {
   sessionId?: string
   sessionFile?: string
   model?: PiModel
-  thinkingLevel?: ThinkingLevel
+  thinkingLevel?: SessionThinkingLevel
   accessMode: AgentAccessMode
   mode: TaskMode
   task?: string
@@ -147,7 +147,7 @@ export type CollaborationResults = {
   list_agent_models: {
     models: PiModel[]
     thinkingLevels: ThinkingLevel[]
-    current: { model?: PiModel; thinkingLevel?: ThinkingLevel }
+    current: { model?: PiModel; thinkingLevel?: SessionThinkingLevel }
   }
   wait_agent: {
     agents: AgentSummary[]

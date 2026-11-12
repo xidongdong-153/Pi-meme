@@ -19,6 +19,14 @@ import type {
 export const thinkingLevels = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 export type ThinkingLevel = (typeof thinkingLevels)[number]
 
+/** Ultra 是会话策略，不是模型原生推理档位。 */
+export const sessionThinkingLevels = [...thinkingLevels, 'ultra'] as const
+export type SessionThinkingLevel = (typeof sessionThinkingLevels)[number]
+
+export function isSessionThinkingLevel(value: unknown): value is SessionThinkingLevel {
+  return typeof value === 'string' && (sessionThinkingLevels as readonly string[]).includes(value)
+}
+
 export type PiImage = ImageContent
 export type PiContent = TextContent | ThinkingContent | ImageContent | ToolCall
 export type PiUiSource = {
@@ -116,7 +124,12 @@ export type PiModel = {
 /** 模型目录中的档位由 Pi SDK 计算；缺少能力数据时不开放扩展档位。 */
 export function modelThinkingLevels(model?: PiModel): readonly ThinkingLevel[] {
   if (!model) return thinkingLevels
-  if (model.thinkingLevels) return model.thinkingLevels.length ? model.thinkingLevels : ['off']
+  if (model.thinkingLevels !== undefined) {
+    const available = Array.isArray(model.thinkingLevels)
+      ? thinkingLevels.filter((level) => model.thinkingLevels!.includes(level))
+      : []
+    return available.length ? available : ['off']
+  }
   return model.reasoning ? thinkingLevels.filter((level) => level !== 'xhigh' && level !== 'max') : ['off']
 }
 
@@ -125,6 +138,7 @@ export function resolveThinkingLevel(model: PiModel | undefined, level: Thinking
   const available = modelThinkingLevels(model)
   if (available.includes(level)) return level
   const index = thinkingLevels.indexOf(level)
+  if (index < 0) return 'off'
   return (
     thinkingLevels.slice(index).find((candidate) => available.includes(candidate)) ??
     thinkingLevels
@@ -134,6 +148,28 @@ export function resolveThinkingLevel(model: PiModel | undefined, level: Thinking
     'off'
   )
 }
+/** 仅对已知支持推理的模型开放会话级 Ultra，不扩展模型能力目录。 */
+export function modelSessionThinkingLevels(model?: PiModel): readonly SessionThinkingLevel[] {
+  const available = modelThinkingLevels(model)
+  return model && available.some((level) => level !== 'off') ? [...available, 'ultra'] : available
+}
+
+export function resolveSessionThinkingLevel(
+  model: PiModel | undefined,
+  level: SessionThinkingLevel,
+): SessionThinkingLevel {
+  if (level === 'ultra') return modelSessionThinkingLevels(model).includes('ultra') ? 'ultra' : 'off'
+  return resolveThinkingLevel(model, level)
+}
+
+/** 发给 Pi SDK 和模型的永远是原生档位；Ultra 使用当前模型的最高可用档位。 */
+export function resolveModelThinkingLevel(model: PiModel | undefined, level: SessionThinkingLevel): ThinkingLevel {
+  if (level !== 'ultra') return resolveThinkingLevel(model, level)
+  if (!model) return 'off'
+  const available = modelThinkingLevels(model)
+  return thinkingLevels.findLast((candidate) => available.includes(candidate)) ?? 'off'
+}
+
 export type PiSessionStats = Omit<SessionStats, 'contextUsage'> & {
   contextUsage?: NonNullable<SessionStats['contextUsage']> & {
     /** 当前分支最近一次成功压缩；用于排除压缩前的请求快照。 */
@@ -189,7 +225,7 @@ export type PiState = Pick<
   composerHint?: string
   model?: PiModel
   modelSelectionRequired?: boolean
-  thinkingLevel?: ThinkingLevel
+  thinkingLevel?: SessionThinkingLevel
 }
 type PiCoreEvent =
   | (WithMessageMetadata<

@@ -17,13 +17,13 @@ import {
   type PendingInteraction,
 } from '@pi-meme/contracts/collaboration'
 import type { PlanCheckpoint, PlanDocument, PlanState, PlanRef, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
-import { thinkingLevels, type PiState } from '@pi-meme/contracts/pi'
+import { resolveModelThinkingLevel, resolveThinkingLevel, thinkingLevels, type PiState } from '@pi-meme/contracts/pi'
 import type { RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import { effectiveAgentAccess, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { loadPiSdk } from '@pi-meme/pi-runtime/sdk/load'
 import { readSessionHistory } from '@pi-meme/pi-runtime/session-history'
 import { inferAgentConversationOrigin, readAgentConversation } from '@pi-meme/pi-runtime/agent-conversation'
-import { safeBranchLeaf } from '@pi-meme/pi-runtime/safe-session-fork'
+import { safeBranchLeaf, stripUltraFromForkEntries } from '@pi-meme/pi-runtime/safe-session-fork'
 import { recordFileChange, type FileChangeRecord } from '@pi-meme/pi-runtime/turn-change-store'
 
 import {
@@ -218,6 +218,11 @@ export class HostCollaborationBridge {
             interactions: [],
             events: [],
           }
+          if (loadedRecord.summary.depth > 0 && loadedRecord.summary.thinkingLevel !== undefined)
+            loadedRecord.summary.thinkingLevel = resolveModelThinkingLevel(
+              loadedRecord.summary.model,
+              loadedRecord.summary.thinkingLevel,
+            )
           if (activeStatuses.has(loadedRecord.summary.status)) {
             loadedRecord.summary.status = 'interrupted'
             loadedRecord.summary.error = '服务已重启，任务未自动恢复'
@@ -1028,6 +1033,7 @@ export class HostCollaborationBridge {
             : undefined,
         summary: {
           ...caller.summary,
+          ...policy,
           agentId,
           parentAgentId: caller.summary.agentId,
           name,
@@ -1065,6 +1071,23 @@ export class HostCollaborationBridge {
             const sdk = await loadPiSdk()
             const manager = sdk.SessionManager.open(source, path.dirname(source), caller.summary.cwd)
             child.summary.sessionFile = manager.createBranchedSession(leaf)
+            const forkEntries = manager.getEntries()
+            const nativeEntries = stripUltraFromForkEntries(forkEntries)
+            if (
+              child.summary.sessionFile &&
+              (nativeEntries.length !== forkEntries.length ||
+                nativeEntries.some((entry, index) => entry !== forkEntries[index]))
+            ) {
+              const header = manager.getHeader()
+              if (!header) throw new Error('子代理分支缺少会话头部')
+              // 新分支尚未交给 Worker；只剥离根对话策略，不改写父会话。
+              await writeFile(
+                child.summary.sessionFile,
+                `${[header, ...nativeEntries].map((entry) => JSON.stringify(entry)).join('\n')}\n`,
+                { encoding: 'utf8', mode: 0o600 },
+              )
+              manager.setSessionFile(child.summary.sessionFile)
+            }
             child.summary.conversationOrigin = {
               parentAgentId: caller.summary.agentId,
               inheritedLeafId: manager.getLeafId(),
@@ -1154,9 +1177,13 @@ export class HostCollaborationBridge {
     const snapshot = await record.session!.snapshot()
     const defaults = this.options.getSubagentDefaults?.()
     const selectedModel = selection.model ?? defaults?.model
-    const level = selection.thinking_level ?? defaults?.thinkingLevel ?? snapshot.state.thinkingLevel
-    if (level !== undefined && !(snapshot.thinkingLevels ?? thinkingLevels).includes(level))
-      throw new Error(`思考强度不可用：${level}`)
+    // Ultra 只属于根对话策略；先取父模型实际档位，再按子模型能力调整。
+    const inheritedLevel =
+      snapshot.state.thinkingLevel === undefined
+        ? undefined
+        : resolveModelThinkingLevel(snapshot.state.model, snapshot.state.thinkingLevel)
+    const level = selection.thinking_level ?? defaults?.thinkingLevel ?? inheritedLevel
+    if (level !== undefined && !thinkingLevels.includes(level)) throw new Error(`思考强度不可用：${level}`)
     const model = selectedModel
       ? snapshot.models.find((entry) => entry.provider === selectedModel.provider && entry.id === selectedModel.id)
       : snapshot.state.model
@@ -1169,7 +1196,7 @@ export class HostCollaborationBridge {
       mode: record.summary.mode,
       accessMode: effectiveAgentAccess(record.summary.accessMode, record.summary.mode),
       model,
-      thinkingLevel: level,
+      thinkingLevel: level === undefined ? undefined : resolveThinkingLevel(model, level),
     }
   }
   private inheritedPolicy(record: Record, policy: RunPolicy): RunPolicy {
@@ -1182,7 +1209,13 @@ export class HostCollaborationBridge {
       : (parent.nextMode ?? parent.summary.mode)
     const parentAccess = effectiveAgentAccess(parent.summary.accessMode, parentMode)
     const mode = parentMode === 'plan' ? 'plan' : policy.mode
-    return { ...policy, mode, accessMode: effectiveAgentAccess(policy.accessMode, mode, parentAccess) }
+    return {
+      ...policy,
+      mode,
+      accessMode: effectiveAgentAccess(policy.accessMode, mode, parentAccess),
+      thinkingLevel:
+        policy.thinkingLevel === undefined ? undefined : resolveModelThinkingLevel(policy.model, policy.thinkingLevel),
+    }
   }
   private async start(
     record: Record,

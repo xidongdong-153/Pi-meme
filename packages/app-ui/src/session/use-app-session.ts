@@ -13,8 +13,15 @@ import type {
   DesktopEvent,
   DesktopError,
 } from '@pi-meme/contracts/desktop'
-import type { PiModel, PiSessionStats, PiSlashCommand, PiState, ThinkingLevel } from '@pi-meme/contracts/pi'
-import { resolveThinkingLevel } from '@pi-meme/contracts/pi'
+import type {
+  PiModel,
+  PiSessionStats,
+  PiSlashCommand,
+  PiState,
+  SessionThinkingLevel,
+  ThinkingLevel,
+} from '@pi-meme/contracts/pi'
+import { resolveSessionThinkingLevel } from '@pi-meme/contracts/pi'
 import { applyEvent as reduceEvent, emptyChat, fromSnapshot } from '@pi-meme/chat/ui/model/state'
 import type { ChatState } from '@pi-meme/chat/ui/model/types'
 import { useChatSession, type ComposerSnapshot } from '@pi-meme/chat/ui/use-chat-session'
@@ -1681,7 +1688,7 @@ export function useAppSession(
       if (chat.editing || chat.chat.running || chat.chat.paused || chat.chat.queuePaused) {
         chat.updateConfiguration({
           model,
-          thinkingLevel: resolveThinkingLevel(model, chat.selectedConfiguration.thinkingLevel ?? 'medium'),
+          thinkingLevel: resolveSessionThinkingLevel(model, chat.selectedConfiguration.thinkingLevel ?? 'medium'),
         })
         return Promise.resolve(true)
       }
@@ -1716,7 +1723,7 @@ export function useAppSession(
       })
       return pending
     },
-    selectThinkingLevel: (level: ThinkingLevel) => {
+    selectThinkingLevel: (level: SessionThinkingLevel) => {
       if (chat.editSubmitting) return
       if (chat.editing || chat.chat.running || chat.chat.paused || chat.chat.queuePaused) {
         chat.updateConfiguration({ thinkingLevel: level })

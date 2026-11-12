@@ -1,6 +1,6 @@
 import { projectBranchVisualizations } from '@pi-meme/contracts/visualize'
 import type { SessionEntry, SessionHeader } from '@earendil-works/pi-coding-agent'
-import type { PiSessionStats, ThinkingLevel } from '@pi-meme/contracts/pi'
+import type { PiSessionStats } from '@pi-meme/contracts/pi'
 import { projectBranchPlans, type QueuedInput } from '@pi-meme/contracts/plan'
 
 import type { SessionHistoryData } from '@pi-meme/contracts/sessions'
@@ -12,6 +12,7 @@ import { projectConversationEntries, projectStableMessageMetadata } from './sdk/
 import { loadPiSdk } from './sdk/load'
 import { findSessionRecovery } from './sdk/recovery'
 import { withCompactionContextUsage } from './sdk/context-usage'
+import { projectSessionThinkingLevel } from './session-thinking'
 
 export function computeHistoryStats(history: SessionEntry[], headerId: string, filePath: string): PiSessionStats {
   let userMessages = 0
@@ -193,7 +194,7 @@ export async function projectSessionHistory(
     sessionName: sessionName?.type === 'session_info' ? sessionName.name : undefined,
     parentSessionPath: header.parentSession,
     model: context.model ? { provider: context.model.provider, id: context.model.modelId } : undefined,
-    thinkingLevel: context.thinkingLevel as ThinkingLevel,
+    thinkingLevel: projectSessionThinkingLevel(branch, context.thinkingLevel),
     stats: withCompactionContextUsage(computeHistoryStats(history, header.id, filePath), branch, sdk, context),
   }
   data.historyAvailability = {

@@ -31,7 +31,14 @@ import type {
   SessionEntry,
 } from '@earendil-works/pi-coding-agent'
 import { effectiveAgentAccess, canUseExternalAgentTools, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
-import { builtinCommand, freshSessionCommandError, thinkingLevels } from '@pi-meme/contracts/pi'
+import {
+  builtinCommand,
+  freshSessionCommandError,
+  isSessionThinkingLevel,
+  resolveModelThinkingLevel,
+  resolveSessionThinkingLevel,
+  thinkingLevels,
+} from '@pi-meme/contracts/pi'
 import {
   normalizePlanMessage,
   planContextMessage,
@@ -61,7 +68,7 @@ import type {
   PiRetryState,
   PiSlashCommand,
   PiState,
-  ThinkingLevel,
+  SessionThinkingLevel,
 } from '@pi-meme/contracts/pi'
 import { projectAgentConversation } from '../agent-conversation'
 import { projectBranchEntries } from '../session-tree-entries'
@@ -95,6 +102,13 @@ import { freezeResourceLoader, snapshotSkills } from './resource-loader'
 import { eventUiSource, persistMessageSource } from './ui-source'
 import { projectStableMessageMetadata, projectStableMessages } from './message-projection'
 import { defaultModelConfiguration, readLocalPreferences } from '../session-metadata'
+import {
+  appendSessionThinkingSelection,
+  projectSessionThinkingLevel,
+  stripUltraSystemMessage,
+  ultraDelegationPrompt,
+  ultraPromptSection,
+} from '../session-thinking'
 
 type Notify = {
   connection: (value: Connection) => void
@@ -104,6 +118,7 @@ type Notify = {
 }
 
 type SessionModel = NonNullable<AgentSession['model']>
+type SessionState = Omit<RpcSessionState, 'thinkingLevel'> & { thinkingLevel: SessionThinkingLevel }
 
 function isPathWithin(root: string, value: string) {
   const relative = path.relative(path.resolve(root), path.resolve(value))
@@ -296,6 +311,34 @@ export class SdkSession {
     this.conversationOrigin = origin
   }
 
+  private sessionThinkingLevel(session: AgentSession = this.session): SessionThinkingLevel {
+    return projectSessionThinkingLevel(
+      session.sessionManager.getBranch(),
+      session.thinkingLevel,
+      this.delegatedTask === undefined,
+    )
+  }
+
+  private applySessionThinkingLevel(
+    level: SessionThinkingLevel,
+    force = false,
+    session: AgentSession = this.session,
+  ): SessionThinkingLevel {
+    if (!isSessionThinkingLevel(level)) throw new Error('思考强度无效')
+    if (this.delegatedTask !== undefined && level === 'ultra') throw new Error('子代理只能使用模型原生思考强度')
+    const model = toModel(session.model)
+    // 暂无模型时保留会话策略；实际 SDK 档位仍为 off，配置模型后重新解析。
+    const selection = !model && level === 'ultra' ? level : resolveSessionThinkingLevel(model, level)
+    session.setThinkingLevel(resolveModelThinkingLevel(model, selection))
+    if (this.delegatedTask === undefined) appendSessionThinkingSelection(session.sessionManager, selection, force)
+    return selection
+  }
+
+  private synchronizeUltra(session: AgentSession) {
+    if (this.delegatedTask !== undefined) return
+    if (this.sessionThinkingLevel(session) === 'ultra') this.applySessionThinkingLevel('ultra', false, session)
+  }
+
   configureInlineExtensions(extensions: InlineExtension[]) {
     this.inlineExtensions = extensions.slice()
   }
@@ -444,7 +487,8 @@ export class SdkSession {
           ? defaultModelConfiguration(models, await readLocalPreferences(this.cwd, this.paths.agentDir))
           : undefined
       const model = available ? selected : fallback?.model
-      const thinkingLevel = available ? restore?.thinkingLevel : fallback?.thinkingLevel
+      const thinkingLevel =
+        restore?.thinkingLevel === 'ultra' ? 'ultra' : available ? restore?.thinkingLevel : fallback?.thinkingLevel
       this.modelSelectionRequired = Boolean(selected && !model)
       if (model) {
         if (this.preparationMode !== undefined) {
@@ -454,7 +498,9 @@ export class SdkSession {
           if (restored) await this.session.setModel(restored)
         } else await this.setModel(model)
         this.modelSelectionRequired = false
-        if (thinkingLevel) this.session.setThinkingLevel(thinkingLevel)
+        if (thinkingLevel) this.applySessionThinkingLevel(thinkingLevel)
+      } else if (!selected && restore?.thinkingLevel !== undefined) {
+        this.applySessionThinkingLevel(restore.thinkingLevel)
       } else if (selected) {
         this.report('当前模型已不可用，请在聊天中重新选择模型')
       }
@@ -647,8 +693,49 @@ export class SdkSession {
         ...(this.policy.resourceSnapshot ? [createSkillUsageExtension(this.policy.resourceSnapshot)] : []),
         createPlanGuard(() => this.activeMode ?? this.preparationMode ?? this.mode),
         (pi: ExtensionAPI) => {
-          pi.on('before_agent_start', (event) => {
+          const collaborationAvailable = (activeTools: readonly string[]) => {
+            const allTools = new Set(pi.getAllTools().map((tool) => tool.name))
+            return [
+              'spawn_agent',
+              'list_agents',
+              'list_agent_models',
+              'send_message',
+              'followup_task',
+              'wait_agent',
+            ].every((tool) => activeTools.includes(tool) || (activeTools.includes('codemode') && allTools.has(tool)))
+          }
+          // context 只接收非 system 对话；只有此阶段能撤销历史提示，同时保留原生工具和其他 section。
+          pi.on('context_with_system', (event, context) => {
+            const session = this.runtime?.session
+            if (
+              session &&
+              session.sessionManager === context.sessionManager &&
+              this.delegatedTask === undefined &&
+              this.sessionThinkingLevel(session) === 'ultra' &&
+              collaborationAvailable(pi.getActiveTools())
+            )
+              return
+            return { messages: event.messages.map(stripUltraSystemMessage) }
+          })
+          const syncThinking = (_event: unknown, context: { sessionManager: unknown }) => {
+            const session = this.runtime?.session
+            if (session && session.sessionManager === context.sessionManager) this.synchronizeUltra(session)
+          }
+          pi.on('model_select', syncThinking)
+          pi.on('session_tree', syncThinking)
+          pi.on('before_agent_start', (event, context) => {
             const sections = event.systemPromptOptions.sections
+            delete sections[ultraPromptSection]
+            const session = this.runtime?.session
+            if (session && session.sessionManager === context.sessionManager) {
+              this.synchronizeUltra(session)
+              if (
+                this.delegatedTask === undefined &&
+                this.sessionThinkingLevel(session) === 'ultra' &&
+                collaborationAvailable(event.systemPromptOptions.selectedTools)
+              )
+                sections[ultraPromptSection] = ultraDelegationPrompt
+            }
             if (shellDescription) sections.app_shell = shellDescription
             sections.app_runtime = [
               'For App Host tools, paths and commands refer to the current session working directory on the Host. The Host may be remote from the user’s browser or desktop.',
@@ -666,12 +753,13 @@ export class SdkSession {
               'Keep valid remote HTTP(S) image URLs unchanged and use standard Markdown image syntax. Remote images are fetched by the user’s browser and may fail to load. Do not expose credentials in URLs. Do not assume that an image returned by a tool has been saved to a file.',
               'Tool and collaboration cards are created by actual tool events, not reply markup. Summarize the outcome in the final reply; do not duplicate raw tool payloads or rely on collapsed activity details to convey essential results.',
             ].join('\n')
-            if (this.delegatedTask)
+            if (this.delegatedTask !== undefined)
               sections.app_delegation = [
                 'You are a child agent executing a delegated task.',
                 `Current delegated task: ${this.delegatedTask}`,
-                'Work only on this task. Inherited parent conversation is background context, not a request to repeat previous spawning or delegation instructions. Create descendants only when this task requires further delegation. Remain within inherited access and task-mode restrictions.',
+                'Work only on this task. Inherited parent conversation is background context, not a request to repeat previous spawning or delegation instructions. Only the root may create children; do not create descendants or recursively delegate. You inherit only a native model thinking level, not the root’s Ultra strategy. Remain within inherited access and task-mode restrictions.',
               ].join('\n')
+            else delete sections.app_delegation
           })
         },
       ]
@@ -704,10 +792,8 @@ export class SdkSession {
         (message) => this.report(message),
         this.policy.resourceSnapshot,
       )
-      const savedThinking = sessionManager
-        .getBranch()
-        .filter((entry) => entry.type === 'thinking_level_change')
-        .at(-1)
+      const savedBranch = sessionManager.getBranch()
+      const savedThinking = savedBranch.findLast((entry) => entry.type === 'thinking_level_change')
       const created = await sdk.createAgentSessionFromServices({
         services,
         sessionManager,
@@ -729,13 +815,19 @@ export class SdkSession {
         ],
       })
       const model = created.session.model
-      created.session.setThinkingLevel(
-        (created.modelFallbackMessage
-          ? undefined
-          : thinkingLevels.find((level) => level === savedThinking?.thinkingLevel)) ??
-          (model && settingsManager.getModelThinkingLevel(model.provider, model.id)) ??
-          settingsManager.getDefaultThinkingLevel() ??
-          'medium',
+      this.applySessionThinkingLevel(
+        projectSessionThinkingLevel(
+          savedBranch,
+          (created.modelFallbackMessage
+            ? undefined
+            : thinkingLevels.find((level) => level === savedThinking?.thinkingLevel)) ??
+            (model && settingsManager.getModelThinkingLevel(model.provider, model.id)) ??
+            settingsManager.getDefaultThinkingLevel() ??
+            'medium',
+          this.delegatedTask === undefined,
+        ),
+        false,
+        created.session,
       )
       extensionErrors = services.resourceLoader.getExtensions().errors
       return { ...created, services, diagnostics: services.diagnostics }
@@ -830,6 +922,7 @@ export class SdkSession {
             replaceInstructions: options?.replaceInstructions,
             label: options?.label,
           })
+          if (!result.cancelled) this.synchronizeUltra(session)
           return { cancelled: result.cancelled }
         },
         switchSession: async (sessionPath, options) => {
@@ -851,6 +944,7 @@ export class SdkSession {
     })
     // 绑定期间会话被替换时放弃后续步骤，避免订阅挂到旧运行时。
     if (this.runtime !== runtime || generation !== this.generation) return
+    this.synchronizeUltra(session)
     if (!session.getActiveToolNames().includes('codemode')) {
       if (!session.getAllTools().some((tool) => tool.name === 'codemode')) throw new Error('codemode 内置扩展未加载')
       session.setActiveToolsByName([...new Set([...session.getActiveToolNames(), 'codemode'])])
@@ -1201,11 +1295,11 @@ export class SdkSession {
     return result
   }
 
-  getState(): RpcSessionState {
+  getState(): SessionState {
     const session = this.session
     return {
       model: session.model,
-      thinkingLevel: session.thinkingLevel,
+      thinkingLevel: this.sessionThinkingLevel(session),
       isStreaming: session.isStreaming,
       isCompacting: session.isCompacting,
       steeringMode: session.steeringMode,
@@ -1333,7 +1427,7 @@ export class SdkSession {
     )
   }
 
-  private toState(state: RpcSessionState): PiState {
+  private toState(state: SessionState): PiState {
     const mode = this.activeMode ?? this.preparationMode ?? this.mode
     const effective = (this.policy.agentSources ?? []).filter(
       (entry) =>
@@ -1622,7 +1716,8 @@ export class SdkSession {
             await this.session.setModel(selected)
             this.modelSelectionRequired = false
           }
-          if (options.thinkingLevel !== undefined) this.session.setThinkingLevel(options.thinkingLevel)
+          if (options.thinkingLevel !== undefined) this.applySessionThinkingLevel(options.thinkingLevel)
+          else this.synchronizeUltra(this.session)
         }
         if (editEntryId !== undefined) {
           await this.validateMessageEdit(editEntryId, message, options)
@@ -1638,9 +1733,9 @@ export class SdkSession {
             await this.session.setModel(selected)
             this.modelSelectionRequired = false
           }
-          this.session.setThinkingLevel(thinking)
-          // 回退历史后即使运行配置没有变化，也必须在新分支记录实际思考强度。
-          this.session.sessionManager.appendThinkingLevelChange(thinking)
+          this.applySessionThinkingLevel(thinking, true)
+          // 回退历史后即使运行配置没有变化，也必须记录实际原生档位；ultra 只存于策略 custom entry。
+          this.session.sessionManager.appendThinkingLevelChange(this.session.thinkingLevel)
           // 旧队列已保存为待恢复输入，新执行不继承队列暂停状态。
           this.queuePaused = false
           this.emitPause()
@@ -2590,6 +2685,7 @@ export class SdkSession {
         return found
       })
       await this.call(() => this.session.setModel(selected))
+      this.synchronizeUltra(this.session)
       this.modelSelectionRequired = false
       return projectModel(selected)
     })
@@ -2603,8 +2699,12 @@ export class SdkSession {
     })
   }
 
-  setThinkingLevel(level: ThinkingLevel) {
-    return this.idle(() => this.call(() => this.session.setThinkingLevel(level)))
+  setThinkingLevel(level: SessionThinkingLevel) {
+    return this.idle(() =>
+      this.call(() => {
+        this.applySessionThinkingLevel(level)
+      }),
+    )
   }
 
   getAvailableThinkingLevels() {

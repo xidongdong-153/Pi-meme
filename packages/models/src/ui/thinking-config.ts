@@ -1,6 +1,6 @@
-import type { ThinkingLevel } from '@pi-meme/contracts/pi'
+import type { SessionThinkingLevel } from '@pi-meme/contracts/pi'
 
-export const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
+export const THINKING_LEVEL_LABELS: Record<SessionThinkingLevel, string> = {
   off: '关闭',
   minimal: '极小',
   low: '低',
@@ -8,6 +8,7 @@ export const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
   high: '高',
   xhigh: '极高',
   max: '最大',
+  ultra: 'Ultra',
 }
 
 export function formatTokenCount(count: number): string {

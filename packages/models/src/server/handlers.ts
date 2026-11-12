@@ -1,5 +1,5 @@
 import type { PiRuntime } from '@pi-meme/pi-runtime/runtime'
-import type { PiModel } from '@pi-meme/contracts/pi'
+import { isSessionThinkingLevel, type PiModel } from '@pi-meme/contracts/pi'
 import { text } from '@pi-meme/contracts/ipc'
 import type { ModelConfigStore } from './config-store'
 import type { ModelService } from './model-service'
@@ -40,7 +40,7 @@ export function createModelHandlers({ pi, models, agentDir, service }: ModelHand
     },
     'pi:set-thinking-level': (sessionKey: unknown, value: unknown) => {
       text(sessionKey)
-      if (!isThinkingLevel(value)) throw new Error('思考强度参数无效')
+      if (!isSessionThinkingLevel(value)) throw new Error('思考强度参数无效')
       return pi.setThinkingLevel(sessionKey, value)
     },
     'pi:thinking-levels': () => pi.getAvailableThinkingLevels(),

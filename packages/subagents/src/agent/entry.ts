@@ -39,7 +39,7 @@ const modelSelection = {
       thinkingLevels.map((level) => Type.Literal(level)),
       {
         description:
-          '仅在用户明确要求时指定；省略则使用子代理默认思考强度，未配置时继承主会话思考强度，与模型独立继承。',
+          '仅在用户明确要求时指定；省略则使用子代理默认思考强度，未配置时继承主会话的原生档位，再按子模型能力调整。Ultra 不继承为子代理策略。与模型独立继承。',
       },
     ),
   ),
@@ -121,13 +121,13 @@ const schemas = {
 }
 const descriptions = {
   spawn_agent:
-    'Start a background child for a scoped task. Only the root may create a child. It shares the root working directory, access mode, and task mode. Override model / thinking_level only when explicitly requested by the user; omitted fields use the configured subagent defaults, then inherit the root session values. Query list_agent_models first to confirm available settings. Across the whole tree: at most 4 active or queued child identities, 1 child level (only the root may spawn children), and 16 child identities total; waiting counts as active. fork_turns defaults to all (safe, complete branch history); none starts without inherited conversation history. Include collaborators and completion criteria in message.',
+    'Start a background child for a scoped task. Only the root may create a child. It shares the root working directory, access mode, and task mode. Override model / thinking_level only when explicitly requested by the user; omitted fields use the configured subagent defaults, then inherit the root model and native effort (not the Ultra session strategy). Query list_agent_models first to confirm available settings. Across the whole tree: at most 4 active or queued child identities, 1 child level (only the root may spawn children), and 16 child identities total; waiting counts as active. fork_turns defaults to all (safe, complete branch history); none starts without inherited conversation history. Include collaborators and completion criteria in message.',
   list_agent_models:
     "List currently configured and available models (provider, id, name), thinking levels, and the caller's current model and thinking level. Does not return credentials. Query before applying user-requested overrides; do not guess model identifiers.",
   send_message:
     'Send progress, questions, corrections, or review feedback within the same agent tree. A task waiting for feedback can continue in its original run and session. If the recipient belongs to another root task or has already ended, store the message in history only: deliveryState is history_only and the message does not enter the current model context. Saved does not mean read, accepted, or answered. Plan mode cannot message an agent currently running in default mode.',
   followup_task:
-    "Root only: assign a new task to an existing first-level child. Reuse its identity and conversation file, preserving the root access mode and task mode. If active, queue the task until its current run ends. Use send_message for feedback or revisions within the current task. Override model / thinking_level only when explicitly requested by the user; omitted fields use the configured subagent defaults, then inherit the root session values, not the child's previous overrides. Queued tasks retain settings captured at submission.",
+    "Root only: assign a new task to an existing first-level child. Reuse its identity and conversation file, preserving the root access mode and task mode. If active, queue the task until its current run ends. Use send_message for feedback or revisions within the current task. Override model / thinking_level only when explicitly requested by the user; omitted fields use the configured subagent defaults, then inherit the root model and native effort (not the Ultra session strategy or the child's previous overrides). Queued tasks retain settings captured at submission.",
   interrupt_agent:
     "Stop a descendant's current run and all its descendant runs; cancel their queued or pending tasks. Only the calling agent's descendants can be interrupted. Preserve identities, history, and existing results. Interruption is not successful completion.",
   list_agents:

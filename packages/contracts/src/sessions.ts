@@ -1,4 +1,4 @@
-import type { PiMessage, PiModel, PiRecoveryState, PiSessionEntries, PiSessionStats, ThinkingLevel } from './pi'
+import type { PiMessage, PiModel, PiRecoveryState, PiSessionEntries, PiSessionStats, SessionThinkingLevel } from './pi'
 import type { ChatBranchAttachment } from './chat-attachments'
 import type { BranchSkillUsage } from './skills'
 import type { QueuedInput, PlanCheckpoint } from './plan'
@@ -94,7 +94,7 @@ export type SessionHistoryData = {
   /** 分叉来源会话文件路径，来自会话头部的 parentSession。 */
   parentSessionPath?: string
   model?: PiModel
-  thinkingLevel?: ThinkingLevel
+  thinkingLevel?: SessionThinkingLevel
   stats?: PiSessionStats
   branchAttachments?: ChatBranchAttachment[]
 }

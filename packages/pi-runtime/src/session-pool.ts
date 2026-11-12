@@ -27,6 +27,9 @@ import {
   builtinCommands,
   sameMessage,
   modelThinkingLevels,
+  isSessionThinkingLevel,
+  resolveModelThinkingLevel,
+  resolveSessionThinkingLevel,
   resolveThinkingLevel,
 } from '@pi-meme/contracts/pi'
 import { randomUUID } from 'node:crypto'
@@ -52,7 +55,7 @@ import type {
   PiSessionEntry,
   PiSlashCommand,
   PiState,
-  ThinkingLevel,
+  SessionThinkingLevel,
 } from '@pi-meme/contracts/pi'
 import { AccessSandbox, type SandboxCapability } from './sdk/access-sandbox'
 import { SdkSession } from './sdk/session'
@@ -64,6 +67,7 @@ import { markHistoryAppend, removeHistoryIndexes } from './session-history-index
 import { projectSessionWindow, projectSessionDetails } from '@pi-meme/contracts/session-window'
 import { projectBranchEntries } from './session-tree-entries'
 import { defaultModelConfiguration, readLocalModels, readLocalPreferences, readLocalSkills } from './session-metadata'
+import { appendSessionThinkingSelection, projectSessionThinkingLevel } from './session-thinking'
 import { createPiRuntimePaths, createTemporaryRuntimePaths, type PiRuntimePaths } from './runtime-paths'
 import { MemoryCredentialStorage } from './secure-store'
 
@@ -129,6 +133,7 @@ type RuntimeSession = {
   dormant: boolean
   starting?: Promise<void>
   retiring?: Promise<void>
+  workerStopping?: Promise<void>
   cancelledPrompt: boolean
   error?: string
   extensionError?: DesktopError
@@ -327,7 +332,7 @@ export class PiSessionPool implements PiRuntime {
           record.dormant = true
           record.extensions.clear()
           record.extensionError = undefined
-          await record.session.stopAndWait()
+          await this.stopRuntime(record)
         })().finally(() => {
           record.retiring = undefined
           this.signalSettled()
@@ -339,8 +344,24 @@ export class PiSessionPool implements PiRuntime {
     return records.length > 0
   }
   private readonly retired = new Set<Promise<void>>()
-  private stopRecord(record: RuntimeSession) {
+  private stopRuntime(record: RuntimeSession) {
     const pending = record.session.stopAndWait()
+    record.workerStopping = pending
+    this.retired.add(pending)
+    void pending.then(
+      () => {
+        this.retired.delete(pending)
+        if (record.workerStopping === pending) record.workerStopping = undefined
+      },
+      () => {
+        this.retired.delete(pending)
+        // 未确认退出时保留失败状态，dormant 写入不得接管旧 Worker 的 JSONL。
+      },
+    )
+    return pending
+  }
+  private stopRecord(record: RuntimeSession) {
+    this.stopRuntime(record)
     const interval = record.state.runIntervals?.at(-1)
     if (interval && interval.endedAt === undefined)
       record.state = {
@@ -349,8 +370,6 @@ export class PiSessionPool implements PiRuntime {
           value === interval ? { ...value, endedAt: Date.now() } : value,
         ),
       }
-    this.retired.add(pending)
-    void pending.finally(() => this.retired.delete(pending)).catch(() => {})
   }
   async stopAndWait() {
     this.changing = true
@@ -751,7 +770,7 @@ export class PiSessionPool implements PiRuntime {
       temporaryRoot?: string
       accessMode?: AgentAccessMode
       model?: PiModel
-      thinkingLevel?: ThinkingLevel
+      thinkingLevel?: SessionThinkingLevel
     },
   ): RuntimeSession {
     const record = this.create(cwd, undefined, undefined, options?.accessMode, true, {
@@ -793,7 +812,7 @@ export class PiSessionPool implements PiRuntime {
       temporary?: boolean
       temporaryRoot?: string
       model?: PiModel
-      thinkingLevel?: ThinkingLevel
+      thinkingLevel?: SessionThinkingLevel
       setActive?: boolean
     },
   ) {
@@ -1443,6 +1462,7 @@ export class PiSessionPool implements PiRuntime {
   }
   private async warmMetadata(record: RuntimeSession) {
     const epoch = this.epoch
+    let syncingUltraTarget: RuntimeSession | undefined
     try {
       const models =
         this.localAvailableModels ??
@@ -1453,31 +1473,89 @@ export class PiSessionPool implements PiRuntime {
       if (!target || !this.sessions.has(target.key)) return
       const preferences = await readLocalPreferences(target.cwd, this.runtimePaths.agentDir)
       if (epoch !== this.epoch || !this.sessions.has(target.key)) return
+      const state = target.state
+      const previousModel = state.model
+      const previousThinking = state.thinkingLevel
+      const stillCurrent = () =>
+        epoch === this.epoch &&
+        this.sessions.get(target.key) === target &&
+        target.state === state &&
+        state.model === previousModel &&
+        state.thinkingLevel === previousThinking
+      let requestedModel = previousModel
+      let requestedThinking = previousThinking
       const missingModel =
-        target.state.model &&
-        !models.some((model) => model.id === target.state.model?.id && model.provider === target.state.model?.provider)
-      if ((!target.state.model && !target.sessionFile) || missingModel) {
+        requestedModel &&
+        !models.some((model) => model.id === requestedModel?.id && model.provider === requestedModel?.provider)
+      let usingFallback = false
+      if ((!requestedModel && !target.sessionFile) || missingModel) {
         const fallback = defaultModelConfiguration(models, preferences)
         if (fallback) {
-          target.state.model = fallback.model
+          requestedModel = fallback.model
           if (missingModel) {
-            target.state.thinkingLevel = fallback.thinkingLevel
-            target.state.modelSelectionRequired = false
+            requestedThinking =
+              previousThinking === 'ultra'
+                ? resolveSessionThinkingLevel(fallback.model, 'ultra')
+                : fallback.thinkingLevel
+            usingFallback = true
           }
         }
       }
-      if (!target.sessionFile && target.state.thinkingLevel == null) {
-        const model = target.state.model
-        const perModel = model ? preferences.modelThinkingLevels[`${model.provider}/${model.id}`] : undefined
-        const level = perModel ?? preferences.thinkingLevel
-        if (level) target.state.thinkingLevel = level
+      if (!target.sessionFile && requestedThinking == null) {
+        const perModel = requestedModel
+          ? preferences.modelThinkingLevels[`${requestedModel.provider}/${requestedModel.id}`]
+          : undefined
+        requestedThinking = perModel ?? preferences.thinkingLevel
       }
       const model = models.find(
-        (entry) => entry.id === target.state.model?.id && entry.provider === target.state.model?.provider,
+        (entry) => entry.id === requestedModel?.id && entry.provider === requestedModel?.provider,
       )
       if (model) {
-        target.state.model = model
-        target.state.thinkingLevel = resolveThinkingLevel(model, target.state.thinkingLevel ?? 'medium')
+        const thinkingLevel = resolveSessionThinkingLevel(model, requestedThinking ?? 'medium')
+        if (previousThinking === 'ultra' && thinkingLevel === 'off' && target.dormant && target.sessionFile) {
+          syncingUltraTarget = target
+          await target.retiring
+          await target.workerStopping
+          const sdk = await loadPiSdk()
+          // 先落盘再发布 off；竞态跳过或保存失败时原 Ultra 选择仍可在后续读取中重试。
+          if (
+            !stillCurrent() ||
+            !target.dormant ||
+            target.pendingPrompt ||
+            target.starting ||
+            target.stopping ||
+            target.retiring ||
+            target.workerStopping ||
+            !target.sessionFile
+          )
+            return
+          this.target(target.key)
+          const manager = sdk.SessionManager.open(
+            target.sessionFile,
+            this.runtimePaths.sessionDirectory(target.cwd),
+            target.cwd,
+          )
+          try {
+            if (
+              projectSessionThinkingLevel(manager.getBranch(), manager.buildSessionProjection().thinkingLevel) ===
+              'ultra'
+            ) {
+              if (manager.buildSessionProjection().thinkingLevel !== 'off') manager.appendThinkingLevelChange('off')
+              appendSessionThinkingSelection(manager, 'off')
+            }
+          } finally {
+            invalidateSessionHistory([target.sessionFile])
+          }
+          target.sessionEntries = {
+            entries: projectBranchEntries(manager.getEntries(), manager.getLeafId()),
+            leafId: manager.getLeafId(),
+          }
+        }
+        if (!stillCurrent()) return
+        state.model = model
+        state.thinkingLevel = thinkingLevel
+        if (usingFallback) state.modelSelectionRequired = false
+        syncingUltraTarget = undefined
         const usage = target.stats?.contextUsage
         if (usage?.estimated && target.stats) {
           const contextWindow = model.contextWindow ?? 0
@@ -1492,7 +1570,13 @@ export class PiSessionPool implements PiRuntime {
         }
       }
     } catch (cause) {
-      if (record === this.active && this.sessions.has(record.key))
+      if (syncingUltraTarget && this.sessions.has(syncingUltraTarget.key))
+        this.notify.error({
+          generation: this.generation,
+          sessionKey: syncingUltraTarget.key,
+          message: `无法保存 Ultra 撤销，原策略仍保留。处理会话运行时或文件写入问题后重试：${String(cause)}`,
+        })
+      else if (record === this.active && this.sessions.has(record.key))
         this.notify.error({
           generation: this.generation,
           sessionKey: record.key,
@@ -2233,21 +2317,27 @@ export class PiSessionPool implements PiRuntime {
     this.assertNotEditing(sessionKey)
     const record = this.target(sessionKey)
     if (record.dormant) {
+      await record.retiring
+      await record.workerStopping
       const models =
         this.localAvailableModels ??
         (await (this.localModels ??= readLocalModels(this.runtimePaths.agentDir, this.credentialStorage)))
       const selected = models.find((entry) => entry.id === model.id && entry.provider === model.provider) ?? model
       const preferences = await readLocalPreferences(record.cwd, this.runtimePaths.agentDir)
-      const thinkingLevel = resolveThinkingLevel(
-        selected,
-        preferences.modelThinkingLevels[`${selected.provider}/${selected.id}`] ??
-          preferences.thinkingLevel ??
-          record.state.thinkingLevel ??
-          'medium',
-      )
+      const thinkingLevel =
+        record.state.thinkingLevel === 'ultra'
+          ? resolveSessionThinkingLevel(selected, 'ultra')
+          : resolveThinkingLevel(
+              selected,
+              preferences.modelThinkingLevels[`${selected.provider}/${selected.id}`] ??
+                preferences.thinkingLevel ??
+                resolveModelThinkingLevel(selected, record.state.thinkingLevel ?? 'medium'),
+            )
       const sdk = record.sessionFile ? await loadPiSdk() : undefined
+      if (this.target(sessionKey) !== record) throw new Error('会话已更换，请重新读取模型配置')
       if (record.dormant) {
-        if (record.pendingPrompt || record.starting) throw new Error('会话正在启动，请稍后切换模型')
+        if (record.pendingPrompt || record.starting || record.stopping || record.retiring || record.workerStopping)
+          throw new Error('会话正在切换，请稍后切换模型')
         if (record.sessionFile && sdk) {
           const manager = sdk.SessionManager.open(
             record.sessionFile,
@@ -2255,7 +2345,10 @@ export class PiSessionPool implements PiRuntime {
             record.cwd,
           )
           manager.appendModelChange(selected.provider, selected.id)
-          if (thinkingLevel !== record.state.thinkingLevel) manager.appendThinkingLevelChange(thinkingLevel)
+          const nativeLevel = resolveModelThinkingLevel(selected, thinkingLevel)
+          if (nativeLevel !== manager.buildSessionProjection().thinkingLevel)
+            manager.appendThinkingLevelChange(nativeLevel)
+          appendSessionThinkingSelection(manager, thinkingLevel)
           record.sessionEntries = {
             entries: projectBranchEntries(manager.getEntries(), manager.getLeafId()),
             leafId: manager.getLeafId(),
@@ -2276,13 +2369,37 @@ export class PiSessionPool implements PiRuntime {
     record.state.thinkingLevel = (await record.session.snapshot()).state.thinkingLevel
     return selected
   }
-  async setThinkingLevel(sessionKey: string, level: ThinkingLevel) {
+  async setThinkingLevel(sessionKey: string, level: SessionThinkingLevel) {
+    if (!isSessionThinkingLevel(level)) throw new Error('思考强度无效')
     this.assertNotEditing(sessionKey)
     const record = this.target(sessionKey)
     if (record.dormant) {
       await this.warmMetadata(record)
+      await record.retiring
+      await record.workerStopping
+      const sdk = record.dormant && record.sessionFile ? await loadPiSdk() : undefined
+      if (this.target(sessionKey) !== record) throw new Error('会话已更换，请重新读取思考强度')
       if (record.dormant) {
-        record.state = { ...record.state, thinkingLevel: resolveThinkingLevel(record.state.model, level) }
+        if (record.pendingPrompt || record.starting || record.stopping || record.retiring || record.workerStopping)
+          throw new Error('会话正在切换，请稍后切换思考强度')
+        const thinkingLevel = resolveSessionThinkingLevel(record.state.model, level)
+        if (record.sessionFile && sdk) {
+          const manager = sdk.SessionManager.open(
+            record.sessionFile,
+            this.runtimePaths.sessionDirectory(record.cwd),
+            record.cwd,
+          )
+          const nativeLevel = resolveModelThinkingLevel(record.state.model, thinkingLevel)
+          if (nativeLevel !== manager.buildSessionProjection().thinkingLevel)
+            manager.appendThinkingLevelChange(nativeLevel)
+          appendSessionThinkingSelection(manager, thinkingLevel)
+          record.sessionEntries = {
+            entries: projectBranchEntries(manager.getEntries(), manager.getLeafId()),
+            leafId: manager.getLeafId(),
+          }
+          invalidateSessionHistory([record.sessionFile])
+        }
+        record.state = { ...record.state, thinkingLevel }
         return
       }
     }

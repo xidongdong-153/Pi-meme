@@ -1,4 +1,5 @@
 import type { MutationOptions, ProjectRef, SessionConfiguration, SessionRef } from './app-host'
+import type { ThinkingLevel } from './pi'
 
 export type ScheduleRule =
   | { kind: 'once'; at: string; timeZone: string }
@@ -7,7 +8,7 @@ export type ScheduleRule =
 export type ScheduledTaskRef = { hostId: string; taskId: string }
 export type ScheduleConfiguration = SessionConfiguration & {
   model: NonNullable<SessionConfiguration['model']>
-  thinkingLevel: NonNullable<SessionConfiguration['thinkingLevel']>
+  thinkingLevel: ThinkingLevel
   accessMode: NonNullable<SessionConfiguration['accessMode']>
   agentPlugins: string[]
 }

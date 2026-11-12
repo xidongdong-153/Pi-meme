@@ -1,5 +1,5 @@
 import type { ComposerSnapshot } from '@pi-meme/chat/ui/use-chat-session'
-import { thinkingLevels, type PiSlashCommand } from '@pi-meme/contracts/pi'
+import { sessionThinkingLevels, type PiSlashCommand } from '@pi-meme/contracts/pi'
 import type { MessageConfiguration } from '@pi-meme/contracts/plan'
 
 export const composerDraftPrefix = 'pi-meme:composer:v1:'
@@ -43,7 +43,7 @@ function isMessageConfiguration(value: unknown): value is MessageConfiguration {
         typeof model === 'object' &&
         typeof (model as Record<string, unknown>).provider === 'string' &&
         typeof (model as Record<string, unknown>).id === 'string')) &&
-    (configuration.thinkingLevel === undefined || thinkingLevels.includes(configuration.thinkingLevel as never))
+    (configuration.thinkingLevel === undefined || sessionThinkingLevels.includes(configuration.thinkingLevel as never))
   )
 }
 
