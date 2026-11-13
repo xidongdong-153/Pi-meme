@@ -90,6 +90,7 @@ export class SettingsStore {
   private fileFingerprint: string | null | undefined
   private migrationApplied = false
   private appearanceObserver?: (revision: string) => void
+  private composerHintObserver?: (enabled: boolean) => Promise<void>
   private readonly writeContext = new AsyncLocalStorage<{
     clientId: string
     requestId: string
@@ -188,6 +189,10 @@ export class SettingsStore {
     this.appearanceObserver = listener
   }
 
+  setComposerHintObserver(listener: (enabled: boolean) => Promise<void>) {
+    this.composerHintObserver = listener
+  }
+
   withWriteContext<T>(
     context: { clientId: string; requestId: string; source?: 'ui' | 'agent'; hostId?: string },
     work: () => Promise<T>,
@@ -214,6 +219,7 @@ export class SettingsStore {
   }
 
   private async loadNow() {
+    const hintEnabled = this.settings.showComposerHint !== false
     await mkdir(this.themesDirectory, { recursive: true })
     try {
       await this.assertFileTarget()
@@ -253,6 +259,8 @@ export class SettingsStore {
     this.loaded = true
     this.settings.appearance = migrateAppearance(this.settings, this.themes)
     await this.reloadThemes()
+    if (hintEnabled !== (this.settings.showComposerHint !== false))
+      await this.composerHintObserver?.(this.settings.showComposerHint !== false)
     return this.snapshot()
   }
 
@@ -499,6 +507,7 @@ export class SettingsStore {
   }
 
   private async saveNow(value: unknown, appearanceOnly = false, sidebarOnly = false, subagentsOnly = false) {
+    const hintEnabled = this.settings.showComposerHint !== false
     await this.assertWritable()
     this.validateSettings(value)
     const appearance = appearanceOnly ? value.appearance : this.settings.appearance
@@ -544,6 +553,8 @@ export class SettingsStore {
         console.error(`无法清理设置临时文件：${String(cause)}`),
       )
     }
+    if (hintEnabled !== (this.settings.showComposerHint !== false))
+      await this.composerHintObserver?.(this.settings.showComposerHint !== false)
     return this.snapshot()
   }
 

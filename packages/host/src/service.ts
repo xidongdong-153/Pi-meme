@@ -620,6 +620,9 @@ export async function createHost(options: HostOptions = {}) {
       options.restrictedNode ?? process.env.PI_MEME_PLUGIN_NODE ?? (process.versions.electron ? '' : process.execPath)
     const pluginSandboxCapability = await probePluginSandbox(pluginNode)
     const workers = new Map<string, RuntimeSdkSession>()
+    settings.setComposerHintObserver(async (enabled) => {
+      await Promise.all([...workers.values()].map((session) => session.configureComposerHint(enabled)))
+    })
     const workerPluginBridges = new Map<string, ReturnType<typeof createPluginCallBridge>>()
     const pluginCredentialPrefix = (id: string) => `plugin:${encodeURIComponent(id)}:http:`
     const credentialKey = (id: string, ref: string) => {

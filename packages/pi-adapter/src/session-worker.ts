@@ -155,6 +155,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     undefined,
     policy,
   )
+  session.configureComposerHint(data.settings.showComposerHint !== false)
   const pendingHost = new Map<
     string,
     { resolve: (value: unknown) => void; reject: (cause: Error) => void; cleanup: () => void }

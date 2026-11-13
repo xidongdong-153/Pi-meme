@@ -89,6 +89,7 @@ export function createWorkerSession(
   let pauseRevision = -1
   let release: (() => void | Promise<void>) | undefined
   let capabilities: Parameters<SdkSession['configureCapabilities']>[0] = { codemodeEnabled: false, mcpEnabled: false }
+  let composerHintEnabled: boolean | undefined
   let access: Parameters<SdkSession['configureAccess']>[0] = 'full-access'
   let taskMode: TaskMode = 'default'
   let releasing: Promise<void> = Promise.resolve()
@@ -120,7 +121,7 @@ export function createWorkerSession(
           initialGeneration: connection.generation,
           root: options.dataRoot,
           temporaryRoot: paths.temporaryRoot,
-          settings: options.settings,
+          settings: { ...options.settings, showComposerHint: composerHintEnabled ?? options.settings.showComposerHint },
           agentEntries: options.agentEntries,
           resourceSnapshot: options.resourceSnapshot,
           credentials: options.credentials
@@ -438,6 +439,10 @@ export function createWorkerSession(
     configureCapabilities: (value: typeof capabilities) => {
       capabilities = value
       if (worker) void call('configureCapabilities', [value])
+    },
+    configureComposerHint: (enabled: boolean) => {
+      composerHintEnabled = enabled
+      return worker ? call('configureComposerHint', [enabled]) : Promise.resolve()
     },
     configureAccess: (value: typeof access) => {
       access = value

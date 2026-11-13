@@ -289,6 +289,7 @@ export class SdkSession {
   private modelRestore: ModelRestore | undefined
   private modelSelectionRequired = false
   private composerHint?: string
+  private composerHintEnabled = true
   private hintController?: AbortController
   private sessionFile?: string
   private sessionId?: string
@@ -360,6 +361,11 @@ export class SdkSession {
 
   configureCapabilities(value: ToolExecutionSettings) {
     this.capabilities = { ...value, codemodeEnabled: value.codemodeEnabled || value.mcpEnabled }
+  }
+
+  configureComposerHint(enabled: boolean) {
+    this.composerHintEnabled = enabled
+    if (!enabled) this.clearComposerHint()
   }
 
   getTaskMode(): TaskMode {
@@ -2336,6 +2342,7 @@ export class SdkSession {
   /** 队列确认不会接下一轮之后，再问模型要不要给一句下一步。失败或超时就当不显示。 */
   private async refreshComposerHint() {
     if (
+      !this.composerHintEnabled ||
       this.running ||
       this.paused ||
       this.queuePaused ||
