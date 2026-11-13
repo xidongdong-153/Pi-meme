@@ -2,6 +2,7 @@ import * as React from 'react'
 import type { PiImage } from '@pi-meme/contracts/pi'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { ImageViewer, imageSource } from './image-viewer'
+import { ImageDisclosure } from './message-image'
 
 export function AttachmentPreview({
   images,
@@ -18,7 +19,7 @@ export function AttachmentPreview({
   if (!images.length) return null
 
   return (
-    <>
+    <ImageDisclosure label={`查看 ${images.length} 张图像`}>
       <div className={cn('flex flex-wrap gap-2 my-2', className)}>
         {images.map((image, index) => {
           const src = imageSource(image)
@@ -45,6 +46,6 @@ export function AttachmentPreview({
         onActiveIndexChange={setActiveIndex}
         triggerRef={triggerRef}
       />
-    </>
+    </ImageDisclosure>
   )
 }

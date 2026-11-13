@@ -1,5 +1,6 @@
 import type { AgentSession, SessionEntry } from '@earendil-works/pi-coding-agent'
-import type { PiEvent, PiMessage, PiUiSource } from '@pi-meme/contracts/pi'
+import type { PiEvent, PiMessage, PiNestedInteraction, PiUiSource } from '@pi-meme/contracts/pi'
+import { nestedInteractionEntry, readNestedInteractionEntry } from '../extensions/nested-interactions'
 
 export const uiSourceEntry = 'pi-meme.ui-source'
 type AgentSource = { pluginId: string; generation: number; path?: string; grant?: { policyHash: string } }
@@ -70,7 +71,19 @@ export function projectMessageSources(
   const sources = new Map<string, PiUiSource>()
   const sourcesByEntry = new Map<string, PiUiSource>()
   const completions = new Map<number, number>()
+  const nestedInteractions = new Map<string, Map<string, PiNestedInteraction>>()
   for (const entry of branch.reverse()) {
+    if (entry.type === 'custom' && entry.customType === nestedInteractionEntry) {
+      const data = readNestedInteractionEntry(entry.data)
+      if (data) {
+        let interactions = nestedInteractions.get(data.rootToolCallId)
+        if (!interactions) {
+          interactions = new Map()
+          nestedInteractions.set(data.rootToolCallId, interactions)
+        }
+        interactions.set(data.interaction.id, data.interaction)
+      }
+    }
     if (entry.type === 'message' && entry.message.role === 'assistant') {
       const completedAt = Date.parse(entry.timestamp)
       if (Number.isFinite(completedAt) && completedAt >= entry.message.timestamp)
@@ -99,13 +112,15 @@ export function projectMessageSources(
       (message.sourceEntry ? sourcesByEntry.get(message.sourceEntry.id) : undefined) ??
       (key ? sources.get(key) : undefined)
     const completedAt = message.role === 'assistant' ? completions.get(message.timestamp) : undefined
-    return source || completedAt !== undefined
+    const interactions = message.role === 'toolResult' ? nestedInteractions.get(message.toolCallId) : undefined
+    return source || completedAt !== undefined || interactions?.size
       ? {
           ...message,
           ...(source
             ? { source, ...(message.role === 'custom' && source.customType ? { customType: source.customType } : {}) }
             : {}),
           ...(completedAt !== undefined ? { completedAt } : {}),
+          ...(interactions?.size ? { nestedInteractions: [...interactions.values()] } : {}),
         }
       : message
   })

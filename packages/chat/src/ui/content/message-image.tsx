@@ -1,11 +1,54 @@
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import * as React from 'react'
+import { ChevronDown, Images } from 'lucide-react'
 import { maxImagePreviewBytes, type FilePreview } from '@pi-meme/contracts/app-host'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { ImageViewer } from './image-viewer'
 
 export type MessageImageLoader = (relativePath: string) => Promise<FilePreview>
 export const MessageImageLoaderContext = React.createContext<MessageImageLoader | undefined>(undefined)
+
+export function ImageDisclosure({
+  label,
+  children,
+  inline = false,
+}: {
+  label: string
+  children: React.ReactNode
+  inline?: boolean
+}) {
+  const [open, setOpen] = React.useState(true)
+  const detailsId = React.useId()
+  const Container = inline ? 'span' : 'div'
+  return (
+    <Container className={inline ? 'my-2 mr-2 inline-flex max-w-full flex-col align-top' : 'min-w-0'}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={detailsId}
+        onClick={() => setOpen((value) => !value)}
+        className="conversation-activity-toggle flex min-h-6 w-fit max-w-full items-start gap-2 rounded-sm pr-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+      >
+        <span aria-hidden="true" className="mt-[0.16em] inline-flex size-[1.4em] shrink-0 items-center justify-center">
+          <Images className="size-[1.15em]" />
+        </span>
+        <span className="min-w-0 truncate">{label}</span>
+        <span
+          aria-hidden="true"
+          className={cn(
+            'mt-[0.16em] inline-flex size-[1.4em] shrink-0 items-center justify-center transition-transform duration-200 motion-reduce:transition-none',
+            !open && '-rotate-90',
+          )}
+        >
+          <ChevronDown className="size-3.5" />
+        </span>
+      </button>
+      <Container id={detailsId} hidden={!open}>
+        {children}
+      </Container>
+    </Container>
+  )
+}
 
 function classifyImageError(cause: unknown, relativePath: string): { error: string; reason: string } {
   const rawMessage = cause instanceof Error ? cause.message : ''
@@ -112,20 +155,22 @@ export function MessageImage({ src, alt, className }: { src: string; alt?: strin
 
   const url = remote ? src : current?.url
   return (
-    <ImageThumbnail
-      key={url ?? src}
-      src={url}
-      label={imageLabel(src, alt)}
-      filename={imageLabel(src)}
-      error={current?.error}
-      reason={current?.reason}
-      remote={remote}
-      className={className}
-      onRetry={() => {
-        setResult(undefined)
-        setRetry((value) => value + 1)
-      }}
-    />
+    <ImageDisclosure label="查看图像" inline>
+      <ImageThumbnail
+        key={url ?? src}
+        src={url}
+        label={imageLabel(src, alt)}
+        filename={imageLabel(src)}
+        error={current?.error}
+        reason={current?.reason}
+        remote={remote}
+        className={className}
+        onRetry={() => {
+          setResult(undefined)
+          setRetry((value) => value + 1)
+        }}
+      />
+    </ImageDisclosure>
   )
 }
 
@@ -150,6 +195,7 @@ export function ImageThumbnail({
 }) {
   const [failed, setFailed] = React.useState(false)
   const [loaded, setLoaded] = React.useState(false)
+  const [attempt, setAttempt] = React.useState(0)
   const [previewSource, setPreviewSource] = React.useState<string | null>(null)
   const [source, setSource] = React.useState(src)
   const triggerRef = React.useRef<HTMLButtonElement>(null)
@@ -181,9 +227,10 @@ export function ImageThumbnail({
             <button
               type="button"
               aria-label="预览失败点击重试"
-
               onClick={() => {
                 setFailed(false)
+                setLoaded(false)
+                setAttempt((value) => value + 1)
                 onRetry?.()
               }}
               className="flex size-full cursor-pointer flex-col items-center justify-center rounded-xl bg-secondary/30 px-1 py-1.5 text-center text-xs text-muted-foreground hover:bg-secondary/50"
@@ -210,6 +257,7 @@ export function ImageThumbnail({
         >
           {src && (
             <img
+              key={attempt}
               src={src}
               alt={label}
               loading="lazy"

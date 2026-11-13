@@ -4,14 +4,18 @@ import { insertTurnVisualizations } from '../model/turn-visualizations'
 import * as React from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { PiPauseInterval, PiRetryState } from '@pi-meme/contracts/pi'
+import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import { ErrorLine } from '@pi-meme/ui/components/error-line'
-import type { TurnChunk } from '../model/types'
+import type { ActivityItem, TurnChunk } from '../model/types'
 import { AttachmentPreview } from '../content/attachment-preview'
 import { MarkdownContent } from '../content/markdown-content'
 import { ActivityElapsedTime, ActivityGroup } from './activity-group'
 import { groupAgentActivities } from '../model/agent-collaboration'
 import { AgentCollaborationRow } from './agent-collaboration-row'
 import { AgentStatusRow } from './agent-status-row'
+import { AgentOperationRow } from './agent-operation-row'
+import { QuestionAnswerRow } from './question-answer-row'
+import { ToolActivityRow } from './tool-activity-row'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { MessageActions } from './message-actions'
 import { MessageTime } from './message-time'
@@ -20,7 +24,34 @@ import { collectImageGenerations, type TurnImageGeneration } from '../model/turn
 import { TurnImageGallery } from './turn-image-gallery'
 import { RetainedDisclosure } from './retained-disclosure'
 
+const emptyAgents: readonly AgentSummary[] = []
 export const AssistantTurnView = React.memo(AssistantTurnContent)
+
+function InlineImageActivity({
+  item,
+  isLive,
+  isPaused,
+  onToggle,
+}: {
+  item: Exclude<ActivityItem, { type: 'thinking' | 'narration' }>
+  isLive: boolean
+  isPaused: boolean
+  onToggle?: () => void
+}) {
+  const [open, setOpen] = React.useState(true)
+  return (
+    <ToolActivityRow
+      item={item}
+      open={open}
+      onToggle={() => {
+        onToggle?.()
+        setOpen((value) => !value)
+      }}
+      isLive={isLive}
+      isPaused={isPaused}
+    />
+  )
+}
 
 function AssistantTurnContent({
   turn,
@@ -33,6 +64,8 @@ function AssistantTurnContent({
   onFork,
   onCopyError,
   onOpenAgent,
+  agents = emptyAgents,
+  caller,
   retry,
   onActivityToggle,
   reply,
@@ -49,6 +82,8 @@ function AssistantTurnContent({
   onFork?: (timestamp: number) => void
   onCopyError?: (message: string) => void
   onOpenAgent?: (agentId: string) => void
+  agents?: readonly AgentSummary[]
+  caller?: AgentSummary
   retry?: PiRetryState
   onActivityToggle?: () => void
   reply?: React.ReactNode
@@ -92,7 +127,7 @@ function AssistantTurnContent({
   const lastActivityIndex = segments.findLastIndex((segment) => segment.type === 'activity')
   const processId = React.useId()
   const processIds = segments.flatMap((segment, index) =>
-    (segment.type === 'text' && segment.finalReply) || segment.type === 'visualization'
+    (segment.type === 'text' && segment.finalReply) || segment.type === 'visualization' || segment.type === 'question'
       ? []
       : [`${processId}-${index}`],
   )
@@ -160,7 +195,7 @@ function AssistantTurnContent({
               )
             const finalReply = segment.type === 'text' && Boolean(segment.finalReply)
             if (finalReply && reply && index !== firstReplyIndex) return null
-            const open = finalReply || process.open
+            const open = finalReply || segment.type === 'question' || process.open
             const key =
               segment.type === 'activity'
                 ? `activity-${segment.items[0]!.id}`
@@ -168,7 +203,11 @@ function AssistantTurnContent({
                   ? `collaboration-${segment.item.id}`
                   : segment.type === 'agent_status'
                     ? segment.item.key
-                    : `text-${index}`
+                    : segment.type === 'agent_operation' ||
+                        segment.type === 'question' ||
+                        segment.type === 'image_activity'
+                      ? `${segment.type}-${segment.item.id}`
+                      : `text-${index}`
             return (
               <RetainedDisclosure
                 open={open}
@@ -183,7 +222,25 @@ function AssistantTurnContent({
               >
                 <div className="min-h-0 overflow-hidden">
                   {index === firstReplyIndex && turn.images.length > 0 && <AttachmentPreview images={turn.images} />}
-                  {segment.type === 'collaboration' ? (
+                  {segment.type === 'agent_operation' ? (
+                    <AgentOperationRow
+                      item={segment.item}
+                      agents={agents}
+                      caller={caller}
+                      isLive={turn.isLive}
+                      isPaused={isPaused}
+                      onOpenAgent={onOpenAgent}
+                    />
+                  ) : segment.type === 'question' ? (
+                    <QuestionAnswerRow item={segment.item} isLive={turn.isLive} isPaused={isPaused} />
+                  ) : segment.type === 'image_activity' ? (
+                    <InlineImageActivity
+                      item={segment.item}
+                      isLive={turn.isLive}
+                      isPaused={isPaused}
+                      onToggle={onActivityToggle}
+                    />
+                  ) : segment.type === 'collaboration' ? (
                     <AgentCollaborationRow item={segment.item} onOpenAgent={onOpenAgent} />
                   ) : segment.type === 'agent_status' ? (
                     <AgentStatusRow

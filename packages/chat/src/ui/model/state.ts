@@ -6,7 +6,7 @@ import type { PiEvent, PiImage, PiMessage, PiRunInterval } from '@pi-meme/contra
 import type { ChatBranchAttachment } from '@pi-meme/contracts/chat-attachments'
 import { messageAttachmentParts } from '@pi-meme/contracts/chat-attachments'
 import type { Snapshot, DesktopEvent } from '@pi-meme/contracts/desktop'
-import type { ChatState } from './types'
+import type { ChatState, ToolRun } from './types'
 import { sameMessage } from './message-text'
 import { updateLiveMessage } from './live-message'
 
@@ -124,22 +124,40 @@ function restoreNestedTools(
   state: ChatState,
   message: Extract<import('@pi-meme/contracts/pi').PiMessage, { role: 'toolResult' }>,
 ) {
-  const calls = message.nestedCalls?.calls ?? []
-  for (const call of calls) {
+  const interactions = new Map(message.nestedInteractions?.map((interaction) => [interaction.id, interaction]))
+  const calls = new Map<string, ToolRun>(
+    (message.nestedCalls?.calls ?? []).map((call) => [
+      call.id,
+      {
+        id: call.id,
+        name: call.name,
+        args: call.arguments,
+        result:
+          call.status !== 'ok' ? { content: [{ type: 'text', text: call.error ?? '内部调用未完成' }] } : undefined,
+        status: call.status === 'ok' ? 'success' : 'error',
+      },
+    ]),
+  )
+  for (const interaction of interactions.values()) calls.set(interaction.id, interaction)
+  for (const call of calls.values()) {
     const previous = state.tools[call.id]
-    const parent = calls
-      .filter((other) => other.id !== call.id && call.id.startsWith(`${other.id}/`))
-      .sort((a, b) => b.id.length - a.id.length)[0]
+    const saved = interactions.get(call.id)
+    const knownParent = (id: string | undefined) =>
+      id !== undefined && id !== call.id && (id === message.toolCallId || calls.has(id) || Boolean(state.tools[id]))
+    const recordedParent = saved?.parentToolCallId ?? previous?.parentToolCallId
+    let parentToolCallId = knownParent(recordedParent) ? recordedParent : undefined
+    // SDK 达到嵌套记录上限时可能省略中间调用，仍将交互挂到最近的可见祖先。
+    let ancestor = call.id
+    while (!parentToolCallId && ancestor.includes('/')) {
+      ancestor = ancestor.slice(0, ancestor.lastIndexOf('/'))
+      if (knownParent(ancestor)) parentToolCallId = ancestor
+    }
     state.tools[call.id] = {
       ...previous,
-      id: call.id,
-      name: call.name,
-      parentToolCallId: previous?.parentToolCallId ?? parent?.id ?? message.toolCallId,
-      args: previous?.args ?? call.arguments,
-      result:
-        previous?.result ??
-        (call.status !== 'ok' ? { content: [{ type: 'text', text: call.error ?? '内部调用未完成' }] } : undefined),
-      status: call.status === 'ok' ? 'success' : 'error',
+      ...call,
+      parentToolCallId: parentToolCallId ?? message.toolCallId,
+      args: saved?.args ?? previous?.args ?? call.args,
+      result: saved?.result ?? previous?.result ?? call.result,
     }
   }
 }

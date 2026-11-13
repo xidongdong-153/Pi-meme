@@ -3,6 +3,8 @@ import type { PiMessage } from '@pi-meme/contracts/pi'
 import { formatAgentName } from '@pi-meme/ui/lib/agent-name'
 import { groupAdjacentActivities } from './activity-summary'
 import { groupConversationTurns } from './conversation-turns'
+import { isAgentInteraction, type AgentOperationItem } from './agent-operations'
+import { extractImages, parseToolMeta } from './tool-details'
 import { modelChangesForConversation } from './model-changes'
 import type {
   ActivityItem,
@@ -17,11 +19,16 @@ type ToolResult = Extract<PiMessage, { role: 'toolResult' }>
 type ToolActivity = Exclude<ActivityItem, { type: 'thinking' | 'narration' }>
 type CollaborationSegment = { type: 'collaboration'; item: AgentCollaborationStatus }
 export type AgentActivitySegment =
-  RenderSegment | CollaborationSegment | { type: 'agent_status'; item: AgentStatusEvent }
+  | RenderSegment
+  | CollaborationSegment
+  | { type: 'agent_status'; item: AgentStatusEvent }
+  | { type: 'agent_operation'; item: AgentOperationItem }
+  | { type: 'question'; item: ToolActivity }
+  | { type: 'image_activity'; item: ToolActivity }
 type AgentName = Pick<AgentSummary, 'agentId' | 'taskPath' | 'name'>
 type ToolRun = NonNullable<ToolActivity['children']>[number]
 
-/** 子代理用来互相调度的工具。详情里不渲染调用行，只保留协作状态。 */
+/** 协作工具以专用操作与状态行呈现，不再重复渲染原始调用行。 */
 const agentOperationTools = new Set([
   'spawn_agent',
   'send_message',
@@ -37,16 +44,33 @@ function isAgentOperation(item: ActivityItem): boolean {
   return item.type !== 'thinking' && item.type !== 'narration' && agentOperationTools.has(item.name ?? '')
 }
 
-function withoutAgentOperations(tools: ToolRun[] | undefined): ToolRun[] | undefined {
+function isQuestion(item: ActivityItem): item is ToolActivity & { name: 'request_user_input' } {
+  return item.type !== 'thinking' && item.type !== 'narration' && item.name === 'request_user_input'
+}
+
+function isImageActivity(item: ActivityItem): boolean {
+  return item.type !== 'thinking' && item.type !== 'narration' && parseToolMeta(item).kind === 'image'
+}
+
+function withoutAgentOperations(
+  tools: ToolRun[] | undefined,
+  hideAgentOperations: boolean,
+  extractImageChildren: boolean,
+): ToolRun[] | undefined {
   if (!tools?.length) return tools
   let changed = false
   const next: ToolRun[] = []
   for (const tool of tools) {
-    if (agentOperationTools.has(tool.name)) {
+    if (
+      isAgentInteraction(tool) ||
+      isQuestion(tool) ||
+      (hideAgentOperations && agentOperationTools.has(tool.name)) ||
+      (extractImageChildren && isImageActivity(tool))
+    ) {
       changed = true
       continue
     }
-    const children = withoutAgentOperations(tool.children)
+    const children = withoutAgentOperations(tool.children, hideAgentOperations, extractImageChildren)
     if (children !== tool.children) {
       changed = true
       next.push(children?.length ? { ...tool, children } : withoutChildren(tool))
@@ -63,9 +87,9 @@ function withoutChildren<T extends { children?: ToolRun[] }>(value: T): T {
   return copy
 }
 
-function presentActivity(item: ActivityItem): ActivityItem {
+function presentActivity(item: ActivityItem, hideAgentOperations: boolean): ActivityItem {
   if (item.type === 'thinking' || item.type === 'narration' || !item.children?.length) return item
-  const children = withoutAgentOperations(item.children)
+  const children = withoutAgentOperations(item.children, hideAgentOperations, extractImages(item.result).length === 0)
   if (children === item.children) return item
   if (!children?.length) return withoutChildren(item)
   return { ...item, children }
@@ -265,7 +289,7 @@ export function projectAgentConversation(chat: ChatState, agent: AgentSummary): 
     let previousWait: { row: AgentCollaborationStatus; signature: string } | undefined
     for (const item of turn.activities) {
       if (item.type === 'thinking') continue
-      if (item.type === 'narration' || (item.name !== 'wait_agent' && item.name !== 'send_message')) {
+      if (item.type === 'narration' || item.name !== 'wait_agent') {
         previousWait = undefined
         continue
       }
@@ -344,9 +368,8 @@ export function groupAgentActivities(
   agentStatuses: AgentStatusEvent[] = [],
 ): AgentActivitySegment[] {
   const shown = (item: ActivityItem): ActivityItem | undefined => {
-    if (!hideAgentOperations) return item
-    if (isAgentOperation(item)) return undefined
-    return presentActivity(item)
+    if (hideAgentOperations && isAgentOperation(item)) return undefined
+    return presentActivity(item, hideAgentOperations)
   }
   const groups: AgentActivitySegment[] = []
   const anchors = new Map<string, AgentActivitySegment[]>()
@@ -373,9 +396,33 @@ export function groupAgentActivities(
     if (pending.length) groups.push(...groupAdjacentActivities(pending))
     pending = []
   }
+  const append = (item: ActivityItem) => {
+    const segment: AgentActivitySegment | undefined = isAgentInteraction(item)
+      ? { type: 'agent_operation', item }
+      : isQuestion(item)
+        ? { type: 'question', item }
+        : isImageActivity(item)
+          ? { type: 'image_activity', item: presentActivity(item, hideAgentOperations) as ToolActivity }
+          : undefined
+    if (segment) {
+      flush()
+      groups.push(segment)
+    } else {
+      const next = shown(item)
+      if (next) pending.push(next)
+    }
+  }
+  const appendChildren = (item: ActivityItem, includeImages: boolean) => {
+    if (item.type === 'thinking' || item.type === 'narration') return
+    for (const child of item.children ?? []) {
+      if (isAgentInteraction(child) || isQuestion(child) || (includeImages && isImageActivity(child))) append(child)
+      appendChildren(child, includeImages && extractImages(child.result).length === 0)
+    }
+  }
   for (const item of items) {
-    const next = shown(item)
-    if (next) pending.push(next)
+    append(item)
+    if (item.type !== 'thinking' && item.type !== 'narration')
+      appendChildren(item, extractImages(item.result).length === 0)
     const statuses = anchors.get(item.id)
     if (!statuses) continue
     flush()

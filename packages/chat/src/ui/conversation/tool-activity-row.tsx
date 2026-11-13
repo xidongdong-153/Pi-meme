@@ -102,10 +102,15 @@ function ToolActivityRowContent({
     () => (!isExecution && diff ? <ToolDiff diff={diff} /> : undefined),
     [isExecution, diff],
   )
-  const hasDetail = isFileMutation
-    ? Boolean(filePatch)
-    : meta.kind !== 'read' &&
-      Boolean(isExecution || diff || images.length > 0 || rawText || item.children?.length || item.source)
+  const hasDetail =
+    images.length > 0 ||
+    (isFileMutation
+      ? Boolean(filePatch)
+      : meta.kind !== 'read' && Boolean(isExecution || diff || rawText || item.children?.length || item.source))
+  const detailsId = React.useId()
+  const imageOnly = meta.kind === 'image' && !isExecution && !diff && !item.children?.length && !item.source
+  const showExecutionDisclosure = images.length > 0 && !imageOnly && !isError
+  const DetailContainer = showExecutionDisclosure ? 'details' : 'div'
 
   const imagePreviews = images.length > 0 && (
     <div className="flex flex-wrap">
@@ -120,30 +125,16 @@ function ToolActivityRowContent({
       ))}
     </div>
   )
-  if (
-    images.length > 0 &&
-    (meta.kind === 'image' || !rawText) &&
-    !isError &&
-    !isExecution &&
-    !diff &&
-    !item.children?.length &&
-    !item.source
-  )
-    return (
-      <div className={cn('flex items-start gap-1', className)}>
-        {imagePreviews}
-        {actions === undefined ? actionAnchor && <PluginMessageActions {...actionAnchor} /> : actions}
-      </div>
-    )
 
   return (
-    <div className={cn('text-xs select-none', className)}>
+    <div className={cn('conversation-event min-w-0 select-none', className)}>
       <div className="flex min-w-0 items-center gap-1">
         <TooltipHint content={meta.fullPath}>
           <div
             role={hasDetail ? 'button' : undefined}
             aria-label={hasDetail ? `工具详情：${item.name ?? '未知工具'}` : undefined}
             aria-expanded={hasDetail ? open : undefined}
+            aria-controls={hasDetail ? detailsId : undefined}
             tabIndex={hasDetail ? 0 : undefined}
             onClick={() => hasDetail && onToggle()}
             onKeyDown={(e) => {
@@ -153,13 +144,18 @@ function ToolActivityRowContent({
               }
             }}
             className={cn(
-              'conversation-activity-toggle group/tool-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded cursor-pointer transition-colors',
+              'conversation-activity-toggle group/tool-toggle flex min-h-6 w-fit max-w-full items-start gap-2 pr-1 rounded cursor-pointer transition-colors',
               'text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               !hasDetail && 'cursor-default',
             )}
           >
             {!isPaused && (
-              <IconComponent className="size-4 shrink-0 text-muted-foreground group-hover/tool-toggle:text-foreground" />
+              <span
+                aria-hidden="true"
+                className="mt-[0.16em] inline-flex size-[1.4em] shrink-0 items-center justify-center"
+              >
+                <IconComponent className="size-[1.15em] text-muted-foreground group-hover/tool-toggle:text-foreground" />
+              </span>
             )}
 
             <span className="truncate">
@@ -187,7 +183,7 @@ function ToolActivityRowContent({
               <span
                 aria-hidden="true"
                 className={cn(
-                  'inline-flex size-3.5 shrink-0 text-muted-foreground/70 opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none ml-0.5 group-hover/tool-toggle:opacity-100 group-focus-visible/tool-toggle:opacity-100',
+                  'mt-[0.16em] inline-flex size-[1.4em] shrink-0 items-center justify-center text-muted-foreground/70 transition-[rotate] duration-200 ease-out motion-reduce:transition-none',
                   open ? 'rotate-0 opacity-100' : '-rotate-90',
                 )}
               >
@@ -202,27 +198,40 @@ function ToolActivityRowContent({
       {hasDetail && (
         <RetainedDisclosure
           open={open}
+          id={detailsId}
           aria-hidden={!open}
           inert={!open}
           className={cn(
-            'grid transition-[grid-template-rows,opacity] duration-300 ease-out',
+            'grid transition-[grid-template-rows,opacity] duration-[240ms] ease-out motion-reduce:transition-none',
             open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
           )}
         >
           <div className="min-h-0 overflow-hidden">
+            {imagePreviews}
             {filePatch ? (
               hasOpened && <MemoFileToolDiff patch={filePatch} path={meta.fullPath} />
             ) : (
-              <>
-                <ToolExecutionDetails
-                  code={isExecution ? (script ?? command) : undefined}
-                  output={isExecution ? rawText : diff || rawText}
-                  isScript={script !== undefined}
-                  isRunning={isRunning}
-                  isPaused={isPaused}
-                >
-                  {diffContent}
-                </ToolExecutionDetails>
+              <DetailContainer className={showExecutionDisclosure ? 'group/image-execution mt-2 min-w-0' : undefined}>
+                {showExecutionDisclosure && (
+                  <summary className="conversation-activity-toggle flex min-h-6 w-fit max-w-full cursor-pointer list-none items-center gap-2 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+                    <ChevronDown
+                      aria-hidden="true"
+                      className="size-3.5 shrink-0 -rotate-90 transition-transform duration-200 group-open/image-execution:rotate-0 motion-reduce:transition-none"
+                    />
+                    <span>执行详情</span>
+                  </summary>
+                )}
+                {(!imageOnly || isError) && (
+                  <ToolExecutionDetails
+                    code={isExecution ? (script ?? command) : undefined}
+                    output={isExecution ? rawText : diff || rawText}
+                    isScript={script !== undefined}
+                    isRunning={isRunning}
+                    isPaused={isPaused}
+                  >
+                    {diffContent}
+                  </ToolExecutionDetails>
+                )}
                 {item.children?.map((child) => (
                   <NestedToolActivity
                     key={child.id}
@@ -233,9 +242,8 @@ function ToolActivityRowContent({
                   />
                 ))}
                 {!isError && <PluginToolCard tool={item} {...item.source} />}
-              </>
+              </DetailContainer>
             )}
-            {imagePreviews}
           </div>
         </RetainedDisclosure>
       )}

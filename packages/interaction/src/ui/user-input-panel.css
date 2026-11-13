@@ -1,13 +1,13 @@
 .user-input-panel {
-  --user-input-muted: color-mix(in srgb, var(--foreground) 55%, var(--background));
+  --user-input-muted: var(--muted-foreground);
   display: flex;
   flex-direction: column;
   min-width: 0;
-  max-height: 60vh;
+  max-height: 60dvh;
   margin-bottom: 8px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--foreground) 14%, var(--background));
-  border-radius: calc(var(--radius) * 3);
+  border-radius: calc(var(--radius) * 2.5);
   background: color-mix(in srgb, var(--foreground) 8%, var(--background));
   color: var(--foreground);
   font-size: var(--text-ui);
@@ -31,8 +31,7 @@
   gap: 10px;
 }
 
-.user-input-title > svg,
-.user-input-pencil {
+.user-input-title > svg {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
@@ -54,8 +53,8 @@
 
 .user-input-nav-button {
   display: grid;
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   place-items: center;
   border: 0;
   border-radius: calc(var(--radius) * 0.75);
@@ -82,14 +81,14 @@
 .user-input-content {
   min-width: 0;
   min-height: 0;
-  max-height: 40vh;
-  padding: 8px 8px 0;
+  padding: 10px 18px 0;
+  scrollbar-color: var(--border) transparent;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
 .user-input-question {
-  margin: 0 10px 7px;
+  margin: 0 0 12px;
   font-size: inherit;
   font-weight: 600;
   line-height: 20px;
@@ -106,10 +105,10 @@
 .user-input-option {
   display: flex;
   width: 100%;
-  min-height: 32px;
+  min-height: 40px;
   align-items: center;
   gap: 10px;
-  padding: 4px 8px;
+  padding: 7px 8px;
   border: 0;
   border-radius: calc(var(--radius) * 1.25);
   background: transparent;
@@ -151,7 +150,7 @@
   color: var(--user-input-muted);
   font-size: inherit;
   font-weight: 400;
-  line-height: 16px;
+  line-height: 1.5;
 }
 
 .user-input-option-arrow {
@@ -169,38 +168,35 @@
 
 .user-input-footer {
   flex-shrink: 0;
-  padding: 4px 8px 8px;
+  padding: 12px 18px 16px;
 }
 
 .user-input-error {
-  margin: 0 10px 4px;
+  margin: 0 0 10px;
   font-size: inherit;
 }
 
 .user-input-response {
   display: flex;
-  min-height: 40px;
+  min-height: 44px;
   align-items: center;
-  gap: 10px;
-  padding: 5px 12px;
-  border: 1px solid transparent;
+  margin-top: 12px;
+  padding: 7px 12px;
+  border: 1px solid color-mix(in srgb, var(--foreground) 18%, transparent);
   border-radius: calc(var(--radius) * 1.5);
 }
 
 .user-input-response:has(.user-input-textarea:focus) {
-  border-color: #3b82f6;
-}
-
-.user-input-pencil {
-  color: var(--user-input-muted);
+  border-color: var(--ring);
+  outline: 1px solid var(--ring);
 }
 
 .user-input-textarea {
   field-sizing: content;
-  width: auto;
+  width: 100%;
   min-width: 0;
   min-height: 28px;
-  max-height: 96px;
+  max-height: 120px;
   flex: 1;
   padding: 4px 0;
   resize: none;
@@ -213,20 +209,21 @@
 }
 
 .user-input-textarea::placeholder {
-  color: color-mix(in srgb, var(--foreground) 28%, var(--background));
+  color: var(--user-input-muted);
 }
 
 .user-input-actions {
   display: flex;
   flex-shrink: 0;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
 }
 
 .user-input-skip,
 .user-input-send {
-  height: 28px;
-  padding: 0 10px;
+  min-height: 32px;
+  padding: 0 12px;
   border: 1px solid color-mix(in srgb, var(--foreground) 12%, transparent);
   border-radius: 999px;
   font-weight: 600;
@@ -244,12 +241,20 @@
   color: var(--background);
 }
 
+.user-input-skip:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+
+.user-input-send:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--foreground) 88%, var(--background));
+}
+
 .user-input-send:disabled {
   background: color-mix(in srgb, var(--foreground) 45%, var(--background));
 }
 
 .user-input-panel button:focus-visible {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
 

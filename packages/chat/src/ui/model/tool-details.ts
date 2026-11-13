@@ -210,16 +210,11 @@ export function parseToolMeta(item: ActivityItem): {
           : typeof args?.AbsolutePath === 'string'
             ? args.AbsolutePath
             : ''
-  if (
-    isImageTool ||
-    (resultImages.length > 0 && (name.includes('view') || name.includes('read'))) ||
-    isImagePath(readPathVal)
-  ) {
-    const filename = getBasename(readPathVal)
+  if (isImageTool || resultImages.length > 0 || isImagePath(readPathVal)) {
     const count = resultImages.length
     return {
       kind: 'image',
-      summary: count > 0 && !filename ? `已查看 ${count} 张图像` : filename ? `已查看图像 ${filename}` : '已查看图像',
+      summary: count > 0 ? `已查看 ${count} 张图像` : '查看图像',
       fullPath: readPathVal,
     }
   }

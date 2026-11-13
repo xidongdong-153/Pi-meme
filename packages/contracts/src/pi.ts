@@ -36,8 +36,18 @@ export type PiUiSource = {
   toolName?: string
   customType?: string
 }
+export type PiNestedInteraction = {
+  id: string
+  parentToolCallId: string
+  name: string
+  args: unknown
+  result: { content: Array<TextContent | ImageContent>; details?: unknown }
+  status: 'success' | 'error'
+}
 export type PiMessage = AgentSession['messages'][number] & {
   source?: PiUiSource
+  /** 按原生调用 ID 绑定的嵌套交互结果，仅用于恢复界面，不加入模型上下文。 */
+  nestedInteractions?: PiNestedInteraction[]
   completedAt?: number
   /** 原生一对一消息条目；压缩和其他合成显示消息不设置此字段。 */
   sourceEntry?: { id: string; type: 'message' | 'custom_message'; revision: string }

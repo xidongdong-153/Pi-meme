@@ -76,6 +76,7 @@ import { projectBranchAttachments } from '../session-attachments'
 import { createAgentAccessExtension } from '../extensions/agent-access'
 import { windowsShellDescription } from './command-shell'
 import { createTurnChangesExtension } from '../extensions/turn-changes'
+import { createNestedInteractionsExtension } from '../extensions/nested-interactions'
 import { expandSkills } from '../skill-prompt'
 import { toResourceSkillCommand } from '../skill-command'
 import { branchSkillUsages, createSkillUsageExtension, skillUsageEntry } from '../extensions/skill-usage'
@@ -697,6 +698,7 @@ export class SdkSession {
             ]
           : []),
         ...(this.policy.resourceSnapshot ? [createSkillUsageExtension(this.policy.resourceSnapshot)] : []),
+        createNestedInteractionsExtension(),
         createPlanGuard(() => this.activeMode ?? this.preparationMode ?? this.mode),
         (pi: ExtensionAPI) => {
           const collaborationAvailable = (activeTools: readonly string[]) => {

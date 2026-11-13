@@ -2,6 +2,7 @@ import * as React from 'react'
 import { ImageOff } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { ImageViewer, imageSource } from '../content/image-viewer'
+import { ImageDisclosure } from '../content/message-image'
 import type { TurnImageGeneration } from '../model/turn-image-generations'
 import './turn-image-gallery.css'
 
@@ -39,8 +40,8 @@ export function TurnImageGallery({
   return (
     <section className="turn-image-gallery my-3 min-w-0" aria-label="本轮生成的图片">
       {selected && (
-        <>
-          <div className={cn('turn-image-gallery-layout', completed.length > 1 && 'has-thumbnails')}>
+        <ImageDisclosure label={`已生成 ${completed.length} 张图像`}>
+          <div className={cn('turn-image-gallery-layout mt-2', completed.length > 1 && 'has-thumbnails')}>
             <GeneratedImage
               key={selected.id}
               image={selected}
@@ -85,7 +86,7 @@ export function TurnImageGallery({
             onActiveIndexChange={setPreviewIndex}
             triggerRef={triggerRef}
           />
-        </>
+        </ImageDisclosure>
       )}
       <div className="flex flex-wrap gap-3">
         {generations

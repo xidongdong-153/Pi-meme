@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { ErrorLine } from '@pi-meme/ui/components/error-line'
-import { ArrowRight, ChevronLeft, ChevronRight, MessageCircleQuestionMark, Pencil, X } from 'lucide-react'
+import { Check, ChevronLeft, ChevronRight, MessageCircleQuestionMark, X } from 'lucide-react'
 import type { PiExtensionUIResponse } from '@pi-meme/contracts/pi'
 import type { PiUserInputRequest } from '@pi-meme/contracts/user-input'
 import {
@@ -125,39 +125,38 @@ function UserInputPanelContent({ request, onRespond, sourceName, draft: savedDra
           {sourceName ? <span className="user-input-source">{sourceName}</span> : null}
         </div>
         <div className="user-input-navigation">
-          {request.questions.length > 1 ? (
-            <>
-              <button
-                type="button"
-                className="user-input-nav-button"
-                aria-label="上一题"
-                disabled={submitting || page === 0}
-                onClick={() => {
-                  updateState({ currentIndex: page - 1, drafts })
-                  setError('')
-                }}
-              >
-                <ChevronLeft aria-hidden="true" />
-              </button>
-              <span
-                role="status"
-                aria-live="polite"
-                aria-label={`第 ${page + 1} 题，共 ${request.questions.length} 题`}
-                className="user-input-page"
-              >
-                {page + 1} of {request.questions.length}
-              </span>
-              <button
-                type="button"
-                className="user-input-nav-button"
-                aria-label="下一题"
-                disabled={submitting || lastPage || !answered}
-                onClick={() => advance()}
-              >
-                <ChevronRight aria-hidden="true" />
-              </button>
-            </>
-          ) : null}
+          <button
+            type="button"
+            className="user-input-nav-button"
+            aria-label="上一题"
+            disabled={submitting || page === 0}
+            onClick={() => {
+              updateState({ currentIndex: page - 1, drafts })
+              setError('')
+            }}
+          >
+            <ChevronLeft aria-hidden="true" />
+          </button>
+          <span
+            role="status"
+            aria-live="polite"
+            aria-label={`第 ${page + 1} 题，共 ${request.questions.length} 题`}
+            className="user-input-page"
+          >
+            {page + 1} / {request.questions.length}
+          </span>
+          <button
+            type="button"
+            className="user-input-nav-button"
+            aria-label="下一题"
+            disabled={submitting || lastPage}
+            onClick={() => {
+              updateState({ currentIndex: page + 1, drafts })
+              setError('')
+            }}
+          >
+            <ChevronRight aria-hidden="true" />
+          </button>
           <button
             type="button"
             className="user-input-nav-button user-input-close"
@@ -212,20 +211,17 @@ function UserInputPanelContent({ request, onRespond, sourceName, draft: savedDra
                       <span className="user-input-option-description">{option.description}</span>
                     ) : null}
                   </span>
-                  <ArrowRight aria-hidden="true" className="user-input-option-arrow" />
+                  <Check aria-hidden="true" className="user-input-option-arrow" />
                 </button>
               )
             })}
           </div>
         ) : null}
-      </div>
-      <div className="user-input-footer">
-        {error ? <ErrorLine message={error} className="user-input-error" /> : null}
         <div className="user-input-response">
-          <Pencil aria-hidden="true" className="user-input-pencil" />
           <textarea
-            aria-label="自行撰写回复"
-            placeholder="或自行撰写回复"
+            aria-label={question.options?.length ? '自行撰写回复' : '你的回答'}
+            aria-describedby={headingId}
+            placeholder={question.options?.length ? '或自行撰写回复' : '输入你的回答'}
             value={draft.text}
             disabled={submitting}
             rows={1}
@@ -238,19 +234,22 @@ function UserInputPanelContent({ request, onRespond, sourceName, draft: savedDra
               }
             }}
           />
-          <div className="user-input-actions">
-            <button type="button" className="user-input-skip" disabled={submitting} onClick={() => advance(true)}>
-              跳过
-            </button>
-            <button
-              type="button"
-              className="user-input-send"
-              disabled={submitting || !answered}
-              onClick={() => advance()}
-            >
-              {submitting ? '发送中…' : lastPage ? '发送' : '下一步'}
-            </button>
-          </div>
+        </div>
+      </div>
+      <div className="user-input-footer">
+        {error ? <ErrorLine message={error} className="user-input-error" /> : null}
+        <div className="user-input-actions">
+          <button type="button" className="user-input-skip" disabled={submitting} onClick={() => advance(true)}>
+            跳过
+          </button>
+          <button
+            type="button"
+            className="user-input-send"
+            disabled={submitting || !answered}
+            onClick={() => advance()}
+          >
+            {submitting ? '发送中…' : lastPage ? '发送' : '下一题'}
+          </button>
         </div>
       </div>
     </section>
