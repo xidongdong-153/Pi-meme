@@ -44,6 +44,8 @@ export async function copyPiRuntime(targetDir) {
   const packages = [
     { name: piPackage, filter: piPackageFilter },
     { name: '@earendil-works/chord', filter: copyFilter },
+    { name: '@earendil-works/pi-schema', filter: copyFilter },
+    { name: '@earendil-works/pi-telemetry', filter: copyFilter },
     { name: '@earendil-works/pi-agent-core', filter: copyFilter },
     { name: '@napi-rs/keyring', filter: copyFilter },
     { name: `@napi-rs/keyring-${process.platform}-${process.arch}${keyringAbi}`, filter: copyFilter },

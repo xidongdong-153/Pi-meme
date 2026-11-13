@@ -54,8 +54,8 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "1.5.0",
-    "@earendil-works/pi-coding-agent": "1.5.0"
+    "@earendil-works/pi-ai": "1.5.2",
+    "@earendil-works/pi-coding-agent": "1.5.2"
   },
   "devDependencies": {
     "vitest": "5.0.5"

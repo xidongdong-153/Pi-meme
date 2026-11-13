@@ -69,6 +69,8 @@ async function prepareToolchain() {
       'esbuild',
       `@esbuild/${process.platform}-${process.arch}`,
       '@earendil-works/chord',
+      '@earendil-works/pi-schema',
+      '@earendil-works/pi-telemetry',
       'typescript',
       '@types/node',
       '@types/react',
@@ -92,7 +94,9 @@ async function prepareToolchain() {
               !path.extname(file) ||
               /(?:package\.json|typescript\.js|lib\.[\w.]+\.d\.ts|LICENSE\.txt|NOTICE\.txt)$/.test(file)
             )
-          if (name.startsWith('@earendil-works/pi-'))
+          if (
+            ['@earendil-works/pi-ai', '@earendil-works/pi-coding-agent', '@earendil-works/pi-agent-core'].includes(name)
+          )
             return !path.extname(file) || /(?:\.d\.ts|package\.json|LICENSE|LICENSE\.md)$/.test(file)
           return true
         },

@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@pi-meme/windows-native": "workspace:*",
-    "@earendil-works/pi-coding-agent": "1.5.0",
+    "@earendil-works/pi-coding-agent": "1.5.2",
     "@hono/node-server": "2.1.5",
     "@pi-meme/activities": "workspace:*",
     "@pi-meme/chat": "workspace:*",
@@ -65,7 +65,7 @@
     "@pi-meme/sandbox-windows": "workspace:*"
   },
   "devDependencies": {
-    "@earendil-works/chord": "1.1.0",
+    "@earendil-works/chord": "1.5.2",
     "@pi-meme/client": "workspace:*",
     "@types/proper-lockfile": "^4.1.4",
     "@types/ws": "^8.18.1",

@@ -93,6 +93,16 @@ export async function createPlugin(directory: string, name: string, options: Cre
   })
   assertExternalManifest(manifest)
   const tools = await toolchainDirectory()
+  const chordPackage = JSON.parse(
+    await readFile(path.join(tools, 'node_modules/@earendil-works/chord/package.json'), 'utf8'),
+  ) as { exports: Record<string, string | { types?: string }> }
+  const chordPaths: Record<string, string[]> = {}
+  for (const [entry, target] of Object.entries(chordPackage.exports)) {
+    if (typeof target === 'object' && target.types)
+      chordPaths[`@earendil-works/chord${entry.slice(1)}`] = [
+        `./.pi-meme-devkit/dist/node_modules/@earendil-works/chord/${target.types.replace(/^\.\//, '')}`,
+      ]
+  }
   const files: Record<string, string> = {
     'package.json': `${JSON.stringify(
       {
@@ -134,8 +144,7 @@ export async function createPlugin(directory: string, name: string, options: Cre
           paths: {
             '@pi-meme/plugin-sdk/*': ['./.pi-meme-devkit/dist/node_modules/@pi-meme/plugin-sdk/src/*'],
             '@pi-meme/contracts/*': ['./.pi-meme-devkit/dist/node_modules/@pi-meme/contracts/src/*'],
-            '@earendil-works/chord': ['./.pi-meme-devkit/dist/node_modules/@earendil-works/chord/dist/index.d.ts'],
-            '@earendil-works/chord/*': ['./.pi-meme-devkit/dist/node_modules/@earendil-works/chord/dist/*'],
+            ...chordPaths,
             react: ['./.pi-meme-devkit/dist/node_modules/@types/react/index.d.ts'],
             'react/*': ['./.pi-meme-devkit/dist/node_modules/@types/react/*'],
           },

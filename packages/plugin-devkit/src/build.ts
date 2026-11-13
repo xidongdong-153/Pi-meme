@@ -1,7 +1,14 @@
-import { mkdir, readFile, writeFile, rm } from 'node:fs/promises'
+import { mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { build } from 'esbuild'
-import { bundleFacets } from '@earendil-works/chord/bundler'
+import { buildFacet } from '@earendil-works/chord/plugins'
+import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
+import {
+  chordArtifactFormat,
+  chordModuleRegistryName,
+  chordVersion,
+  type ChordPluginArtifact,
+} from '@pi-meme/plugin-runtime/chord-artifact'
 import { parsePluginManifest } from '@pi-meme/plugin-sdk/manifest'
 import { packPlugin, readPluginManifest } from '@pi-meme/plugin-runtime/package'
 import { assertExternalManifest } from '@pi-meme/plugin-sdk/reserved'
@@ -33,21 +40,38 @@ export async function buildPlugin(directory: string) {
     try {
       await writeFile(
         wrapper,
-        `import { defineFacet, defineService } from '@earendil-works/chord'
+        `import { defineFacet, defineRegistry } from '@earendil-works/chord'
 import { create } from './.chord-module.mjs'
-export default defineFacet({id:${JSON.stringify(`module:${manifest.name}`)},setup(env){env.provide(defineService(${JSON.stringify(`pi-meme.plugin.module:${manifest.name}`)},{local:true}),{create})}})`,
+export default defineFacet((_host, self) => self.contribute(defineRegistry(${JSON.stringify(chordModuleRegistryName)}, {version: 1}), {create}))`,
         { flag: 'wx' },
       )
       try {
-        await bundleFacets({
+        const root = await realpath(directory)
+        const facet = await buildFacet(
+          {
+            name: manifest.name,
+            dir: root,
+            root,
+            required: true,
+            layout: 'directory',
+            facets: { server: path.join(root, 'src/server/.chord-entry.ts') },
+            dependencies: [],
+            external: [],
+          },
+          'server',
+          { platform: 'node', hostPackages: ['@earendil-works/chord', '@earendil-works/chord/context'] },
+          BACKGROUND_CONTEXT,
+        )
+        if (facet.kind === 'failed') throw new Error(`Chord 构建失败：\n${facet.errors.join('\n')}`)
+        const artifact: ChordPluginArtifact = {
+          format: chordArtifactFormat,
+          chordVersion,
           plugin: { id: manifest.name, version: manifest.version },
-          entries: { server: wrapper },
-          outdir: path.resolve(directory, 'dist/server'),
-          workingDirectory: path.resolve(directory),
-          platform: 'node',
-          external: [],
-          sourceMap: true,
-        })
+          source: facet.source,
+          digest: facet.digest,
+        }
+        await mkdir(path.join(root, 'dist/server'), { recursive: true })
+        await writeFile(path.join(root, trustedServer), `${JSON.stringify(artifact, null, 2)}\n`)
       } finally {
         await rm(wrapper, { force: true })
       }

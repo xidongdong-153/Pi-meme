@@ -75,7 +75,7 @@ PI_BOT_ORIGIN=https://bots.example.com pnpm serve:bot
 4. 不携带旧进程的运行锁。确认旧进程确已结束后再由新服务取得所有权；不要通过删锁让两个进程并行运行。
 5. 使用兼容版本启动，检查角色、历史、任务、附件与外部回执。schema 版本不兼容时服务拒绝启动，不静默清空数据。
 
-Bot 业务状态与模型上下文由同一个 durable SQLite 保存，二进制附件与凭据在同一根目录分区管理。`@earendil-works/pi-durable`、`pi-ai`、`pi-schema`、`chord` 固定为 `1.5.0`；durable 上游声明实验性，升级前核对任务、文档版本与恢复行为。它不会恢复另一台 Host 的 Pi 工具循环，也不能消除 QQ 或图片接口的外部结果不确定性。
+Bot 业务状态与模型上下文由同一个 durable SQLite 保存，二进制附件与凭据在同一根目录分区管理。`@earendil-works/pi-durable`、`pi-ai`、`pi-schema`、`chord` 固定为 `1.5.2`；durable 上游声明实验性，升级前核对任务、文档版本与恢复行为。它不会恢复另一台 Host 的 Pi 工具循环，也不能消除 QQ 或图片接口的外部结果不确定性。
 
 ## 配置与日常入口
 

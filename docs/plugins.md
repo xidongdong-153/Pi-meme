@@ -68,7 +68,7 @@ paths:
 }
 ```
 
-仅声明实际使用的入口。可信 Server 指向 Chord 清单 `chord-facets.json`；受限 Server、两种 Agent 和 UI 指向独立 `.js`。可信源码是 `src/server/entry.ts`、`src/agent/entry.ts`，受限源码是 `src/server/restricted.ts`、`src/agent/restricted.ts`，UI 是 `src/ui/entry.tsx`。DevKit 使用示例中的固定输出路径，见 [build.ts](../packages/plugin-devkit/src/build.ts)。可信与受限入口不能指向同一产物。
+仅声明实际使用的入口。可信 Server 指向 Chord 1.5.2 构建产物 `chord-facets.json`，其中包含插件身份、版本、脚本和 SHA-256 摘要；受限 Server、两种 Agent 和 UI 指向独立 `.js`。旧 Chord 产物必须使用当前 DevKit 重建，Host 不提供旧格式加载路径。可信源码是 `src/server/entry.ts`、`src/agent/entry.ts`，受限源码是 `src/server/restricted.ts`、`src/agent/restricted.ts`，UI 是 `src/ui/entry.tsx`。DevKit 使用示例中的固定输出路径，见 [build.ts](../packages/plugin-devkit/src/build.ts)。可信与受限入口不能指向同一产物。
 
 `permissions` 是申请，不是授权。可信 UI、Server、Agent 分别确认；受限能力、网络、共享数据、UI 能力及每个发送前处理器分别授权。更新代码或申请范围后不能继续沿用不匹配的旧授权。授权类型见 [permissions.ts](../packages/plugin-sdk/src/permissions.ts)。
 
@@ -386,7 +386,7 @@ flowchart LR
   Lease --> Dispose["释放旧代码和 UI 贡献"]
 ```
 
-Chord 1.1 的 `reload` 只替换已有相同服务 shape 的 facet；安装、卸载和依赖变化通过独立作用域完成。PluginManager 按 `requires/provides` 组装连通依赖组，每组持有独立 Chord host 和释放作用域：
+PluginManager 使用 Chord 1.5.2，按 `requires/provides` 组装连通依赖组，每组持有独立 `createHost` 实例和释放作用域。插件模块由 `buildFacet` 构建、`evaluateFacet` 加载并贡献到模块 registry；每个插件对应一个无参数本地对象，`self.get` 声明服务依赖、等待提供者就绪，`self.open` 负责 Server 初始化和资源释放。安装、卸载和依赖变化通过重建组作用域完成：
 
 - 纯 Agent 版本可共存，新任务使用新代次，旧任务持有原租约直到结束。
 - 共享 Server 组切换先阻止新调用，等待相关任务、工具、子代理和未答交互释放，再释放旧资源并创建新版。
@@ -396,7 +396,7 @@ Chord 1.1 的 `reload` 只替换已有相同服务 shape 的 facet；安装、�
 
 `state/plugins.json`（旧版本为 `plugins/installed.json`）使用显式 schema envelope 保存全部安装记录和 safe-integer 代次高水位。先写临时文件并同步、原子 rename、同步父目录，确认预留成功后才导入候选代码；每次激活、恢复和回滚重建都分配新值，已消耗值不回退。损坏、未知 schema 或溢出时保留文件并拒绝新激活。旧数组只迁移存储格式，不因数组格式把 SDK 3 误认成 SDK 2，也不删除旧记录。迁移前无 hash 的消息保留文字与通用 JSON 数据，不交给新版富 renderer，不改写历史 JSONL。
 
-Server 产物使用 Chord fresh VM loader，释放后丢弃模块引用，不通过累加 ESM query 参数重载。不可变代码快照没有引用后才回收；卸载默认保留插件私有数据（`plugins/data/`，详见 [数据目录与存储](storage.md)）和 Pi 会话。
+Server 产物使用 Chord `evaluateFacet` 的独立 VM 脚本求值，授权前只校验产物格式、身份和摘要；释放时关闭 Chord host 并丢弃模块引用，不通过累加 ESM query 参数重载。不可变代码快照没有引用后才回收；卸载默认保留插件私有数据（`plugins/data/`，详见 [数据目录与存储](storage.md)）和 Pi 会话。
 
 启动恢复失败只隔离相关外部组，内置模块初始化失败中止启动。安装清单无法解析时保留 `state/plugins.json`（旧版本为 `installed.json`），本次不加载外部项并报告诊断；内置身份冲突不能删除源目录或用户数据。
 

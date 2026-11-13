@@ -3,6 +3,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { gzip, gunzip } from 'node:zlib'
 import { validateBrowserModule } from './validate-ui'
+import { readChordArtifact } from './chord-artifact'
 import { parsePluginManifest, safeRelativePath, type PluginManifest } from '@pi-meme/plugin-sdk/manifest'
 
 const compress = promisify(gzip)
@@ -55,13 +56,7 @@ export async function readPluginManifest(directory: string): Promise<PluginManif
     if (!target.startsWith(`${root}${path.sep}`) || !(await lstat(target)).isFile())
       throw new Error(`插件 ${kind} 入口必须是包内文件`)
     if (kind === 'server') {
-      const { readFacetBundleArtifact } = await import('@earendil-works/chord/node')
-      const artifact = await readFacetBundleArtifact({ manifestPath: target, entry: 'server' })
-      if (
-        artifact.plugin.id !== manifest.name ||
-        (artifact.plugin.version && artifact.plugin.version !== manifest.version)
-      )
-        throw new Error('Chord 构建产物与插件身份或版本不匹配')
+      await readChordArtifact(target, manifest)
     }
     if (kind === 'ui') {
       const code = await readFile(target, 'utf8')
