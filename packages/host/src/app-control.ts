@@ -135,6 +135,14 @@ type Pending = {
 }
 type Active = { receipts: SubmissionReceipt[]; error?: string; cancelled?: boolean; runId?: string }
 
+const configurationModelKeys = ['provider', 'id', 'name', 'reasoning']
+
+function configurationModel(model: SessionConfiguration['model']): SessionConfiguration['model'] {
+  if (model === undefined) return undefined
+  const { provider, id, name, reasoning } = model
+  return { provider, id, name, reasoning }
+}
+
 function memoryMutation(clientId: string, options: MutationOptions): MutationOptions {
   const key = options?.idempotencyKey
   if (typeof key !== 'string' || !key || key.length > 256) throw new Error('记忆操作需要有效的幂等键')
@@ -218,7 +226,7 @@ export async function createAppControl(options: Options) {
     )
       throw new Error('插件选择无效')
     if (config.model !== undefined) {
-      const model = record(config.model, ['provider', 'id', 'name', 'reasoning'], '模型')
+      const model = record(config.model, configurationModelKeys, '模型')
       if (
         typeof model.provider !== 'string' ||
         !model.provider ||
@@ -230,6 +238,19 @@ export async function createAppControl(options: Options) {
         throw new Error('模型标识无效')
     }
     return config as SessionConfiguration
+  }
+  for (const session of store.state.sessions) {
+    const model = session.configuration.model
+    if (model === undefined) continue
+    // Earlier sync calls persisted PiModel capability fields alongside the AppModel contract.
+    record(
+      model,
+      [...configurationModelKeys, 'thinkingLevels', 'api', 'contextWindow', 'maxTokens', 'input'],
+      '已存储模型',
+    )
+    if (Object.keys(model).every((key) => configurationModelKeys.includes(key))) continue
+    session.configuration = validateConfiguration({ ...session.configuration, model: configurationModel(model) })
+    await store.saveSession(session)
   }
   const validateRef = (ref: unknown, kind: 'projectId' | 'sessionId') => {
     if (!ref || typeof ref !== 'object' || Array.isArray(ref)) throw new Error('目标无效')
@@ -331,7 +352,7 @@ export async function createAppControl(options: Options) {
     }
     const nextConfig = {
       ...session.configuration,
-      model: context.state.model,
+      model: configurationModel(context.state.model),
       thinkingLevel: context.state.thinkingLevel,
       accessMode: context.accessMode,
       mode: context.state.mode,
