@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import type { ContextWithSystemEvent, InlineExtension } from '@earendil-works/pi-coding-agent'
 import type { MemoryRuntimeBridge, MemorySnapshot } from '@pi-meme/contracts/memory'
 
@@ -6,6 +6,7 @@ type Context = { requestMemory: MemoryRuntimeBridge }
 type Admission = { epoch: number; scopeRevision: string; hasMemory: boolean }
 const customType = 'pi-meme-memory'
 const maxAdmissionHistory = 64
+const marker = /^<app_memory>\n\[pi-meme-memory:([a-f0-9]{64})\]\n/
 
 function snapshot(value: unknown): value is MemorySnapshot {
   if (!value || typeof value !== 'object') return false
@@ -46,8 +47,6 @@ export function create({ requestMemory }: Context): InlineExtension[] {
     {
       name: 'pi-meme-memory',
       factory: (pi) => {
-        const owner = randomUUID()
-        const marker = new RegExp(`\\[pi-meme-memory:${owner}:([a-f0-9-]{36})\\]`, 'g')
         // Retain admission metadata, never memory bodies. This also gates retries/cache warming.
         const admissions = new Map<string, Admission>()
         let current: Admission | undefined
@@ -73,16 +72,24 @@ export function create({ requestMemory }: Context): InlineExtension[] {
               admissions.clear()
               return { messages }
             }
-            const requestId = randomUUID()
-            admissions.set(requestId, current)
+            // A snapshot's identity must survive repeated requests and runtime reloads, but must
+            // not authorize a different session, admission version, or recalled body.
+            const snapshotId = createHash('sha256')
+              .update(JSON.stringify([ctx.sessionManager.getSessionId(), current, value.entryIds, value.content]))
+              .digest('hex')
+            admissions.delete(snapshotId)
+            admissions.set(snapshotId, current)
             if (admissions.size > maxAdmissionHistory) admissions.delete(admissions.keys().next().value!)
-            messages.splice(messages[0]?.role === 'system' ? 1 : 0, 0, {
+            // Keep older conversation ahead of request-only memory. The position stays fixed
+            // throughout tool continuations; a new user turn moves it to the new request suffix.
+            const userIndex = messages.findLastIndex((message) => message.role === 'user')
+            messages.splice(userIndex < 0 ? messages.length : userIndex, 0, {
               role: 'custom',
               customType,
               display: false,
-              content: `<app_memory>\n[pi-meme-memory:${owner}:${requestId}]\n${value.content}\n</app_memory>`,
+              content: `<app_memory>\n[pi-meme-memory:${snapshotId}]\n${value.content}\n</app_memory>`,
               details: { epoch: value.epoch, scopeRevision: value.scopeRevision, entryIds: value.entryIds },
-              timestamp: Date.now(),
+              timestamp: 0,
             })
           } catch {
             // SDK catches handler failures and continues; returning the clean baseline is essential.
@@ -92,11 +99,19 @@ export function create({ requestMemory }: Context): InlineExtension[] {
         })
         pi.on('before_provider_request', async (event, ctx) => {
           try {
-            const payload = JSON.stringify(event.payload)
-            const ids = payload ? [...payload.matchAll(marker)].map((match) => match[1]) : []
+            const ids = new Set<string>()
+            // Inspect actual text-block openings, not marker references in user/assistant prose
+            // or quoted examples inside a memory body. Serialization still rejects cyclic payloads.
+            JSON.stringify(event.payload, (_key, value: unknown) => {
+              if (typeof value === 'string') {
+                const id = value.match(marker)?.[1]
+                if (id) ids.add(id)
+              }
+              return value
+            })
             const checks: Admission[] = []
-            if (ids.length) {
-              for (const id of new Set(ids)) {
+            if (ids.size) {
+              for (const id of ids) {
                 const admission = admissions.get(id)
                 if (!admission) throw new Error('记忆请求快照已失效')
                 checks.push(admission)

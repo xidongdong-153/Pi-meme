@@ -399,10 +399,14 @@ export class MemoryService {
     )
   }
   private scopeRevision(projectId: string) {
+    // Admission tracks the memory visible to this project, not budgets, learning settings,
+    // or another project's mutations. Visibility changes and entry edits still revoke it.
     return hash([
+      projectId,
       this.state.epoch,
-      this.state.revision,
-      this.visibleEntries(projectId).map((entry) => [entry.id, entry.revision]),
+      this.visibleEntries(projectId)
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .map((entry) => [entry.id, entry.revision]),
     ])
   }
   async snapshot(projectId: string, query: string): Promise<MemorySnapshot> {
@@ -434,7 +438,8 @@ export class MemoryService {
             (a, b) =>
               b.score - a.score ||
               Number(b.entry.locked) - Number(a.entry.locked) ||
-              b.entry.updatedAt.localeCompare(a.entry.updatedAt),
+              b.entry.updatedAt.localeCompare(a.entry.updatedAt) ||
+              a.entry.id.localeCompare(b.entry.id),
           )
       : []
     const selected: MemoryEntry[] = []
@@ -447,6 +452,9 @@ export class MemoryService {
       if (Buffer.byteLength(render([...selected, entry])) > 7900) continue
       selected.push(entry)
     }
+    // Relevance controls membership, not serialization order. Rephrasing a query must not
+    // rewrite an identical recalled set in the provider's prompt.
+    selected.sort((a, b) => a.id.localeCompare(b.id))
     return {
       enabled: Boolean(enabled),
       epoch: this.state.epoch,
