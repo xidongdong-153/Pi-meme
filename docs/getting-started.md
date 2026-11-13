@@ -174,7 +174,7 @@ Windows 11 x64 源码开发还需要 Rust MSVC 工具链、Visual C++ Build Tool
 pnpm start
 ```
 
-命令启动 Electron Forge、Vite 和 Desktop。浏览器可同时打开 [开发界面](http://127.0.0.1:3181)，与 Desktop 共用默认 `127.0.0.1:3180` 的 Host，不需要再执行 `pnpm start:web` 或 `pnpm start:server`。已有兼容 Host 时直接复用，没有才启动本机子进程；两端均通过本机同源检查自动登录。开发版默认数据目录是 `~/.pi-meme-dev`，Electron 缓存和单实例锁使用 `appData/pi-meme-dev`（macOS 为 `~/Library/Application Support/pi-meme-dev`）。构建 App 继续使用 `3185` 和 `~/.pi-meme`，两者可同时运行。开发版需单独配置模型，不自动复制正式数据。显式设置 `PI_MEME_PORT` 或 `PI_MEME_DATA_ROOT` 时仍以环境变量为准；需要并行运行时，不要将两者覆盖成同一端口或目录。启动接线见 [main.ts](../apps/desktop/src/main/main.ts)、[local-host.ts](../apps/desktop/src/main/local-host.ts) 与 [host-process.ts](../apps/desktop/src/main/host-process.ts)。
+命令启动 Electron Forge、Vite 和 Desktop。浏览器可同时打开 [开发界面](http://127.0.0.1:3181)，与 Desktop 共用默认 `127.0.0.1:3180` 的 Host，不需要再执行 `pnpm start:web` 或 `pnpm start:server`。已有兼容 Host 时直接复用，没有才启动本机子进程；两端均通过本机同源检查自动登录。开发版默认数据目录是 `~/.pi-meme-dev`，Electron 缓存和单实例锁使用 `appData/pi-meme-dev`（macOS 为 `~/Library/Application Support/pi-meme-dev`）。构建 App 继续使用 `3185` 和 `~/.pi-meme`，两者可同时运行。开发版需单独配置模型，不自动复制正式数据。根入口 `pnpm start` 不再继承 `PI_MEME_PORT`、`PI_MEME_DATA_ROOT` 和 `PI_MEME_HOST_URL`，避免从正式 App 的 Agent 终端启动时连接旧 Host；自定义开发环境请改用 `PI_MEME_DEV_PORT`、`PI_MEME_DEV_DATA_ROOT` 和 `PI_MEME_DEV_HOST_URL`（后者仅用于 Web 代理，Desktop Renderer 跟随本机端口）。这些开发变量会映射为子进程的对应运行变量。不要将开发端口和目录设置成正式环境。启动接线见 [main.ts](../apps/desktop/src/main/main.ts)、[local-host.ts](../apps/desktop/src/main/local-host.ts) 与 [host-process.ts](../apps/desktop/src/main/host-process.ts)。
 
 打开“设置 → Agent → 模型”，连接服务商并选择默认模型和思考强度，再新建项目或会话。未配置模型时仍可查看设置、资源和历史。应用不读取本机 Pi CLI 的模型凭据，配置位置见 [配置与安全](configuration.md)。
 
@@ -204,7 +204,7 @@ pnpm start:web
 
 `pnpm start:server` 从 [dev.ts](../apps/server/src/dev.ts) 启动，默认监听 `127.0.0.1:3180`，数据目录为 `~/.pi-meme-dev`，与正式环境的 `3185` 和 `~/.pi-meme` 分开。该入口和 Vite 开发服务器都会使用 `NODE_ENV=development`，即使终端继承了 `NODE_ENV=production`。开发环境需单独配置模型凭据，不自动复制正式数据。
 
-显式设置 `PI_MEME_PORT`、`PI_MEME_DATA_ROOT` 或 `PI_MEME_HOST_URL` 时仍以环境变量为准；不要把开发端口、目录或代理地址覆盖成正式环境。登录 Cookie 按 Host 身份区分，避免同一 `127.0.0.1` 下不同端口的登录互相覆盖。这里隔离的是应用数据和登录状态，不隔离项目源码及项目 `.agents/skills/`；两套环境修改同一个文件时仍会相互影响。
+分开运行 `pnpm start:server`、`pnpm start:web` 时，仍支持显式设置 `PI_MEME_PORT`、`PI_MEME_DATA_ROOT` 或 `PI_MEME_HOST_URL`；在 App 的 Agent 终端中分开启动前，应清除继承的正式环境变量。统一入口 `pnpm start` 则只接受上述 `PI_MEME_DEV_*` 开发覆盖变量，不再接受运行变量覆盖。不要把开发端口、目录或代理地址覆盖成正式环境。登录 Cookie 按 Host 身份区分，避免同一 `127.0.0.1` 下不同端口的登录互相覆盖。这里隔离的是应用数据和登录状态，不隔离项目源码及项目 `.agents/skills/`；两套环境修改同一个文件时仍会相互影响。
 
 需要查看构建后的页面时执行：
 

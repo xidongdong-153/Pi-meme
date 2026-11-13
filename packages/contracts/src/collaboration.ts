@@ -120,8 +120,9 @@ export type AgentMailboxMessage = {
   createdAt: string
 }
 export type AgentModelSelection = {
-  model?: Pick<PiModel, 'provider' | 'id'>
-  thinking_level?: ThinkingLevel
+  /** null 与省略相同，供要求所有属性必填的模型工具 schema 使用。 */
+  model?: Pick<PiModel, 'provider' | 'id'> | null
+  thinking_level?: ThinkingLevel | null
 }
 export type CollaborationRequests = {
   spawn_agent: AgentModelSelection & {
@@ -154,7 +155,9 @@ export type CollaborationResults = {
     messages: AgentMailboxMessage[]
     notifiedBy?: string[]
     timedOut: boolean
-    wakeReason?: 'critical' | 'cleanup' | 'result' | 'message' | 'user_steering' | 'timeout'
+    wakeReason?: 'critical' | 'cleanup' | 'result' | 'message' | 'feedback_required' | 'user_steering' | 'timeout'
+    /** 子代理已停止生成但尚未提交完成；继续等待不会推进它。 */
+    feedbackRequired?: Array<{ agentId: string; taskPath: string; action: string }>
   }
   finish_agent: { accepted: true }
 }

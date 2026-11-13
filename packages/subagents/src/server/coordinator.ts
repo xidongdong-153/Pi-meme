@@ -1986,6 +1986,7 @@ export class HostCollaborationBridge {
     const runs = new Map(
       watched.map((target) => [target.summary.agentId, target.queued.at(-1)?.runId ?? target.summary.runId]),
     )
+    const currentRuns = new Map(watched.map((target) => [target.summary.agentId, target.summary.runId]))
     const critical = (message: AgentMailboxMessage) =>
       (message.kind === 'result' && ['failed', 'interrupted'].includes(message.status ?? '')) ||
       (message.kind === 'cleanup' && message.status === 'failed')
@@ -2000,8 +2001,24 @@ export class HostCollaborationBridge {
               (message.kind === 'message' || message.runId === runs.get(target.summary.agentId)),
           ),
       )
+    const feedbackRequired = () =>
+      watched.filter(
+        (target) =>
+          target.summary.parentAgentId === record.summary.agentId &&
+          target.summary.runId === currentRuns.get(target.summary.agentId) &&
+          target.summary.status === 'waiting_children' &&
+          target.settled &&
+          !target.completion &&
+          !this.paused(target) &&
+          !target.pendingStart &&
+          !target.draining &&
+          !target.delivering?.length &&
+          !target.summary.cleanup &&
+          !this.pending(target).length,
+      )
     const available = () =>
       !current() ||
+      feedbackRequired().length > 0 ||
       this.userSteering.has(record) ||
       matches().length > 0 ||
       watched.some(
@@ -2058,6 +2075,7 @@ export class HostCollaborationBridge {
         ...new Set([...(record.waitingMessages ?? []), ...messages.map((message) => message.id)]),
       ]
       await this.persist(record)
+      const needsFeedback = feedbackRequired()
       const endedTarget = watched.some(
         (target) =>
           target.summary.runId === runs.get(target.summary.agentId) && !activeStatuses.has(target.summary.status),
@@ -2072,7 +2090,9 @@ export class HostCollaborationBridge {
               ? ('result' as const)
               : matched.length
                 ? ('message' as const)
-                : ('timeout' as const)
+                : needsFeedback.length
+                  ? ('feedback_required' as const)
+                  : ('timeout' as const)
       return {
         agents: [
           ...new Set([
@@ -2083,8 +2103,18 @@ export class HostCollaborationBridge {
           ]),
         ].map((entry) => ({ ...entry.summary })),
         messages,
-        timedOut: timedOut && !matched.length,
+        timedOut: timedOut && !matched.length && !needsFeedback.length,
         wakeReason,
+        ...(needsFeedback.length
+          ? {
+              feedbackRequired: needsFeedback.map((target) => ({
+                agentId: target.summary.agentId,
+                taskPath: target.summary.taskPath,
+                action:
+                  'Child stopped generating without finish_agent. Review its reply, then use send_message to request corrections or ask it to call finish_agent when done. Clarify any no-tools instruction so it does not block collaboration completion. Waiting again will not advance this child.',
+              })),
+            }
+          : {}),
         ...(notifiedBy.length ? { notifiedBy } : {}),
       }
     } finally {

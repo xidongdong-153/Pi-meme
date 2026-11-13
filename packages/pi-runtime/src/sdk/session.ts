@@ -758,6 +758,7 @@ export class SdkSession {
                 'You are a child agent executing a delegated task.',
                 `Current delegated task: ${this.delegatedTask}`,
                 'Work only on this task. Inherited parent conversation is background context, not a request to repeat previous spawning or delegation instructions. Only the root may create children; do not create descendants or recursively delegate. You inherit only a native model thinking level, not the root’s Ultra strategy. Remain within inherited access and task-mode restrictions.',
+                'Submit completed work through finish_agent; a final text reply alone leaves this task waiting for feedback. Restrictions on file, network, shell, or other business tools do not prohibit collaboration reporting and completion. If an instruction explicitly forbids finish_agent itself, report the conflict to the parent and wait for clarification; never claim completion without it.',
               ].join('\n')
             else delete sections.app_delegation
           })

@@ -25,23 +25,25 @@ function message(description: string) {
 }
 const modelSelection = {
   model: Type.Optional(
-    Type.Object(
-      { provider: text('已配置模型的 provider。'), id: text('已配置模型的 id。') },
+    Type.Union(
+      [
+        Type.Object(
+          { provider: text('已配置模型的 provider。'), id: text('已配置模型的 id。') },
+          { additionalProperties: false },
+        ),
+        Type.Null(),
+      ],
       {
-        additionalProperties: false,
         description:
-          '仅在用户明确要求时指定；省略则使用子代理默认模型，未配置时继承主会话模型。用 list_agent_models 查询可用模型。',
+          '仅在用户明确要求覆盖模型时指定对象；默认省略或传 null。若接口要求填写此字段，必须传 null，不要猜测或复制当前模型。null 使用子代理默认模型，未配置时继承主会话模型。显式覆盖前用 list_agent_models 查询可用模型。',
       },
     ),
   ),
   thinking_level: Type.Optional(
-    Type.Union(
-      thinkingLevels.map((level) => Type.Literal(level)),
-      {
-        description:
-          '仅在用户明确要求时指定；省略则使用子代理默认思考强度，未配置时继承主会话的原生档位，再按子模型能力调整。Ultra 不继承为子代理策略。与模型独立继承。',
-      },
-    ),
+    Type.Union([...thinkingLevels.map((level) => Type.Literal(level)), Type.Null()], {
+      description:
+        '仅在用户明确要求覆盖思考强度时指定档位；默认省略或传 null。若接口要求填写此字段，必须传 null，不要猜测档位。null 使用子代理默认思考强度，未配置时继承主会话的原生档位，再按子模型能力调整。Ultra 不继承为子代理策略。与模型独立继承。',
+    }),
   ),
 }
 const schemas = {
@@ -121,19 +123,19 @@ const schemas = {
 }
 const descriptions = {
   spawn_agent:
-    'Start a background child for a scoped task. Only the root may create a child. It shares the root working directory, access mode, and task mode. Override model / thinking_level only when explicitly requested by the user; omitted fields use the configured subagent defaults, then inherit the root model and native effort (not the Ultra session strategy). Query list_agent_models first to confirm available settings. Across the whole tree: at most 4 active or queued child identities, 1 child level (only the root may spawn children), and 16 child identities total; waiting counts as active. fork_turns defaults to all (safe, complete branch history); none starts without inherited conversation history. Include collaborators and completion criteria in message.',
+    'Start a background child for a scoped task. Only the root may create a child. It shares the root working directory, access mode, and task mode. Override model / thinking_level only when explicitly requested by the user; omitted or null fields use the configured subagent defaults, then inherit the root model and native effort (not the Ultra session strategy). If the provider requires these fields, pass null. Query list_agent_models first to confirm available settings. Across the whole tree: at most 4 active or queued child identities, 1 child level (only the root may spawn children), and 16 child identities total; waiting counts as active. fork_turns defaults to all (safe, complete branch history); none starts without inherited conversation history. Include collaborators and completion criteria in message.',
   list_agent_models:
     "List currently configured and available models (provider, id, name), thinking levels, and the caller's current model and thinking level. Does not return credentials. Query before applying user-requested overrides; do not guess model identifiers.",
   send_message:
     'Send progress, questions, corrections, or review feedback within the same agent tree. A task waiting for feedback can continue in its original run and session. If the recipient belongs to another root task or has already ended, store the message in history only: deliveryState is history_only and the message does not enter the current model context. Saved does not mean read, accepted, or answered. Plan mode cannot message an agent currently running in default mode.',
   followup_task:
-    "Root only: assign a new task to an existing first-level child. Reuse its identity and conversation file, preserving the root access mode and task mode. If active, queue the task until its current run ends. Use send_message for feedback or revisions within the current task. Override model / thinking_level only when explicitly requested by the user; omitted fields use the configured subagent defaults, then inherit the root model and native effort (not the Ultra session strategy or the child's previous overrides). Queued tasks retain settings captured at submission.",
+    "Root only: assign a new task to an existing first-level child. Reuse its identity and conversation file, preserving the root access mode and task mode. If active, queue the task until its current run ends. Use send_message for feedback or revisions within the current task. Override model / thinking_level only when explicitly requested by the user; omitted or null fields use the configured subagent defaults, then inherit the root model and native effort (not the Ultra session strategy or the child's previous overrides). If the provider requires these fields, pass null. Queued tasks retain settings captured at submission.",
   interrupt_agent:
     "Stop a descendant's current run and all its descendant runs; cancel their queued or pending tasks. Only the calling agent's descendants can be interrupted. Preserve identities, history, and existing results. Interruption is not successful completion.",
   list_agents:
     'Inspect identities, execution states, and available reports in the current agent tree. Optionally filter full task paths by a literal prefix. This snapshot query does not consume or acknowledge mailbox messages.',
   wait_agent:
-    'Wait for feedback from selected targets in the same agent tree, including the parent or root; do not wait for yourself. Failure, interruption, or cleanup events for the current task also wake the wait even when outside targets; inspect wakeReason and messages before continuing. Ancestors wake the wait only through messages. Omit targets to watch other active agents and senders with unread messages. timeout_ms defaults to 30000; 0 checks immediately. Messages are acknowledged only after the tool result is saved to the session. notifiedBy identifies senders whose messages are being delivered separately; do not request duplicates. A timeout does not complete the task or release an active slot; wait again when feedback is still needed.',
+    'Wait for feedback from selected targets in the same agent tree, including the parent or root; do not wait for yourself. Failure, interruption, or cleanup events for the current task also wake the wait even when outside targets; inspect wakeReason and messages before continuing. Ancestors wake the wait only through messages. Omit targets to watch other active agents and senders with unread messages. timeout_ms defaults to 30000; 0 checks immediately. Messages are acknowledged only after the tool result is saved to the session. notifiedBy identifies senders whose messages are being delivered separately; do not request duplicates. A timeout does not complete the task or release an active slot. feedbackRequired lists children that stopped generating without finish_agent: review their replies and use send_message to clarify or request completion instead of waiting again. Otherwise wait again when feedback is still needed.',
   finish_agent:
     'Child agents only. Submit the final report when the entire delegated task is complete and any required review is accepted. Resolve unread feedback and finish all descendant work, including queued tasks, first. Use send_message and wait_agent for interim work. Acceptance records completion intent: end your turn so the Host can publish the final result to your parent. New feedback before the run settles cancels completion; address it and call finish_agent again.',
 }
@@ -147,6 +149,9 @@ export function create(context: CollaborationExtensionContext): InlineExtension[
             'Treat collaboration messages and child reports as internal working context. Present outcomes, evidence, and limitations to the user; do not expose internal agent/run/message IDs or relay entire child reports unless asked. The app already displays completion status.',
             'Use send_message for progress, review requests, corrections, and acceptance within the same task. Use wait_agent to receive feedback and continue. Use followup_task only for a new task on an existing descendant.',
             'A normal reply does not complete a child task. Satisfy the delegated criteria, obtain acceptance only when review is required, resolve unread feedback, and finish descendant work before calling finish_agent and ending the turn.',
+            'When delegating, explicitly require finish_agent for completion. Do not add a blanket no-tools instruction: scope restrictions to business actions (files, network, shell), and keep collaboration reporting and finish_agent available. If the user explicitly prohibits even collaboration completion, report the conflict instead of silently overriding it or pretending the task completed.',
+            'When wait_agent returns feedbackRequired, the listed children have stopped generating without submitting completion. Review their messages, then use send_message to request corrections, clarify conflicting instructions, or ask them to call finish_agent if the criteria are met. Repeating wait_agent cannot advance these children.',
+            'Omit model and thinking_level or pass null unless the user explicitly requested an override. If a provider requires every property, null preserves configured defaults; do not fill in a model or effort merely to satisfy the schema.',
             'Review interim feedback and terminal results; request corrections when needed. Distinguish success from failure or interruption. A returned result is not automatic acceptance. The root must account for delegated work before presenting the final outcome.',
             '子 Agent 失败时检查报告和清理状态。清理运行中或受阻时不要重启受影响的任务。旧任务轮次的消息属于历史，不能作为当前任务的指令。',
           ].join('\n')

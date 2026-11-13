@@ -14,6 +14,13 @@ if (!['darwin', 'linux', 'win32'].includes(platform)) {
   console.error('请在仓库根目录通过 pnpm start 启动开发环境。')
   process.exitCode = 1
 } else {
+  // Agent 终端会继承所属 Host 的正式环境；开发入口使用独立变量显式覆盖。
+  for (const suffix of ['PORT', 'DATA_ROOT', 'HOST_URL']) {
+    const value = process.env[`PI_MEME_DEV_${suffix}`]
+    const key = `PI_MEME_${suffix}`
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
   if (platform === 'win32') {
     await prepareWindowsNative()
     process.env.PI_MEME_WINDOWS_NATIVE = windowsNativePath
