@@ -15,32 +15,32 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 
 工作台全局写操作复用“完全权限”，不增加第二套权限开关。`system_write` 仅在有效权限为完全权限的普通任务下开放；Worker、Host 与 codemode 嵌套调用都校验同一要求。Plan、本地只读、工作区内修改模式不能借此输入终端命令、改 Host 配置或操作客户端网页。只读工具仍可查询 Host 的内置资源，包括终端输出。内置读取、工作区写入、完全权限三类工具要求集中在 [agent-access.ts](../packages/contracts/src/agent-access.ts)。
 
-`write`、`edit`、`image_gen` 与 `manage_service` 的启停至少要求工作区修改；本地文件写入、命令和受管服务统一使用 AccessSandbox。Plan 覆盖会话选择并按本地只读执行；计划、草图与聊天元数据由固定 Host 入口保存，不接受任意落盘路径。权限越界只返回原因，不自动重试提权。受限会话不导入插件 Agent 或连接 MCP；`mcp.get` 只读取 Host 配置摘要。
+`write`、`edit`、`image_gen` 与 `manage_service` 的启停至少要求工作区修改；本地文件写入、命令和受管服务统一使用 AccessSandbox。Plan 覆盖会话选择并按本地只读执行；计划、可视化与聊天元数据由固定 Host 入口保存，不接受任意落盘路径。权限越界只返回原因，不自动重试提权。受限会话不导入插件 Agent 或连接 MCP；`mcp.get` 只读取 Host 配置摘要。
 
 ## 操作目录
 
 以运行时 `capabilities` 为准。它支持 `domain/scope/write/query` 筛选和有修订的分页，默认 50 项、最多 100 项。`args` 是按顺序排列的数组，省略的会话目标默认为当前执行根会话。显式 `SessionRef` 使用 `{hostId, sessionId}`，项目工作区可使用 `{hostId,projectId}`；不能传界面选择或路径冒充身份。下表保留读写入口概览，新增读取的完整分组见覆盖表。
 
-| 能力         | 读取                                                                      | 修改                                                                                                    |
-| ------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| 终端         | `terminal.list`、`terminal.read`                                          | `terminal.open`、`terminal.input`、`terminal.resize`、`terminal.close`                                  |
-| 定时任务     | `schedules.list`、`get`、`runs`、`schema`                                 | `create`、`update`、`pause`、`resume`、`delete`、`runNow`、`stopRun`、`markRead`、`resetSession`        |
-| 图像素材     | `images.list`、`images.get`、`images.read`                                | `images.import`、`images.rename`、`images.remove`；生成沿用 `image_gen`                                 |
-| 草图         | `visualizations.list`、`visualizations.read`                              | 沿用 `save_visualization` 创建与保存版本                                                                |
-| 上下文窗口   | `contextWindow.list`、`get`、`item`、`reply`、`piece`、`image`            | 只读；默认摘要，正文和图片显式分页读取                                                                  |
-| 文件         | `files.list`、`read`、`preview`、`search`                                 | `files.write`，需文件修订                                                                               |
-| Git 与计划   | `git.availability`、`git.snapshot`、`git.diff`、`plans.list`              | Git 现有专用入口保持原权限                                                                              |
-| 后台活动     | `activities.list`、`activities.logs`                                      | `activities.stop`                                                                                       |
-| 个人资料     | `profile.get`、`profile.avatar`                                           | `profile.save`，需修订                                                                                  |
-| 外观         | `appearance.get`                                                          | `appearance.save`，需修订，仅发起客户端                                                                 |
-| MCP          | `mcp.get`                                                                 | `mcp.save`、`mcp.delete`，需配置修订                                                                    |
-| 指令与资源   | `instructions.get`、`resources.list`、`commands.list`                     | `instructions.save`，需指令修订                                                                         |
-| 插件默认选择 | `plugins.defaults`                                                        | `plugins.setDefaults`，仍走插件校验                                                                     |
-| 记忆         | `memory.status`、`memory.list`、`memory.search`、`memory.get`             | `memory.remember`、`memory.update`、`memory.forget`；响应用户明确请求，不提供主开关或全 Host 清空       |
-| 用量与模型   | `usage.get`、`models.list`                                                | 模型凭据不通过此目录返回                                                                                |
-| 项目与会话   | `projects.list/get/deletePreview`、`sessions.list/get/messages/attention` | `projects.create/rename/setPinned/delete`、`sessions.create/rename/configure/setPinned/delete/markRead` |
-| Agent 与目标 | `agents.list`、`goals.get`                                                | 沿用已有协作和目标工具                                                                                  |
-| Desktop 网页 | `browser.list`、`read`、`screenshot`                                      | `browser.open`、`navigate`、`click`、`input`、`scroll`、`close`                                         |
+| 能力         | 读取                                                                        | 修改                                                                                                    |
+| ------------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| 终端         | `terminal.list`、`terminal.read`                                            | `terminal.open`、`terminal.input`、`terminal.resize`、`terminal.close`                                  |
+| 定时任务     | `schedules.list`、`get`、`runs`、`schema`                                   | `create`、`update`、`pause`、`resume`、`delete`、`runNow`、`stopRun`、`markRead`、`resetSession`        |
+| 图像素材     | `images.list`、`images.get`、`images.read`                                  | `images.import`、`images.rename`、`images.remove`；生成沿用 `image_gen`                                 |
+| 可视化       | `visualizations.list`、`visualizations.read`、`visualizations.previewState` | `visualizations.export`；创建与保存版本沿用 `save_visualization`                                        |
+| 上下文窗口   | `contextWindow.list`、`get`、`item`、`reply`、`piece`、`image`              | 只读；默认摘要，正文和图片显式分页读取                                                                  |
+| 文件         | `files.list`、`read`、`preview`、`search`                                   | `files.write`，需文件修订                                                                               |
+| Git 与计划   | `git.availability`、`git.snapshot`、`git.diff`、`plans.list`                | Git 现有专用入口保持原权限                                                                              |
+| 后台活动     | `activities.list`、`activities.logs`                                        | `activities.stop`                                                                                       |
+| 个人资料     | `profile.get`、`profile.avatar`                                             | `profile.save`，需修订                                                                                  |
+| 外观         | `appearance.get`                                                            | `appearance.save`，需修订，仅发起客户端                                                                 |
+| MCP          | `mcp.get`                                                                   | `mcp.save`、`mcp.delete`，需配置修订                                                                    |
+| 指令与资源   | `instructions.get`、`resources.list`、`commands.list`                       | `instructions.save`，需指令修订                                                                         |
+| 插件默认选择 | `plugins.defaults`                                                          | `plugins.setDefaults`，仍走插件校验                                                                     |
+| 记忆         | `memory.status`、`memory.list`、`memory.search`、`memory.get`               | `memory.remember`、`memory.update`、`memory.forget`；响应用户明确请求，不提供主开关或全 Host 清空       |
+| 用量与模型   | `usage.get`、`models.list`                                                  | 模型凭据不通过此目录返回                                                                                |
+| 项目与会话   | `projects.list/get/deletePreview`、`sessions.list/get/messages/attention`   | `projects.create/rename/setPinned/delete`、`sessions.create/rename/configure/setPinned/delete/markRead` |
+| Agent 与目标 | `agents.list`、`goals.get`                                                  | 沿用已有协作和目标工具                                                                                  |
+| Desktop 网页 | `browser.list`、`read`、`screenshot`                                        | `browser.open`、`navigate`、`click`、`input`、`scroll`、`close`                                         |
 
 短名称沿用该行前缀，例如定时任务的 `get` 完整名称为 `schedules.get`。
 
@@ -61,6 +61,21 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 `images.import([{path,name?}])` 将当前 Host 的 `data/attachments/` 内已有 PNG、JPEG 或 WebP 收录为上传素材，单张最多 8 MiB。路径必须是该 Host 附件目录内的真实普通文件，不接受工作区外任意路径、符号链接、浏览器本机路径或 URL。导入不复制原文件，复用业务入库校验与幂等机制；改名、移除同样通过 HostApi 执行。移除只隐藏图库记录，保留聊天与原始文件，不表示进入回收站。
 
 导入登记为 Host 范围写操作，只有普通任务的完全权限可调用；Plan、本地只读和工作区修改模式不能导入。界面上传另走已认证的 Host 级二进制接口，不以当前 Agent 任务权限替代客户端身份校验。`image-library-upload` 能力表示支持上传、真实来源筛选与联合条目协议；旧 Host 未声明时，不向它发送上传来源查询。
+
+### 可视化
+
+可视化涵盖图表、交互讲解、模拟与 UI 预览。`save_visualization/read_visualization` 沿用完整版本与分支访问规则；保存可选 `layout: 'regular' | 'wide'` 和 `libraries: ['echarts']`，扁平状态与控件限制保持不变。Host 保存产物通过会话范围的 `visualizations.list/read` 查询，不把保存初值当作当前浏览器状态。
+
+| 操作                          | `args`                        | 结果与边界                                                                            |
+| ----------------------------- | ----------------------------- | ------------------------------------------------------------------------------------- |
+| `visualizations.previewState` | `[{id,revision}]`             | 只读 `{reference,state,source}`，source 为 `live/saved/initial`；不挂载面板或修改状态 |
+| `visualizations.export`       | `[{id,revision},{format:'png' | 'html'}]`                                                                             | 在发起客户端下载当前状态的 PNG 或离线 HTML；返回下载已发起的元数据 |
+
+两项均为 `scope: 'client'`，固定发起客户端并绑定当前执行会话。Host 先校验执行身份、临时会话归属和分支引用，再定向委托；参数不接受其他会话、客户端或路径，不按界面选择猜目标。`previewState` 的来源为 `initial` 时只表示没有可用的用户状态，不能当成用户操作证据。
+
+PNG 需要该版本已挂载、就绪且可见的预览，否则返回 `not-loaded`，不自动打开面板；HTML 可用当前浏览器取得的状态和离线运行时生成。成功返回 `{status:'download-started',fileName,mimeType}`，不返回本机路径或承诺下载完成。`export` 是写操作，沿用普通任务与完全权限要求，Plan 可保存可视化但不能借系统写操作导出。
+
+标题、放大、设计参数、反馈、PNG 复制/下载与 HTML 导出由宿主提供，iframe 只有状态、环境和声明的图表能力，没有业务、聊天、剪贴板或下载 API。图内选择不发起对话；用户提交宿主反馈才聊天。没有客户端、断线、不支持或执行过期时明确失败，不借其他窗口，不用默认状态冒充用户选择。先查能力目录；旧 Host 缺少 `visualize-runtime-v2` 时保留旧预览回退，不向它发送新增操作。完整运行时和示例见 [可视化](visualize.md)。
 
 ### 上下文窗口
 

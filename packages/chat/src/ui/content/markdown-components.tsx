@@ -58,7 +58,7 @@ function MarkdownPre({ children }: React.ComponentPropsWithoutRef<'pre'>) {
       if (hiddenVisualizations.has(`${reference.id}:${reference.revision}`)) return null
       if (!isStreaming) return <VisualizationRenderer reference={reference} />
     } catch {
-      if (!isStreaming) return <p>草图引用无效。</p>
+      if (!isStreaming) return <p>可视化引用无效。</p>
     }
   }
   return language?.toLowerCase() === 'mermaid' ? (

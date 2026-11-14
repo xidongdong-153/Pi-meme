@@ -9,6 +9,11 @@ import {
   validateReadArguments,
 } from '@pi-meme/contracts/system-read'
 import { systemClientReadDefinitions } from '@pi-meme/contracts/system-client-reads'
+import {
+  visualizationClientOperationDefinitions,
+  validateVisualizationRef,
+  validateVisualizationState,
+} from '@pi-meme/contracts/visualize'
 import { systemSessionReadDefinitions } from './session-read-operations'
 import { systemSettingsReadDefinitions } from './system-settings-reads'
 import { systemResourceReadDefinitions } from './system-resource-reads'
@@ -394,7 +399,7 @@ export function createSystemOperations(context: SystemOperationContext) {
   for (const name of ['list', 'read'] as const)
     register(
       `visualizations.${name}`,
-      '查询当前会话可访问的草图版本；创建或更新使用 save_visualization',
+      '查询当前会话可访问的可视化版本；创建或更新使用 save_visualization',
       name === 'list' ? '[SessionRef?]' : '[{id,revision},SessionRef?]',
       false,
       'session',
@@ -587,6 +592,59 @@ export function createSystemOperations(context: SystemOperationContext) {
       run: (args) =>
         definition.scope === 'client' ? context.client(definition.name, args) : context.read(definition.name, args),
     })
+  }
+  const visualizations = api.visualizations
+  if (visualizations) {
+    for (const definition of visualizationClientOperationDefinitions) {
+      operations.set(definition.name, {
+        definition,
+        run: async (args) => {
+          // 写操作不经过 invokeRead，同样必须严格校验元组、未知字段和格式枚举。
+          validateReadArguments(definition.inputSchema, args)
+          const reference = args[0]
+          try {
+            validateVisualizationRef(reference)
+          } catch {
+            throw new SystemReadError('invalid-input', '可视化引用无效')
+          }
+          // 先复用 Host 的执行会话、临时会话归属和当前分支权限，再定向委托发起客户端。
+          const document = await visualizations.get(session, reference)
+          const result = await context.client(definition.name, args)
+          if (definition.name === 'visualizations.previewState') {
+            try {
+              const value = readRecord(result, ['reference', 'state', 'source'], '可视化状态结果')
+              validateVisualizationRef(value.reference)
+              validateVisualizationState(value.state, document)
+              if (
+                value.reference.id !== reference.id ||
+                value.reference.revision !== reference.revision ||
+                !['live', 'saved', 'initial'].includes(value.source as string)
+              )
+                throw new Error('可视化状态来源或引用无效')
+              return { reference, state: value.state, source: value.source }
+            } catch {
+              throw new SystemReadError('internal-error', '客户端返回的可视化状态无效')
+            }
+          }
+          const format = (args[1] as { format: 'png' | 'html' }).format
+          try {
+            const value = readRecord(result, ['status', 'fileName', 'mimeType'], '可视化导出结果')
+            if (
+              value.status !== 'download-started' ||
+              typeof value.fileName !== 'string' ||
+              !value.fileName.trim() ||
+              value.fileName.length > 255 ||
+              /[\\/\p{Cc}]/u.test(value.fileName) ||
+              value.mimeType !== (format === 'png' ? 'image/png' : 'text/html')
+            )
+              throw new Error('可视化下载元数据无效')
+            return { status: 'download-started', fileName: value.fileName, mimeType: value.mimeType }
+          } catch {
+            throw new SystemReadError('internal-error', '客户端返回的可视化下载元数据无效')
+          }
+        },
+      })
+    }
   }
   const availability = (definition: SystemOperation): SystemOperationAvailability => {
     const allowed = !definition.write || context.canWrite

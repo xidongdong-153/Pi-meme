@@ -188,7 +188,7 @@ function AssistantTurnContent({
                 <div
                   key={`visualization-${segment.reference.id}:${segment.reference.revision}`}
                   className="conversation-block"
-                  aria-label="生成的草图"
+                  aria-label="生成的可视化"
                 >
                   <VisualizationRenderer reference={segment.reference} />
                 </div>

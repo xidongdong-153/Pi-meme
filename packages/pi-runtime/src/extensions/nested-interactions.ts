@@ -1,18 +1,17 @@
 import type { InlineExtension } from '@earendil-works/pi-coding-agent'
-import type { PiNestedInteraction } from '@pi-meme/contracts/pi'
+import {
+  piNestedInteractionEntryType,
+  piNestedInteractionToolNames,
+  readPiNestedInteractionEntry,
+  type PiNestedInteractionEntry,
+} from '@pi-meme/contracts/pi'
 
-export const nestedInteractionEntry = 'pi-meme.nested-interaction'
-const interactionTools = new Set([
-  'request_user_input',
-  'spawn_agent',
-  'send_message',
-  'followup_task',
-  'interrupt_agent',
-])
+export const nestedInteractionEntry = piNestedInteractionEntryType
+const interactionTools = new Set<string>(piNestedInteractionToolNames)
 
-export type NestedInteractionEntry = { rootToolCallId: string; interaction: PiNestedInteraction }
+export type NestedInteractionEntry = PiNestedInteractionEntry
 
-/** SDK 的嵌套调用清单不保存结果；只补存需要在会话中回显的内置交互。 */
+/** SDK 的嵌套调用清单不保存结果；补存内置交互与可视化产物，供分支恢复及引用鉴权。 */
 export function createNestedInteractionsExtension(): InlineExtension {
   return {
     name: 'pi-meme-nested-interactions',
@@ -51,20 +50,5 @@ export function createNestedInteractionsExtension(): InlineExtension {
 }
 
 export function readNestedInteractionEntry(value: unknown): NestedInteractionEntry | undefined {
-  if (!value || typeof value !== 'object') return
-  const { rootToolCallId, interaction } = value as Partial<NestedInteractionEntry>
-  if (
-    typeof rootToolCallId !== 'string' ||
-    !interaction ||
-    typeof interaction.id !== 'string' ||
-    typeof interaction.parentToolCallId !== 'string' ||
-    !interaction.id.startsWith(`${interaction.parentToolCallId}/`) ||
-    !interaction.id.startsWith(`${rootToolCallId}/`) ||
-    !interactionTools.has(interaction.name) ||
-    !['success', 'error'].includes(interaction.status) ||
-    !interaction.result ||
-    !Array.isArray(interaction.result.content)
-  )
-    return
-  return { rootToolCallId, interaction }
+  return readPiNestedInteractionEntry(value)
 }

@@ -5,6 +5,7 @@ import type { WorkspaceView } from './layout/use-workspace-view'
 import { MaterialsPage } from './materials/materials-page'
 import type { GalleryImage } from './images/image-library-data'
 import { useVisualizations } from '@pi-meme/visualize/ui/use-visualizations'
+import { handleVisualizationClientOperation } from '@pi-meme/visualize/ui/client-operations'
 import { VisualizationRendererContext } from '@pi-meme/ui/components/visualization-renderer'
 import { LinkedFilePanel, type LinkedFileTab } from './panels/linked-file-panel'
 import { FileIcon } from '@pi-meme/ui/components/file-icon'
@@ -117,6 +118,7 @@ import {
   GitFork,
 } from 'lucide-react'
 import type { HostApi, AppSession, FilePreview, SessionRef } from '@pi-meme/contracts/app-host'
+import type { SystemClientRequest, SystemClientExecutionContext } from '@pi-meme/contracts/system-tools'
 import { CustomizationPage } from './plugins/customization-page'
 import { PluginPage } from './settings/plugin-page'
 import { SettingsPage, type SettingsSection } from './settings/settings-page'
@@ -1820,7 +1822,7 @@ function AppContent({
           {
             id: 'builtin:visualize',
             requirements: ['visualizations'] as const,
-            title: '草图',
+            title: '可视化',
             icon: <NotebookPen />,
             location: 'right' as const,
             scope: 'session' as const,
@@ -2034,6 +2036,30 @@ function AppContent({
     },
     ...pluginPanels,
   ]
+  const [visualizationClientSupport, setVisualizationClientSupport] = useState<{ host: HostApi; hostId: string }>()
+  useEffect(() => {
+    let active = true
+    setVisualizationClientSupport(undefined)
+    if (ready && hostId && host.visualizations) {
+      void host.capabilities().then(
+        (capabilities) => {
+          if (active && capabilities.hostId === hostId && capabilities.features.includes('visualize-runtime-v2'))
+            setVisualizationClientSupport({ host, hostId })
+        },
+        () => {
+          // 能力尚未确认时只注册已有客户端操作，保留旧 Host 的预览入口。
+        },
+      )
+    }
+    return () => {
+      active = false
+    }
+  }, [host, hostId, ready])
+  const handleVisualization = useCallback(
+    (request: SystemClientRequest, context: SystemClientExecutionContext) =>
+      handleVisualizationClientOperation(host, request, context),
+    [host],
+  )
   useSystemClient(
     bridge,
     browserPlatform,
@@ -2063,6 +2089,9 @@ function AppContent({
         request,
       ),
     appearance.getSystemSnapshot,
+    ready && visualizationClientSupport?.host === host && visualizationClientSupport.hostId === hostId
+      ? handleVisualization
+      : undefined,
   )
   async function invokeSystemSkill(name: string, prompt?: string) {
     if (creatingSkillSession.current) return false

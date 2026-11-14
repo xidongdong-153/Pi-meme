@@ -27,7 +27,7 @@ pi-meme 的 Desktop 和 Web 共用 Node Host。Bots 在 `apps/bot` 独立运行�
 | 使用与部署 | [内置浏览器](browser.md)                    | 网页标签、元素批注、浏览数据、下载与网站权限    |
 | 使用与部署 | [记忆](memory.md)                           | 启停、项目与通用条目、来源、自动学习与用量      |
 | 使用与部署 | [定时任务](schedules.md)                    | 时间安排、执行位置、会话模式与运行记录          |
-| 使用与部署 | [交互草图](visualize.md)                    | 内联预览、设计控件、版本、反馈与存储            |
+| 使用与部署 | [可视化](visualize.md)                      | 图表、交互讲解、模拟、UI 预览、状态与导出       |
 | 使用与部署 | [会话上下文窗口](context-window.md)         | 实际请求、分类地图、正文、历史与归档            |
 | 实现与接口 | [Host 内置工具](host-system-tools.md)       | Agent 能力目录、读写权限、客户端路由与接入规范  |
 | 实现与接口 | [Agent 读取覆盖](agent-read-coverage.md)    | 全部内置业务、16 个设置入口、纯读取与验收边界   |

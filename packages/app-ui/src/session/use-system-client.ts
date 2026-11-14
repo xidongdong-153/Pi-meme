@@ -3,10 +3,15 @@ import type { DesktopBridge } from '@pi-meme/contracts/desktop'
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
 import { migrateAppearance, resolvedMode, resolveTheme } from '@pi-meme/settings/shared/appearance'
 import { clientReadDefinitions, clientReadList, systemMetadataUrl } from '@pi-meme/contracts/system-client-reads'
-import type { SystemClientRequest } from '@pi-meme/contracts/system-tools'
+import type { SystemClientRequest, SystemClientExecutionContext } from '@pi-meme/contracts/system-tools'
 import type { Theme, AppearancePatch } from '@pi-meme/contracts/settings'
 import type { AppearanceController } from '@pi-meme/settings/ui/appearance-provider'
 import { readRevision, SystemReadError, type ReadErrorCode } from '@pi-meme/contracts/system-read'
+import { visualizationClientOperationDefinitions } from '@pi-meme/contracts/visualize'
+
+const visualizationClientOperations = new Set(
+  visualizationClientOperationDefinitions.map((definition) => definition.name),
+)
 
 export function useSystemClient(
   bridge: DesktopBridge,
@@ -15,12 +20,16 @@ export function useSystemClient(
   appearanceBridge: DesktopBridge = bridge,
   readSnapshot?: (request: SystemClientRequest) => Promise<unknown>,
   readAppearance?: AppearanceController['getSystemSnapshot'],
+  handleVisualization?: (request: SystemClientRequest, context: SystemClientExecutionContext) => Promise<unknown>,
 ) {
   const latestRead = useRef(readSnapshot)
   latestRead.current = readSnapshot
   const latestAppearance = useRef(readAppearance)
   latestAppearance.current = readAppearance
+  const latestVisualization = useRef(handleVisualization)
+  latestVisualization.current = handleVisualization
   const hasRead = Boolean(readSnapshot)
+  const hasVisualization = Boolean(handleVisualization)
   const supportsProjectApps = Boolean(
     (window as Window & { piPlatform?: { getProjectApps?: unknown } }).piPlatform?.getProjectApps,
   )
@@ -55,6 +64,7 @@ export function useSystemClient(
         [
           'appearance.get',
           'appearance.save',
+          ...(hasVisualization ? [...visualizationClientOperations] : []),
           ...clientReadDefinitions
             .filter((definition) =>
               definition.name === 'client.projectApps.list' && !supportsProjectApps
@@ -78,8 +88,13 @@ export function useSystemClient(
               ]
             : []),
         ],
-        async (request) => {
+        async (request, context) => {
           if (!hostId || request.session.hostId !== hostId) throw new Error('客户端请求的 Host 身份不匹配')
+          if (visualizationClientOperations.has(request.operation)) {
+            if (!latestVisualization.current)
+              throw new SystemReadError('not-supported', '当前客户端不支持可视化运行时 v2')
+            return latestVisualization.current(request, context)
+          }
           if (request.operation.startsWith('browser.')) {
             if (!browser?.agent) throw new Error('当前客户端不支持 Desktop 网页操作')
             const owner = JSON.stringify([request.session.hostId, request.session.sessionId])
@@ -175,6 +190,6 @@ export function useSystemClient(
           }
         },
       ),
-    [bridge, browser, hostId, appearanceBridge, hasRead, supportsProjectApps],
+    [bridge, browser, hostId, appearanceBridge, hasRead, hasVisualization, supportsProjectApps],
   )
 }

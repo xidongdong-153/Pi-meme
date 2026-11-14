@@ -1614,7 +1614,7 @@ export class SdkSession {
   ) {
     if (options?.visualization) {
       validateVisualizationContext(options.visualization)
-      if (!this.policy.readVisualization) throw new Error('当前运行时不支持草图上下文')
+      if (!this.policy.readVisualization) throw new Error('当前运行时不支持可视化上下文')
       const document = await this.policy.readVisualization(options.visualization.reference)
       validateVisualizationState(options.visualization.state, document)
     }
@@ -1776,7 +1776,7 @@ export class SdkSession {
       if (options?.visualization) {
         this.session.sessionManager.appendCustomMessageEntry(
           'pi-meme-visualization-context',
-          `当前草图引用与预览状态：${JSON.stringify(options.visualization)}。使用 read_visualization 读取此版本后调整。`,
+          `当前可视化引用与预览状态：${JSON.stringify(options.visualization)}。使用 read_visualization 读取此版本后调整。`,
           false,
           structuredClone(options.visualization),
         )
@@ -2019,7 +2019,7 @@ export class SdkSession {
   ) {
     if (options?.visualization) {
       validateVisualizationContext(options.visualization)
-      if (!this.policy.readVisualization) throw new Error('当前运行时不支持草图上下文')
+      if (!this.policy.readVisualization) throw new Error('当前运行时不支持可视化上下文')
       validateVisualizationState(
         options.visualization.state,
         await this.policy.readVisualization(options.visualization.reference),

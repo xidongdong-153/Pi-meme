@@ -57,7 +57,7 @@ system_read({ operation: 'capabilities.describe', args: ['sessions.history'] })
 | Git                   | `git.availability/snapshot/environment/diff/review/reviewFile/reviewOptions/turnChangeSummaries/turnFile` | 本地仓库与保存轮次，不 fetch；读取关闭可选索引锁及 fsmonitor，差异关闭外部 diff/textconv |
 | 终端与后台服务        | `terminal.list/read`、`activities.list/logs`                                                              | 有权访问的现存终端与服务；屏幕和保留输出，不创建进程或发送输入                           |
 | 定时任务              | `schedules.list/get/runs/schema`                                                                          | 配置和保存运行记录；不运行、重置或确认任务                                               |
-| 图像素材与草图        | `images.list/get/read`、`visualizations.list/read`                                                        | 已保存产物与版本；图片保留真实 MIME，不生成或导入                                        |
+| 图像素材与可视化      | `images.list/get/read`、`visualizations.list/read`                                                        | Host 已保存产物与版本；图片保留真实 MIME，不生成或导入；当前预览状态另走客户端读取       |
 | 上下文窗口            | `contextWindow.list/get/item/reply/piece/image`                                                           | 已捕获请求与归档；摘要、正文、图片分别显式查询，保留原有范围和保留策略                   |
 | 资源与技能包          | `resources.list/catalog/detail/readSkill/files/file`、`commands.list`                                     | 配置资源与本轮已有命令；读取不生成执行资源快照，不加载插件                               |
 | 指令与记忆            | `instructions.get/configured/captured/effective`、`memory.status/list/search/get/sources`                 | 区分保存与本轮捕获；记忆限当前项目和通用范围，关闭时不读正文                             |
@@ -94,15 +94,20 @@ ID 与标题以 [settings-page.tsx](../packages/app-ui/src/settings/settings-pag
 
 ## 发起客户端的覆盖与隔离
 
-| 对象           | 操作                                                                                              | 读取边界                                                                             |
-| -------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| 页面与导航     | `client.state/navigation`                                                                         | 读取当前真实页面与导航状态，不跳页                                                   |
-| 会话面板       | `client.panels`                                                                                   | 已保留布局、tab 和打开元信息，不挂载或恢复面板                                       |
-| 输入框         | `composer.status/read/attachments/processing`                                                     | 先取得明确 ref 和草稿数字修订；只读文档 JSON、附件进度、处理状态，不发送或运行处理器 |
-| 网页与批注     | `browser.list/read/screenshot/workspace/annotations.list/annotations.get/annotations.image`       | 所属会话；工作区摘要不恢复标签、不保存，批注正文和截图分开读                         |
-| 外观与快捷键   | `appearance.get/effective`、`themes.list/get`、`shortcuts.list`                                   | 使用实际外观 Host 和发起客户端偏好，不按执行 Host 猜外观                             |
-| 入口与原生能力 | `client.connections.*`、`client.ssh.*`、`client.platform.capabilities`、`client.projectApps.list` | 支持状态和缓存摘要；不连接远端、打开应用或执行原生操作                               |
-| 插件 UI        | `client.plugins.ui.list`                                                                          | 已注册且已授权页面、面板、导航和动作的元数据；不返回任意 props、render 或回调        |
+| 对象           | 操作                                                                                              | 读取边界                                                                                   |
+| -------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| 页面与导航     | `client.state/navigation`                                                                         | 读取当前真实页面与导航状态，不跳页                                                         |
+| 会话面板       | `client.panels`                                                                                   | 已保留布局、tab 和打开元信息，不挂载或恢复面板                                             |
+| 输入框         | `composer.status/read/attachments/processing`                                                     | 先取得明确 ref 和草稿数字修订；只读文档 JSON、附件进度、处理状态，不发送或运行处理器       |
+| 网页与批注     | `browser.list/read/screenshot/workspace/annotations.list/annotations.get/annotations.image`       | 所属会话；工作区摘要不恢复标签、不保存，批注正文和截图分开读                               |
+| 外观与快捷键   | `appearance.get/effective`、`themes.list/get`、`shortcuts.list`                                   | 使用实际外观 Host 和发起客户端偏好，不按执行 Host 猜外观                                   |
+| 入口与原生能力 | `client.connections.*`、`client.ssh.*`、`client.platform.capabilities`、`client.projectApps.list` | 支持状态和缓存摘要；不连接远端、打开应用或执行原生操作                                     |
+| 插件 UI        | `client.plugins.ui.list`                                                                          | 已注册且已授权页面、面板、导航和动作的元数据；不返回任意 props、render 或回调              |
+| 可视化预览     | `visualizations.previewState`                                                                     | client scope，绑定执行会话和真实版本引用；返回状态与 `live/saved/initial` 来源，不挂载面板 |
+
+`visualizations.previewState([{id,revision}])` 读取发起客户端的状态；Host 先校验执行会话、临时会话归属与当前分支引用，不取前台选中会话。来源为 `initial` 的值只是保存初值，不冒充用户已操作的状态；读取不重置、不保存、不发起聊天。`visualizations.list/read` 仍是 Host 保存产物的会话范围读取，两类来源不能混用。
+
+相关写操作 `visualizations.export([ref,{format:'png'|'html'}])` 同为 client scope 并绑定执行会话，沿用完全权限要求。它发起客户端下载当前状态；PNG 需要已挂载且就绪的可见预览，否则返回 `not-loaded`，不为了导出自动挂载。HTML 含离线运行时和当前状态，成功结果只表示下载已发起；导出不属于纯读取。标题、PNG 复制/下载、放大和反馈属于宿主 UI，片段不提供业务 API。旧 Host 走既有预览回退，不伪装支持新增能力，详见 [可视化](visualize.md)。
 
 执行 Host、外观 Host、本地浏览器 Host 和发起客户端是不同来源。浏览器档案中的历史、下载、权限为该客户端共享档案；会话网页、批注和输入框仍校验明确会话身份。下载不返回本机路径，元数据 URL 移除 userInfo、query、fragment。
 

@@ -1,332 +1,323 @@
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
-import { Input } from '@pi-meme/ui/components/ui/input'
-import { Switch } from '@pi-meme/ui/components/ui/switch'
-import { Slider } from '@pi-meme/ui/components/ui/slider'
-import { Popover, PopoverTrigger, PopoverContent } from '@pi-meme/ui/components/ui/popover'
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
-import { SlidersHorizontal, RotateCcw, PanelRightOpen } from 'lucide-react'
-import { Button } from '@pi-meme/ui/components/ui/button'
+import { useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import {
-  validateVisualizationState,
-  type VisualizationDocument,
-  type VisualizationState,
-} from '@pi-meme/contracts/visualize'
+  Copy,
+  Download,
+  Maximize2,
+  MessageSquare,
+  MoreHorizontal,
+  PanelRightOpen,
+  SlidersHorizontal,
+} from 'lucide-react'
+import type { VisualizationDocument, VisualizationState } from '@pi-meme/contracts/visualize'
+import { Button } from '@pi-meme/ui/components/ui/button'
+import { Input } from '@pi-meme/ui/components/ui/input'
+import { Dialog, DialogContent, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
+import { Popover, PopoverAnchor, PopoverContent } from '@pi-meme/ui/components/ui/popover'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@pi-meme/ui/components/ui/dropdown-menu'
+import { getVisualizationStateStore } from './visualization-state'
+import { VisualizationFrame, type VisualizationFrameHandle } from './visualization-frame'
+import { VisualizationControls } from './visualization-controls'
+import {
+  copyVisualizationImage,
+  createStandaloneVisualization,
+  createVisualizationPng,
+  downloadVisualizationFile,
+  visualizationFileName,
+  withVisualizationExport,
+} from './visualization-export'
 
-const feedbackSubmissions = new Set<string>()
-
-const themeKeys = [
-  '--background',
-  '--foreground',
-  '--card',
-  '--card-foreground',
-  '--muted',
-  '--muted-foreground',
-  '--primary',
-  '--primary-foreground',
-  '--border',
-  '--accent',
-  '--accent-foreground',
-]
 export function VisualizationPreview({
   document,
   storageKey,
+  rich,
   onOpen,
   onSubmit,
+  expanded = false,
+  onEscape,
 }: {
   document: VisualizationDocument
   storageKey: string
+  rich: boolean
   onOpen?: () => void
   onSubmit: (text: string, state: VisualizationState) => Promise<boolean>
+  expanded?: boolean
+  onEscape?: () => void
 }) {
-  const frame = useRef<HTMLIFrameElement>(null)
-  const port = useRef<MessagePort | null>(null)
-  const sequence = useRef(0)
-  const [state, setState] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(storageKey) ?? 'null') as VisualizationState
-      validateVisualizationState(saved, document)
-      return saved
-    } catch {
-      return document.initialState
-    }
-  })
-  const current = useRef(state)
-  const [height, setHeight] = useState(360)
-  const [error, setError] = useState('')
-  const [previewError, setPreviewError] = useState('')
-  const [starting, setStarting] = useState(true)
-  const [attempt, setAttempt] = useState(0)
+  const store = useMemo(() => getVisualizationStateStore(storageKey, document), [storageKey, document])
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot)
+  const frame = useRef<VisualizationFrameHandle>(null)
+  const expandTrigger = useRef<HTMLButtonElement>(null)
+  const feedback = useRef<HTMLInputElement>(null)
   const [controls, setControls] = useState(false)
-  const [draft, setDraft] = useState(() => {
-    try {
-      return localStorage.getItem(`${storageKey}:draft`) ?? ''
-    } catch {
-      return ''
-    }
-  })
-  const changeDraft = (value: string) => {
-    setDraft(value)
-    try {
-      localStorage.setItem(`${storageKey}:draft`, value)
-    } catch {
-      /* 保留内存草稿。 */
-    }
-    window.dispatchEvent(new CustomEvent('pi-visualization-draft', { detail: { key: storageKey, value } }))
+  const [adjusting, setAdjusting] = useState(false)
+  const [enlarged, setEnlarged] = useState(false)
+  const [pending, setPending] = useState('')
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const nextFocus = useRef<'controls' | 'feedback' | null>(null)
+
+  const capture = () => {
+    if (!frame.current) throw new Error('可视化尚未就绪')
+    return frame.current.capture()
   }
-  useEffect(() => {
-    const receive = (event: Event) => {
-      const { detail } = event as CustomEvent<{ key: string; value: string }>
-      if (detail.key === storageKey) setDraft(detail.value)
-    }
-    window.addEventListener('pi-visualization-draft', receive)
-    return () => window.removeEventListener('pi-visualization-draft', receive)
-  }, [storageKey])
-  const [sending, setSending] = useState(false)
-  const token = useMemo(() => crypto.randomUUID(), [])
-  const apply = (next: VisualizationState, broadcast = true) => {
-    validateVisualizationState(next, document)
-    current.current = next
-    setState(next)
-    port.current?.postMessage({ type: 'state', state: next, sequence: ++sequence.current })
-    if (broadcast) {
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(next))
-      } catch {
-        /* 存储不可用时保留当前预览。 */
-      }
-      window.dispatchEvent(
-        new CustomEvent('pi-visualization-state', { detail: { key: storageKey, state: next, token } }),
-      )
-    }
+  const run = (name: string, operation: () => Promise<void>) => {
+    setPending(name)
+    setError('')
+    setNotice('')
+    void withVisualizationExport(store, operation)
+      .catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
+      .finally(() => setPending(''))
   }
-  useEffect(() => {
-    const receive = (event: Event) => {
-      const { detail } = event as CustomEvent<{ key: string; state: VisualizationState; token: string }>
-      if (detail.key === storageKey && detail.token !== token) apply(detail.state, false)
-    }
-    window.addEventListener('pi-visualization-state', receive)
-    return () => {
-      window.removeEventListener('pi-visualization-state', receive)
-    }
-    // 状态通过 current 引用读取，监听仅随设计版本切换。
-  }, [storageKey, token])
-  const theme = () => {
-    const computed = getComputedStyle(window.document.documentElement)
-    return Object.fromEntries(themeKeys.map((key) => [key, computed.getPropertyValue(key)]))
-  }
-  useEffect(() => {
-    const observer = new MutationObserver(() => port.current?.postMessage({ type: 'theme', values: theme() }))
-    observer.observe(window.document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] })
-    return () => observer.disconnect()
-  }, [])
-  const applyPreviewState = useEffectEvent((patch: Record<string, unknown>) => {
-    apply({ ...current.current, ...patch } as VisualizationState)
-  })
-  useEffect(() => {
-    const iframe = frame.current
-    if (!iframe) return
-    const bridgeToken = crypto.randomUUID()
-    let channel: MessageChannel | undefined
-    let active = true
-    setStarting(true)
-    setPreviewError('')
-    const startupFailure = '草图未能启动，请重新加载。'
-    const timeout = window.setTimeout(() => {
-      if (!active) return
-      setStarting(false)
-      setPreviewError(startupFailure)
-    }, 10000)
-    const initialize = () => {
-      if (!active) return
-      channel?.port1.close()
-      channel = new MessageChannel()
-      const connected = channel
-      port.current = connected.port1
-      connected.port1.onmessage = ({ data }) => {
-        if (!active || port.current !== connected.port1 || !data || typeof data !== 'object') return
-        if (data.type === 'ready') {
-          window.clearTimeout(timeout)
-          setStarting(false)
-          setPreviewError((previous) => (previous === startupFailure ? '' : previous))
-        }
-        if (data.type === 'height' && Number.isFinite(data.height))
-          setHeight(Math.max(160, Math.min(1200, data.height)))
-        if (data.type === 'error') {
-          window.clearTimeout(timeout)
-          setStarting(false)
-          setPreviewError(String(data.message).slice(0, 2000))
-        }
-        if (data.type === 'patch') {
-          try {
-            if (!data.patch || typeof data.patch !== 'object' || Array.isArray(data.patch))
-              throw new Error('状态变更无效')
-            applyPreviewState(data.patch)
-            connected.port1.postMessage({ type: 'reply', requestId: data.requestId, state: current.current })
-          } catch (cause) {
-            connected.port1.postMessage({ type: 'reply', requestId: data.requestId, error: String(cause) })
-          }
-        }
-      }
-      iframe.contentWindow?.postMessage(
-        { token: bridgeToken, html: document.html, state: current.current, sequence: sequence.current, theme: theme() },
-        '*',
-        [connected.port2],
-      )
-    }
-    iframe.addEventListener('load', initialize)
-    // 独立响应的 CSP 不继承应用页面。query 确保重试/恢复真正重载文档，fragment 只承载握手 token。
-    iframe.src = `/visualization-preview?instance=${crypto.randomUUID()}#${bridgeToken}`
-    return () => {
-      active = false
-      window.clearTimeout(timeout)
-      iframe.removeEventListener('load', initialize)
-      channel?.port1.close()
-      channel?.port2.close()
-      if (port.current === channel?.port1) port.current = null
-    }
-  }, [document, attempt])
-  const feedbackForm = (
-    <form
-      className="flex gap-2"
-      onSubmit={async (event) => {
-        event.preventDefault()
-        if (!draft.trim() || sending || feedbackSubmissions.has(storageKey)) return
-        feedbackSubmissions.add(storageKey)
-        setSending(true)
-        try {
-          if (await onSubmit(draft, current.current)) {
-            changeDraft('')
-          }
-        } catch (cause) {
-          setError(String(cause))
-        } finally {
-          feedbackSubmissions.delete(storageKey)
-          setSending(false)
-        }
-      }}
-    >
-      <Input
-        aria-label="调整草图要求"
-        placeholder="描述调整要求…"
-        className="min-w-0 flex-1"
-        value={draft}
-        disabled={sending}
-        onChange={(e) => changeDraft(e.target.value)}
-      />
-      <Button type="submit" disabled={sending || !draft.trim()}>
-        {sending ? '发送中…' : '发送'}
-      </Button>
-    </form>
-  )
-  return (
+  const unsupported = !rich && Boolean(document.libraries?.length)
+  const tools = (
     <Popover open={controls} onOpenChange={setControls}>
-      <section className="min-w-0 space-y-3 rounded-xl border border-border/60 bg-card/30 p-3">
-        <div className="flex items-center gap-2">
-          <span className="flex-1 truncate">
-            {document.title} · 第 {document.revision} 版
-          </span>
-          {onOpen && (
-            <Button size="icon" variant="ghost" aria-label="在右侧打开草图" onClick={onOpen}>
-              <PanelRightOpen />
-            </Button>
+      <PopoverAnchor asChild>
+        <div className="flex shrink-0 items-center gap-1">
+          {!expanded && (
+            <TooltipHint content="放大查看">
+              <Button
+                ref={expandTrigger}
+                variant="ghost"
+                size="icon-sm"
+                aria-label="放大查看可视化"
+                onClick={() => setEnlarged(true)}
+              >
+                <Maximize2 className="size-4" />
+              </Button>
+            </TooltipHint>
           )}
-          <PopoverTrigger asChild>
-            <Button size="icon" variant="ghost" aria-label="设计控件" aria-expanded={controls}>
-              <SlidersHorizontal />
-            </Button>
-          </PopoverTrigger>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" aria-label="可视化操作">
+                <MoreHorizontal className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              side="bottom"
+              align="end"
+              onCloseAutoFocus={(event) => {
+                const target = nextFocus.current
+                nextFocus.current = null
+                if (!target) return
+                event.preventDefault()
+                if (target === 'controls') setControls(true)
+                else requestAnimationFrame(() => feedback.current?.focus())
+              }}
+            >
+              <div className="px-2.5 py-1.5 text-xs text-muted-foreground">第 {document.revision} 版</div>
+              {onOpen && (
+                <DropdownMenuItem onSelect={onOpen}>
+                  <PanelRightOpen />
+                  在右侧打开
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem
+                onSelect={() => {
+                  nextFocus.current = 'feedback'
+                  setAdjusting(true)
+                }}
+              >
+                <MessageSquare />
+                调整要求
+              </DropdownMenuItem>
+              {document.controls.length > 0 && (
+                <DropdownMenuItem
+                  onSelect={() => {
+                    nextFocus.current = 'controls'
+                  }}
+                >
+                  <SlidersHorizontal />
+                  设计参数
+                </DropdownMenuItem>
+              )}
+              {rich && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    disabled={Boolean(pending) || unsupported}
+                    onSelect={() =>
+                      run('copy', async () => {
+                        await copyVisualizationImage(capture)
+                        setNotice('已复制图像')
+                      })
+                    }
+                  >
+                    <Copy />
+                    {pending === 'copy' ? '正在复制…' : '复制为图像'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={Boolean(pending) || unsupported}
+                    onSelect={() =>
+                      run('png', async () => {
+                        const blob = await createVisualizationPng(capture)
+                        downloadVisualizationFile(blob, visualizationFileName(document, 'png'))
+                      })
+                    }
+                  >
+                    <Download />
+                    {pending === 'png' ? '正在生成…' : '下载 PNG'}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={Boolean(pending) || unsupported}
+                    onSelect={() =>
+                      run('html', async () => {
+                        const blob = await createStandaloneVisualization(document, store.getSnapshot().state)
+                        downloadVisualizationFile(blob, visualizationFileName(document, 'html'))
+                      })
+                    }
+                  >
+                    <Download />
+                    {pending === 'html' ? '正在导出…' : '导出 HTML'}
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
-        <iframe
-          ref={frame}
-          title={document.title}
-          sandbox="allow-scripts"
-          referrerPolicy="no-referrer"
-          aria-busy={starting}
-          className="w-full border-0"
-          style={{ height }}
-        />
-        {starting && (
-          <p role="status" className="ui-loading-delayed text-sm text-muted-foreground">
-            正在加载草图…
-          </p>
+      </PopoverAnchor>
+      {document.controls.length > 0 && (
+        <PopoverContent side="bottom" align="end" className="w-[min(28rem,calc(100vw-2rem))]">
+          <VisualizationControls document={document} store={store} />
+        </PopoverContent>
+      )}
+    </Popover>
+  )
+
+  return (
+    <section
+      className="min-w-0 w-full space-y-3"
+      style={
+        expanded
+          ? undefined
+          : {
+              maxWidth: document.layout === 'wide' ? 1024 : 736,
+            }
+      }
+      aria-label={`可视化：${document.title}`}
+    >
+      <header className={`flex min-w-0 items-start justify-between gap-3 ${expanded ? 'pr-6' : ''}`}>
+        {expanded ? (
+          <DialogTitle className="min-w-0 break-words text-base font-medium">{document.title}</DialogTitle>
+        ) : (
+          <h3 className="min-w-0 break-words font-medium">{document.title}</h3>
         )}
-        {previewError && (
-          <div className="flex items-center gap-2">
-            <p role="alert" className="min-w-0 flex-1 text-sm text-destructive">
-              {previewError}
-            </p>
-            <Button variant="outline" size="sm" onClick={() => setAttempt((value) => value + 1)}>
-              重新加载
-            </Button>
-          </div>
-        )}
-        {error && (
-          <p role="alert" className="text-destructive">
+        {tools}
+      </header>
+      {unsupported ? (
+        <p role="alert" className="text-sm text-destructive">
+          当前 Host 不支持此可视化所需的运行环境，请更新 Host。
+        </p>
+      ) : (
+        <VisualizationFrame ref={frame} document={document} store={store} rich={rich} onEscape={onEscape} />
+      )}
+      {pending && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {pending === 'copy' ? '正在复制图像…' : pending === 'png' ? '正在生成 PNG…' : '正在导出 HTML…'}
+        </p>
+      )}
+      {notice && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {notice}
+        </p>
+      )}
+      {error && (
+        <div className="flex flex-wrap items-center gap-2">
+          <p role="alert" className="min-w-0 break-words text-sm text-destructive">
             {error}
           </p>
-        )}
-        <PopoverContent side="top" align="end" className="w-[min(28rem,calc(100vw-2rem))] space-y-3">
-          <div className="flex items-center justify-between">
-            设计控件
-            <Button variant="ghost" size="icon" aria-label="重置设计状态" onClick={() => apply(document.initialState)}>
-              <RotateCcw />
+          {error.includes('下载 PNG') && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={Boolean(pending)}
+              onClick={() =>
+                run('png', async () => {
+                  downloadVisualizationFile(
+                    await createVisualizationPng(capture),
+                    visualizationFileName(document, 'png'),
+                  )
+                })
+              }
+            >
+              下载 PNG
             </Button>
-          </div>
-          {document.controls.map((control) => (
-            <label key={control.key} className="flex items-center justify-between gap-3">
-              <span>{control.label}</span>
-              {control.type === 'select' ? (
-                <Select
-                  value={String(control.options.findIndex((option) => option.value === state[control.key]))}
-                  onValueChange={(value) => apply({ ...state, [control.key]: control.options[Number(value)].value })}
-                >
-                  <SelectTrigger aria-label={control.label} className="w-44">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {control.options.map((option, index) => (
-                      <SelectItem key={option.value} value={String(index)}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : control.type === 'toggle' ? (
-                <Switch
-                  label={control.label}
-                  checked={Boolean(state[control.key])}
-                  onChange={(checked) => apply({ ...state, [control.key]: checked })}
-                />
-              ) : control.type === 'slider' ? (
-                <span className="flex items-center gap-2">
-                  <Slider
-                    aria-label={control.label}
-                    min={control.min}
-                    max={control.max}
-                    step={control.step ?? 1}
-                    value={Number(state[control.key])}
-                    onChange={(e) => apply({ ...state, [control.key]: Number(e.target.value) })}
-                  />
-                  <span className="min-w-8 text-right text-sm tabular-nums">
-                    {state[control.key]}
-                    {control.unit}
-                  </span>
-                </span>
-              ) : (
-                <Input
-                  type="color"
-                  aria-label={control.label}
-                  className="w-14 p-1"
-                  value={String(state[control.key])}
-                  onChange={(e) => apply({ ...state, [control.key]: e.target.value })}
-                />
-              )}
-            </label>
-          ))}
-          {onOpen && feedbackForm}
-        </PopoverContent>
-        {!onOpen && feedbackForm}
-      </section>
-    </Popover>
+          )}
+        </div>
+      )}
+      {adjusting && (
+        <form
+          className="flex min-w-0 flex-wrap gap-2"
+          onSubmit={async (event) => {
+            event.preventDefault()
+            const current = store.getSnapshot()
+            if (!current.draft.trim() || current.sending) return
+            store.setSending(true)
+            setError('')
+            try {
+              if (await onSubmit(current.draft, current.state)) {
+                if (store.getSnapshot().draft === current.draft) store.setDraft('')
+                setAdjusting(false)
+              }
+            } catch (cause) {
+              setError(cause instanceof Error ? cause.message : String(cause))
+            } finally {
+              store.setSending(false)
+            }
+          }}
+        >
+          <Input
+            ref={feedback}
+            aria-label="调整可视化要求"
+            placeholder="描述调整要求…"
+            className="min-w-0 flex-1 basis-40"
+            value={snapshot.draft}
+            disabled={snapshot.sending}
+            onChange={(event) => store.setDraft(event.target.value)}
+          />
+          <Button type="submit" disabled={snapshot.sending || !snapshot.draft.trim()}>
+            {snapshot.sending ? '发送中…' : '发送'}
+          </Button>
+          <Button variant="ghost" type="button" onClick={() => setAdjusting(false)}>
+            收起
+          </Button>
+        </form>
+      )}
+      {!expanded && (
+        <Dialog open={enlarged} onOpenChange={setEnlarged}>
+          <DialogContent
+            aria-describedby={undefined}
+            className="w-[calc(100vw-2rem)] max-w-[1280px] overflow-y-auto p-5"
+            onCloseAutoFocus={(event) => {
+              event.preventDefault()
+              expandTrigger.current?.focus()
+            }}
+          >
+            <VisualizationPreview
+              document={document}
+              storageKey={storageKey}
+              rich={rich}
+              onOpen={
+                onOpen
+                  ? () => {
+                      setEnlarged(false)
+                      onOpen()
+                    }
+                  : undefined
+              }
+              onSubmit={onSubmit}
+              expanded
+              onEscape={() => setEnlarged(false)}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+    </section>
   )
 }

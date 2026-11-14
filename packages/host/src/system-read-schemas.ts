@@ -1,5 +1,6 @@
 import type { SystemOperation } from '@pi-meme/contracts/system-tools'
 import { contextPartKinds } from '@pi-meme/contracts/context-window'
+import { visualizationClientOperationDefinitions, visualizationRefSchema } from '@pi-meme/contracts/visualize'
 
 type Schema = Record<string, unknown>
 const text = (maxLength = 256, minLength = 1): Schema => ({ type: 'string', minLength, maxLength })
@@ -20,6 +21,8 @@ const gitQuery = { scope: { enum: ['uncommitted', 'unstaged', 'staged', 'commit'
 
 /** Schemas for original and directly registered reads; domain readers declare their own schemas. */
 export function systemReadInputSchema(name: string): SystemOperation['inputSchema'] {
+  const visualizationClientOperation = visualizationClientOperationDefinitions.find((entry) => entry.name === name)
+  if (visualizationClientOperation) return visualizationClientOperation.inputSchema
   if (
     [
       'projects.list',
@@ -86,11 +89,7 @@ export function systemReadInputSchema(name: string): SystemOperation['inputSchem
       }),
     ])
   if (['images.get', 'images.read', 'browser.read', 'browser.screenshot'].includes(name)) return tuple([text()], 1)
-  if (name === 'visualizations.read')
-    return tuple(
-      [record({ id: text(), revision: integer(Number.MAX_SAFE_INTEGER, 1) }, ['id', 'revision']), session],
-      1,
-    )
+  if (name === 'visualizations.read') return tuple([visualizationRefSchema, session], 1)
   if (name === 'files.list') return tuple([text(4096, 0), workspace])
   if (['files.read', 'files.preview'].includes(name)) return tuple([text(4096), workspace], 1)
   if (name === 'files.search') return tuple([record({ query: text(500), cursor: text(4096) }, ['query']), workspace], 1)

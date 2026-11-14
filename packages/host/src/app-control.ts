@@ -911,7 +911,7 @@ export async function createAppControl(options: Options) {
         throw new Error('请先选择允许实施的访问权限')
     }
     if (input.visualization) {
-      if (!options.visualizations) throw new Error('当前服务不支持草图')
+      if (!options.visualizations) throw new Error('当前服务不支持可视化')
       const references = await readVisualizationReferences(session)
       const document = await options.visualizations(key).read(input.visualization.reference, references)
       validateVisualizationState(input.visualization.state, document)
@@ -1248,7 +1248,7 @@ export async function createAppControl(options: Options) {
       fileOperations: ['preview', 'search', 'write'],
       features: [
         'system-tools',
-        ...(options.visualizations ? ['visualize' as const] : []),
+        ...(options.visualizations ? (['visualize', 'visualize-runtime-v2'] as const) : []),
         ...(options.imageLibrary ? (['image-library', 'image-library-upload'] as const) : []),
         ...(options.imageGeneration ? ['image-generation' as const] : []),
         ...(options.models ? ['models' as const] : []),

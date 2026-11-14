@@ -8,17 +8,21 @@
     "./server/store": "./src/server/store.ts",
     "./server/preview-page": "./src/server/preview-page.ts",
     "./ui/use-visualizations": "./src/ui/use-visualizations.tsx",
+    "./ui/client-operations": "./src/ui/client-operations.ts",
     "./server/entry": "./src/server/entry.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@pi-meme/contracts": "workspace:*",
     "@earendil-works/pi-coding-agent": "1.5.2",
-    "typebox": "1.3.27",
+    "@pi-meme/contracts": "workspace:*",
     "@pi-meme/ui": "workspace:*",
-    "lucide-react": "^1.48.0"
+    "echarts": "6.1.0",
+    "html-to-image": "1.11.13",
+    "lucide": "1.73.0",
+    "lucide-react": "^1.48.0",
+    "typebox": "1.3.27"
   },
   "peerDependencies": {
     "react": "^19.3.0"

@@ -8,6 +8,7 @@ import type {
   SystemClientRequest,
 } from '@pi-meme/contracts/system-tools'
 import { clientReadDefinitions } from '@pi-meme/contracts/system-client-reads'
+import { visualizationClientOperationDefinitions } from '@pi-meme/contracts/visualize'
 import { SystemReadError, type ReadErrorCode } from '@pi-meme/contracts/system-read'
 
 const readErrorCodes = new Set<ReadErrorCode>([
@@ -26,6 +27,7 @@ const readErrorCodes = new Set<ReadErrorCode>([
 
 const allowed = new Set([
   ...clientReadDefinitions.map((definition) => definition.name),
+  ...visualizationClientOperationDefinitions.map((definition) => definition.name),
   'appearance.get',
   'appearance.save',
   'browser.list',

@@ -9,6 +9,7 @@ import {
   localHostUrl,
 } from '@pi-meme/contracts/host-runtime'
 import { waitForLocalHost } from '@pi-meme/host/host-status'
+import { visualizationRuntimePlugin } from '../../scripts/visualize-runtime.mjs'
 
 const sharedModules = {
   react: 'shared-react',
@@ -25,6 +26,7 @@ export function createWebConfig(
   let hostId: string | undefined
   return defineConfig({
     plugins: [
+      visualizationRuntimePlugin(),
       {
         name: 'local-host-readiness',
         config(_config, { command }) {

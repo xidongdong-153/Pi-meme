@@ -15,13 +15,14 @@ export class VisualizationStore {
 
   async read(ref: VisualizationRef, allowed: readonly VisualizationRef[]): Promise<VisualizationDocument> {
     validateVisualizationRef(ref)
-    if (!allowed.some((r) => r.id === ref.id && r.revision === ref.revision)) throw new Error('当前分支不可访问此草图')
+    if (!allowed.some((r) => r.id === ref.id && r.revision === ref.revision))
+      throw new Error('当前分支不可访问此可视化')
     const document = JSON.parse(
       await readFile(path.join(this.directory, ref.id, `${ref.revision}.json`), 'utf8'),
     ) as VisualizationDocument
     validateVisualizationInput(document)
     if (document.id !== ref.id || document.revision !== ref.revision || document.schemaVersion !== 1)
-      throw new Error('草图文件无效')
+      throw new Error('可视化文件无效')
     return document
   }
 
@@ -51,7 +52,7 @@ export class VisualizationStore {
         input.reference &&
         allowed.some((r) => r.id === input.reference!.id && r.revision > input.reference!.revision)
       )
-        throw new Error('草图版本已更新，请读取最新版本')
+        throw new Error('可视化版本已更新，请读取最新版本')
       const revision = Math.max(0, ...revisions) + 1
       const document: VisualizationDocument = {
         ...input,

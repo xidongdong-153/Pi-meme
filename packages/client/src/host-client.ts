@@ -36,6 +36,8 @@ import type {
   Theme,
 } from '@pi-meme/contracts/settings'
 import type { SystemClientIdentity, SystemClientRegistration } from '@pi-meme/contracts/system-tools'
+import { visualizationClientOperationDefinitions } from '@pi-meme/contracts/visualize'
+import { SystemReadError } from '@pi-meme/contracts/system-read'
 import type { PluginClient } from './plugin-client'
 import { createResourceClient, type ResourceClient } from './resource-client'
 
@@ -151,7 +153,8 @@ export class HostClient {
   private readonly servicesListeners = new Set<() => void>()
   private readonly pluginListeners = new Set<() => void>()
   private readonly appearanceListeners = new Set<() => void>()
-  private systemHandler?: (request: import('@pi-meme/contracts/system-tools').SystemClientRequest) => Promise<unknown>
+  private systemHandler?: Parameters<NonNullable<DesktopBridge['registerSystemClient']>>[1]
+  private systemRegistration?: symbol
   private systemOperations: string[] = []
   private connectionId = crypto.randomUUID()
   private readonly documentGeneration = crypto.getRandomValues(new Uint32Array(1))[0] + 1
@@ -1156,8 +1159,14 @@ export class HostClient {
         // Ignore another document's request, including copied sessionStorage client IDs.
         if (!current()) break
         const execute = async () => {
-          if (!handler || Date.now() > request.deadline) throw new Error('客户端操作不可用或已过期')
-          return handler(request)
+          const assertActive = () => {
+            if (!current()) throw new SystemReadError('disconnected', '发起客户端的连接或注册已失效')
+            if (!Number.isFinite(request.deadline) || Date.now() >= request.deadline)
+              throw new SystemReadError('timeout', '客户端操作已过期')
+          }
+          assertActive()
+          if (!handler) throw new SystemReadError('not-supported', '客户端操作不可用')
+          return handler(request, { assertActive })
         }
         void execute()
           .then(
@@ -1238,10 +1247,18 @@ export class HostClient {
 
   private async registerSystemCapabilities() {
     const handler = this.systemHandler
+    const registrationOwner = this.systemRegistration
     const connectionId = this.connectionId
     if (this.closed || !handler || !this.transportConnected) return
-    if (!(await this.host.capabilities()).features.includes('system-tools')) return
-    if (handler !== this.systemHandler || connectionId !== this.connectionId || !this.transportConnected) return
+    const capabilities = await this.host.capabilities()
+    if (!capabilities.features.includes('system-tools')) return
+    if (
+      handler !== this.systemHandler ||
+      registrationOwner !== this.systemRegistration ||
+      connectionId !== this.connectionId ||
+      !this.transportConnected
+    )
+      return
     if (this.systemIdentity?.connectionId === connectionId) return
     const identity: SystemClientIdentity = {
       connectionId,
@@ -1249,7 +1266,11 @@ export class HostClient {
       documentGeneration: this.documentGeneration,
     }
     this.systemIdentity = identity
-    const registration: SystemClientRegistration = { ...identity, operations: [...this.systemOperations] }
+    const visualizationNames = new Set(visualizationClientOperationDefinitions.map((definition) => definition.name))
+    const operations = this.systemOperations.filter(
+      (name) => !visualizationNames.has(name) || capabilities.features.includes('visualize-runtime-v2'),
+    )
+    const registration: SystemClientRegistration = { ...identity, operations }
     try {
       await this.rpc('system:register', [registration], null)
     } catch (cause) {
@@ -1336,6 +1357,8 @@ export class HostClient {
     }
     return {
       registerSystemClient: (operations, handler) => {
+        const registrationOwner = Symbol('system-client-registration')
+        this.systemRegistration = registrationOwner
         const previousIdentity = this.systemIdentity
         this.systemIdentity = undefined
         if (previousIdentity && this.transportConnected)
@@ -1344,8 +1367,9 @@ export class HostClient {
         this.systemOperations = operations
         void this.registerSystemCapabilities().catch((cause) => this.reportError(String(cause)))
         return () => {
-          if (this.systemHandler === handler) {
+          if (this.systemRegistration === registrationOwner) {
             const identity = this.systemIdentity
+            this.systemRegistration = undefined
             this.systemHandler = undefined
             this.systemOperations = []
             this.systemIdentity = undefined

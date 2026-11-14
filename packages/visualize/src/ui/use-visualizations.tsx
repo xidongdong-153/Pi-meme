@@ -10,33 +10,54 @@ import type {
   VisualizationMessageContext,
 } from '@pi-meme/contracts/visualize'
 import { VisualizationPreview } from './visualization-preview'
+import { visualizationStorageKey } from './visualization-state'
 
 type Summary = Omit<VisualizationDocument, 'html'>
+const documentRequests = new WeakMap<HostApi, Map<string, Promise<VisualizationDocument>>>()
+
+function readDocument(host: HostApi, session: SessionRef, reference: VisualizationRef) {
+  let requests = documentRequests.get(host)
+  if (!requests) {
+    requests = new Map()
+    documentRequests.set(host, requests)
+  }
+  const key = JSON.stringify([session.hostId, session.sessionId, reference.id, reference.revision])
+  const existing = requests.get(key)
+  if (existing) return existing
+  if (!host.visualizations) return Promise.reject(new Error('当前服务不支持可视化'))
+  const pending = host.visualizations
+    .get(session, { id: reference.id, revision: reference.revision })
+    .finally(() => requests.delete(key))
+  requests.set(key, pending)
+  return pending
+}
+
 function LoadedPreview({
   host,
   session,
   reference,
-  scope,
   onOpen,
   onSubmit,
+  rich,
 }: {
   host: HostApi
   session: SessionRef
   reference: VisualizationRef
-  scope: string
   onOpen?: () => void
   onSubmit: (text: string, context: VisualizationMessageContext) => Promise<boolean>
+  rich: boolean | undefined
 }) {
   const [document, setDocument] = useState<VisualizationDocument>()
   const [error, setError] = useState('')
+  const [retryRevision, setRetryRevision] = useState(0)
   useEffect(() => {
     let active = true
+    setError('')
     if (!host.visualizations) {
-      setError('当前服务不支持草图')
+      setError('当前服务不支持可视化')
       return
     }
-    host.visualizations
-      .get(session, reference)
+    readDocument(host, session, reference)
       .then((value) => {
         if (active) setDocument(value)
       })
@@ -46,21 +67,40 @@ function LoadedPreview({
     return () => {
       active = false
     }
-  }, [host, session.hostId, session.sessionId, reference.id, reference.revision])
-  if (error) return <p role="alert">{error}</p>
-  if (!document) return <p role="status">正在读取草图…</p>
+  }, [host, session.hostId, session.sessionId, reference.id, reference.revision, retryRevision])
+  const failure = error && (
+    <div className="flex min-w-0 items-start gap-2">
+      <p role="alert" className="min-w-0 flex-1 break-words text-sm text-destructive">
+        {error}
+      </p>
+      <Button variant="outline" size="sm" onClick={() => setRetryRevision((value) => value + 1)}>
+        重试
+      </Button>
+    </div>
+  )
+  if (error && !document) return failure
+  if (!document || rich === undefined)
+    return (
+      <p role="status" className="ui-loading-delayed text-sm text-muted-foreground">
+        正在读取可视化…
+      </p>
+    )
   const submit = (text: string, state: VisualizationState) =>
     onSubmit(
-      `请调整草图「${document.title}」（${document.id}，第 ${document.revision} 版）。\n当前预览状态：${JSON.stringify(state)}\n\n${text}`,
+      `请调整可视化「${document.title}」（${document.id}，第 ${document.revision} 版）。\n当前预览状态：${JSON.stringify(state)}\n\n${text}`,
       { reference: { id: document.id, revision: document.revision }, state },
     )
   return (
-    <VisualizationPreview
-      document={document}
-      storageKey={`pi-meme:visualize:v1:${scope}:${reference.id}:${reference.revision}`}
-      onOpen={onOpen}
-      onSubmit={submit}
-    />
+    <div className="min-w-0 space-y-2">
+      {failure}
+      <VisualizationPreview
+        document={document}
+        storageKey={visualizationStorageKey(session, reference)}
+        rich={rich}
+        onOpen={onOpen}
+        onSubmit={submit}
+      />
+    </div>
   )
 }
 export function useVisualizations({
@@ -79,6 +119,22 @@ export function useVisualizations({
   const scope = JSON.stringify([session?.hostId, session?.sessionId])
   const [catalog, setCatalog] = useState<{ host: HostApi; scope: string; documents: Summary[] }>()
   const [retryRevision, setRetryRevision] = useState(0)
+  const [runtime, setRuntime] = useState<{ host: HostApi; rich: boolean }>()
+  const rich = runtime?.host === host ? runtime.rich : undefined
+  useEffect(() => {
+    let active = true
+    void host
+      .capabilities()
+      .then((capabilities) => {
+        if (active) setRuntime({ host, rich: capabilities.features.includes('visualize-runtime-v2') })
+      })
+      .catch(() => {
+        if (active) setRuntime({ host, rich: false })
+      })
+    return () => {
+      active = false
+    }
+  }, [host, retryRevision])
   const retry = useCallback(() => setRetryRevision((value) => value + 1), [])
   const [selection, setSelection] = useState<{ scope: string; reference: VisualizationRef; follow?: boolean }>()
   useEffect(() => {
@@ -89,7 +145,7 @@ export function useVisualizations({
         setSelection({ scope, reference: saved.reference, follow: saved.follow === true })
       }
     } catch {
-      /* 无效的本地选择使用最新草图。 */
+      /* 无效的本地选择使用最新可视化。 */
     }
   }, [scope])
   const [failure, setFailure] = useState<{ host: HostApi; scope: string; error: string }>()
@@ -149,7 +205,7 @@ export function useVisualizations({
           host={host}
           session={session}
           reference={reference}
-          scope={scope}
+          rich={rich}
           onSubmit={submit}
           onOpen={() => {
             choose(reference, false)
@@ -159,15 +215,24 @@ export function useVisualizations({
       ) : (
         <p>会话不可用。</p>
       ),
-    [host, scope, submit, openPanel, choose],
+    [host, scope, submit, openPanel, choose, rich],
   )
   const panel = (
     <div className="space-y-3 overflow-y-auto p-3">
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <div className="flex items-start gap-2">
+          <p role="alert" className="min-w-0 flex-1 break-words">
+            {error}
+          </p>
+          <Button variant="outline" size="sm" onClick={retry}>
+            重试
+          </Button>
+        </div>
+      )}
       {selected && session ? (
         <>
           <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2">
-            <span className="text-sm text-muted-foreground">草图</span>
+            <span className="text-sm text-muted-foreground">可视化</span>
             <Select
               value={selected.id}
               onValueChange={(value) => {
@@ -175,7 +240,7 @@ export function useVisualizations({
                 if (d) choose(d, true)
               }}
             >
-              <SelectTrigger aria-label="选择草图">
+              <SelectTrigger aria-label="选择可视化">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -216,13 +281,17 @@ export function useVisualizations({
             host={host}
             session={session}
             reference={selected}
-            scope={scope}
+            rich={rich}
             onSubmit={submit}
           />
         </>
-      ) : (
-        <p>当前分支没有草图。</p>
-      )}
+      ) : !currentCatalog && !error && session ? (
+        <p role="status" className="ui-loading-delayed text-sm text-muted-foreground">
+          正在读取可视化…
+        </p>
+      ) : !error ? (
+        <p>当前分支没有可视化。</p>
+      ) : null}
     </div>
   )
   return {

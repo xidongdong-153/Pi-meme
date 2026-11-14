@@ -38,7 +38,9 @@ function turnVisualizations(activities: readonly ActivityItem[]): VisualizationR
     for (const item of items) {
       if (item.type === 'thinking' || item.type === 'narration') continue
       if (item.name === 'save_visualization' && item.status === 'success') {
-        const reference = (item.result as { details?: { visualization?: unknown } } | undefined)?.details?.visualization
+        const result = item.result as { details?: { visualization?: Partial<VisualizationRef> } } | undefined
+        const value = result?.details?.visualization
+        const reference = value && { id: value.id, revision: value.revision }
         try {
           validateVisualizationRef(reference)
           references.set(`${reference.id}:${reference.revision}`, { id: reference.id, revision: reference.revision })
