@@ -4,7 +4,7 @@ import { MarkdownContent } from '../content/markdown-content'
 export function NarrationActivityRow({ item }: { item: Extract<ActivityItem, { type: 'narration' }> }) {
   return (
     <div className="py-1 text-sm leading-relaxed text-foreground select-text">
-      <MarkdownContent>{item.text}</MarkdownContent>
+      <MarkdownContent imagePresentation="activity">{item.text}</MarkdownContent>
     </div>
   )
 }

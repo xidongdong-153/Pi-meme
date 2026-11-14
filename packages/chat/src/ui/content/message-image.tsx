@@ -8,6 +8,8 @@ import { fileLinkTarget } from './markdown-link'
 
 export type MessageImageLoader = (relativePath: string) => Promise<FilePreview>
 export const MessageImageLoaderContext = React.createContext<MessageImageLoader | undefined>(undefined)
+export type ImagePresentation = 'inline' | 'activity'
+export const MessageImagePresentationContext = React.createContext<ImagePresentation>('inline')
 
 export function ImageDisclosure({
   label,
@@ -95,6 +97,7 @@ function imageLabel(src: string, alt?: string) {
 
 export function MessageImage({ src, alt, className }: { src: string; alt?: string; className?: string }) {
   const loadImage = React.useContext(MessageImageLoaderContext)
+  const presentation = React.useContext(MessageImagePresentationContext)
   const remote = /^(?:https?:)?\/\//i.test(src)
   const [result, setResult] = React.useState<{
     src: string
@@ -157,23 +160,28 @@ export function MessageImage({ src, alt, className }: { src: string; alt?: strin
   }, [src, remote, loadImage, retry])
 
   const url = remote ? src : current?.url
-  return (
+  const thumbnail = (
+    <ImageThumbnail
+      key={url ?? src}
+      src={url}
+      label={imageLabel(src, alt)}
+      filename={imageLabel(src)}
+      error={current?.error}
+      reason={current?.reason}
+      remote={remote}
+      className={className}
+      onRetry={() => {
+        setResult(undefined)
+        setRetry((value) => value + 1)
+      }}
+    />
+  )
+  return presentation === 'activity' ? (
     <ImageDisclosure label="查看图像" inline>
-      <ImageThumbnail
-        key={url ?? src}
-        src={url}
-        label={imageLabel(src, alt)}
-        filename={imageLabel(src)}
-        error={current?.error}
-        reason={current?.reason}
-        remote={remote}
-        className={className}
-        onRetry={() => {
-          setResult(undefined)
-          setRetry((value) => value + 1)
-        }}
-      />
+      {thumbnail}
     </ImageDisclosure>
+  ) : (
+    thumbnail
   )
 }
 

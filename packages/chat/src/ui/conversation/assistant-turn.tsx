@@ -252,7 +252,10 @@ function AssistantTurnContent({
                     finalReply && reply ? (
                       reply
                     ) : (
-                      <MarkdownContent isStreaming={turn.isLive && index === lastTextIndex}>
+                      <MarkdownContent
+                        isStreaming={turn.isLive && index === lastTextIndex}
+                        imagePresentation={finalReply ? 'inline' : 'activity'}
+                      >
                         {segment.text}
                       </MarkdownContent>
                     )
