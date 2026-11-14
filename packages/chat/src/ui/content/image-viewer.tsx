@@ -42,9 +42,12 @@ export function ImageViewer({
     <Dialog open={Boolean(image)} onOpenChange={(open) => !open && onActiveIndexChange(null)}>
       <DialogContent
         className={cn(
-          'w-[calc(100vw-2rem)] h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-2 overflow-hidden rounded-none border-0 bg-transparent p-4 shadow-none',
-          '[&>button:last-child]:inline-flex [&>button:last-child]:size-8 [&>button:last-child]:items-center [&>button:last-child]:justify-center [&>button:last-child]:rounded-full [&>button:last-child]:bg-secondary/80 [&>button:last-child]:opacity-100 [&>button:last-child]:hover:bg-secondary',
+          'h-dvh max-h-dvh w-screen max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-2 overflow-hidden rounded-none border-0 bg-transparent p-2 shadow-none',
+          '[&>button:last-child]:right-2 [&>button:last-child]:top-2 [&>button:last-child]:inline-flex [&>button:last-child]:size-8 [&>button:last-child]:items-center [&>button:last-child]:justify-center [&>button:last-child]:rounded-full [&>button:last-child]:bg-secondary/80 [&>button:last-child]:opacity-100 [&>button:last-child]:hover:bg-secondary',
         )}
+        onPointerDown={(event) => {
+          if (event.isPrimary && event.button === 0 && event.target === event.currentTarget) onActiveIndexChange(null)
+        }}
         onCloseAutoFocus={(event) => {
           event.preventDefault()
           triggerRef.current?.focus()
@@ -65,7 +68,9 @@ export function ImageViewer({
       >
         <DialogTitle className="sr-only">{variant === 'diagram' ? '图表预览' : '图片预览'}</DialogTitle>
         <DialogDescription className="sr-only">
-          {variant === 'diagram' ? '滚轮缩放，Esc 关闭图表。' : '左右方向键切换图片，滚轮缩放，Esc 关闭预览。'}
+          {variant === 'diagram'
+            ? '拖拽查看图表，滚轮缩放，点击周围空白或按 Esc 关闭。'
+            : '拖拽查看图片，滚轮缩放，左右方向键切换图片，点击周围空白或按 Esc 关闭。'}
         </DialogDescription>
         {image && index !== null && (
           <ImagePreviewStage
@@ -78,6 +83,11 @@ export function ImageViewer({
             onNavigate={navigate}
             variant={variant}
             actions={actions}
+            viewportClassName={cn(
+              'h-[calc(88dvh-5rem)] max-h-full w-[calc(100vw-4rem)] max-w-[calc(100rem-2rem)] place-self-center sm:w-[calc(90vw-2rem)]',
+              variant !== 'diagram' && images.length > 1 && 'h-[calc(88dvh-7rem)]',
+            )}
+            onDismiss={() => onActiveIndexChange(null)}
           />
         )}
       </DialogContent>
@@ -105,6 +115,8 @@ export function ImagePreviewStage({
   actions,
   autoFocus = false,
   onError,
+  onDismiss,
+  viewportClassName,
 }: {
   image: PiImage
   imageId?: string
@@ -115,10 +127,14 @@ export function ImagePreviewStage({
   actions?: React.ReactNode
   autoFocus?: boolean
   onError?: (message: string) => void
+  onDismiss?: () => void
+  viewportClassName?: string
 }) {
   const isDiagram = variant === 'diagram'
   const viewportRef = React.useRef<HTMLDivElement>(null)
   const imageRef = React.useRef<HTMLImageElement>(null)
+  const suppressClickRef = React.useRef(false)
+  const zoomAnchorRef = React.useRef<{ x: number; y: number } | null>(null)
   const [zoom, setZoom] = React.useState<number | null>(null)
   const [naturalSize, setNaturalSize] = React.useState<{ width: number; height: number } | null>(null)
   const [error, setError] = React.useState('')
@@ -133,26 +149,131 @@ export function ImagePreviewStage({
     setRetry((value) => value + 1)
   }
 
-  const changeZoom = React.useCallback((factor: number) => {
-    setZoom((current) => {
-      const element = imageRef.current
-      const fitted = element?.naturalWidth ? (element.clientWidth / element.naturalWidth) * 100 : 100
-      return nextImageZoom(current ?? fitted, factor)
-    })
+  const updateZoom = React.useCallback((value: React.SetStateAction<number | null>) => {
+    const viewport = viewportRef.current
+    const bounds = imageRef.current?.getBoundingClientRect()
+    if (viewport && bounds?.width && bounds.height) {
+      const frame = viewport.getBoundingClientRect()
+      zoomAnchorRef.current = {
+        x: Math.max(0, Math.min(1, (frame.left + viewport.clientWidth / 2 - bounds.left) / bounds.width)),
+        y: Math.max(0, Math.min(1, (frame.top + viewport.clientHeight / 2 - bounds.top) / bounds.height)),
+      }
+    }
+    setZoom(value)
   }, [])
+
+  const changeZoom = React.useCallback(
+    (factor: number) => {
+      updateZoom((current) => {
+        const element = imageRef.current
+        const fitted = element?.naturalWidth ? (element.clientWidth / element.naturalWidth) * 100 : 100
+        return nextImageZoom(current ?? fitted, factor)
+      })
+    },
+    [updateZoom],
+  )
+
+  React.useLayoutEffect(() => {
+    const viewport = viewportRef.current
+    const bounds = imageRef.current?.getBoundingClientRect()
+    const anchor = zoomAnchorRef.current
+    if (!viewport) return
+    if (zoom === null) viewport.scrollTo(0, 0)
+    else if (bounds && anchor) {
+      const frame = viewport.getBoundingClientRect()
+      viewport.scrollLeft += bounds.left + bounds.width * anchor.x - frame.left - viewport.clientWidth / 2
+      viewport.scrollTop += bounds.top + bounds.height * anchor.y - frame.top - viewport.clientHeight / 2
+    }
+    zoomAnchorRef.current = null
+  }, [zoom, naturalSize])
 
   React.useEffect(() => {
     const viewport = viewportRef.current
     if (!viewport) return
     if (autoFocus) viewport.focus({ preventScroll: true })
+    let drag: {
+      pointerId: number
+      x: number
+      y: number
+      left: number
+      top: number
+      moved: boolean
+      fromBackground: boolean
+    } | null = null
+    const isBackground = (target: EventTarget | null) => target === viewport || target === viewport.firstElementChild
+    const endDrag = () => {
+      const pointerId = drag?.pointerId
+      drag = null
+      delete viewport.dataset.dragging
+      if (pointerId !== undefined && viewport.hasPointerCapture(pointerId)) viewport.releasePointerCapture(pointerId)
+    }
+    const cancelDrag = () => {
+      if (drag) suppressClickRef.current = true
+      endDrag()
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0 || !event.isPrimary || drag) return
+      suppressClickRef.current = false
+      if (event.target !== imageRef.current && !isBackground(event.target)) return
+      drag = {
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        left: viewport.scrollLeft,
+        top: viewport.scrollTop,
+        moved: false,
+        fromBackground: isBackground(event.target),
+      }
+      viewport.setPointerCapture(event.pointerId)
+      viewport.focus({ preventScroll: true })
+    }
+    const onPointerMove = (event: PointerEvent) => {
+      if (!drag || event.pointerId !== drag.pointerId) return
+      const x = event.clientX - drag.x
+      const y = event.clientY - drag.y
+      if (!drag.moved && Math.hypot(x, y) < 4) return
+      drag.moved = true
+      viewport.dataset.dragging = 'true'
+      viewport.scrollLeft = drag.left - x
+      viewport.scrollTop = drag.top - y
+    }
+    const onPointerUp = (event: PointerEvent) => {
+      if (!drag || event.pointerId !== drag.pointerId) return
+      suppressClickRef.current =
+        drag.moved || !drag.fromBackground || !isBackground(document.elementFromPoint(event.clientX, event.clientY))
+      endDrag()
+    }
+    const onPointerCancel = (event: PointerEvent) => {
+      if (drag?.pointerId === event.pointerId) cancelDrag()
+    }
+    const onLostPointerCapture = onPointerCancel
     const onWheel = (event: WheelEvent) => {
       if (!event.deltaY) return
       event.preventDefault()
       changeZoom(event.deltaY < 0 ? 1.1 : 1 / 1.1)
     }
+    viewport.addEventListener('pointerdown', onPointerDown)
+    viewport.addEventListener('pointermove', onPointerMove)
+    viewport.addEventListener('pointerup', onPointerUp)
+    viewport.addEventListener('pointercancel', onPointerCancel)
+    viewport.addEventListener('lostpointercapture', onLostPointerCapture)
     viewport.addEventListener('wheel', onWheel, { passive: false })
-    return () => viewport.removeEventListener('wheel', onWheel)
-  }, [changeZoom, autoFocus])
+    window.addEventListener('blur', cancelDrag)
+    return () => {
+      viewport.removeEventListener('pointerdown', onPointerDown)
+      viewport.removeEventListener('pointermove', onPointerMove)
+      viewport.removeEventListener('pointerup', onPointerUp)
+      viewport.removeEventListener('pointercancel', onPointerCancel)
+      viewport.removeEventListener('lostpointercapture', onLostPointerCapture)
+      viewport.removeEventListener('wheel', onWheel)
+      window.removeEventListener('blur', cancelDrag)
+      cancelDrag()
+    }
+  }, [changeZoom, autoFocus, source, retry])
+
+  const dismissOnBackgroundClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.target === event.currentTarget) onDismiss?.()
+  }
 
   const zoomControls = (
     <>
@@ -167,7 +288,7 @@ export function ImagePreviewStage({
       </button>
       <Select
         value={zoom === null ? 'fit' : String(zoom)}
-        onValueChange={(value) => setZoom(value === 'fit' ? null : Number(value))}
+        onValueChange={(value) => updateZoom(value === 'fit' ? null : Number(value))}
       >
         <SelectTrigger
           aria-label={isDiagram ? '图表缩放比例' : '图片缩放比例'}
@@ -199,17 +320,30 @@ export function ImagePreviewStage({
 
   return (
     <>
-      <div className="flex min-h-8 min-w-0 items-center justify-end gap-2 pr-10">
+      <div className="flex min-h-8 min-w-0 items-center justify-end gap-2 pr-10" onClick={dismissOnBackgroundClick}>
         {zoomControls}
         {actions}
       </div>
       <div
         ref={viewportRef}
         tabIndex={0}
-        className="h-full min-h-0 overflow-auto rounded-md bg-transparent focus-visible:outline-none"
+        className={cn(
+          'h-full min-h-0 min-w-0 touch-none overflow-auto overscroll-contain rounded-md bg-transparent [overflow-anchor:none] focus-visible:outline-none [&::-webkit-scrollbar]:hidden',
+          !error && 'cursor-grab data-[dragging=true]:cursor-grabbing',
+          viewportClassName,
+        )}
         aria-label={isDiagram ? '图表预览区域' : '图片预览区域'}
+        style={{ scrollbarWidth: 'none' }}
+        onClickCapture={(event) => {
+          if (event.detail === 0 || !suppressClickRef.current) return
+          suppressClickRef.current = false
+          event.preventDefault()
+          event.stopPropagation()
+        }}
+        onClick={dismissOnBackgroundClick}
       >
         <div
+          onClick={dismissOnBackgroundClick}
           className={
             zoom === null
               ? 'flex h-full w-full items-center justify-center'
@@ -262,7 +396,7 @@ export function ImagePreviewStage({
           )}
         </div>
       </div>
-      <div className="flex flex-wrap items-center justify-center gap-2">
+      <div className="flex flex-wrap items-center justify-center gap-2" onClick={dismissOnBackgroundClick}>
         {!isDiagram && count > 1 && (
           <>
             <button
