@@ -7,7 +7,7 @@ import { MarkdownStreamingContext, useMarkdownComponents } from './markdown-comp
 import { fileLinkTarget } from './markdown-link'
 
 function markdownUrlTransform(url: string, key: string) {
-  return key === 'href' && fileLinkTarget(url) ? url : defaultUrlTransform(url)
+  return (key === 'href' || key === 'src') && fileLinkTarget(url) ? url : defaultUrlTransform(url)
 }
 
 export const MarkdownContent = memo(

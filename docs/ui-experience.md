@@ -109,6 +109,14 @@ Desktop 正常关窗、退出、受控重新加载和存储维护使用同一准
 - 输入框标签、CodeMirror 等命令式 DOM 用 `data-tooltip` 保存说明，由所在容器的 `DelegatedTooltip` 展示；节点替换、移除、滚动和输入时清理旧提示。图表受控提示使用 `AnchoredTooltip`，共享同一气泡与定位行为。
 - 包含按钮或链接的预览保留 Popover 交互，普通预览复用 `tooltipSurfaceClassName`；会话栏的侧边卡片使用 Popover 的圆角面板和主题背景，统一宽度、间距与排版。
 
+## 链接与图像预览
+
+Markdown 文件标签页的图片读取器绑定该标签保存的会话，相对图片路径以文档所在目录为基准；切换当前聊天不改变已打开文件的读取目标。图片读取失败保留具体原因和重试入口，读取成功后可点击缩略图查看原图。
+
+网页链接悬浮卡通过 Host 读取公开 HTTPS 页面的 HTML 头部，读到头部结束即停止下载，不因网页正文超过 1 MiB 而失败；头部仍有 1 MiB 上限，整个请求最多等待 12 秒。最多跟随三次重定向，每一跳重新校验公开地址并固定连接地址，相对封面与图标按最终页面地址及 `<base>` 解析。成功结果缓存五分钟，失败不缓存，可在卡片中重试或重新悬停加载。
+
+系统 DNS 全部返回代理 Fake-IP（`198.18.0.0/15`）时，仅内置网页预览使用固定 `1.1.1.1` 的 Cloudflare HTTPS DNS 查询原域名，再校验并固定到真实公开地址；不会放行 Fake-IP 或私网地址，不携带用户 Cookie、令牌或凭据。受限插件仍沿用原有网络权限、DNS 校验和完整响应大小限制。实现见 [link-preview.ts](../packages/host/src/link-preview.ts)、[link-preview-network.ts](../packages/host/src/link-preview-network.ts) 和 [LinkedFilePanel](../packages/app-ui/src/panels/linked-file-panel.tsx)。
+
 ## 检查方式
 
 在实际页面检查以下行为，不用只断言 CSS 类名的测试代替体验检查：

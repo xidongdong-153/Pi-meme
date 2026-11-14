@@ -126,7 +126,10 @@ function WebLink({ href, children, title }: { href: string; children: React.Reac
   const clear = () => clearTimeout(timer.current)
   const show = () => {
     clear()
-    timer.current = setTimeout(setOpen, 300, true)
+    timer.current = setTimeout(() => {
+      setResult((value) => (value?.failed ? undefined : value))
+      setOpen(true)
+    }, 300)
   }
   const hide = () => {
     clear()
@@ -216,7 +219,7 @@ function WebLink({ href, children, title }: { href: string; children: React.Reac
           </a>
         </div>
         {data?.image ? <PreviewImage key={data.image} src={data.image} className="pi-link-cover" /> : null}
-        <div className="pi-link-preview-body">
+        <div className="pi-link-preview-body" aria-busy={Boolean(!result && loadPreview)}>
           <p className="pi-link-preview-title">{data?.title || title || children}</p>
           {data?.description ? <p className="pi-link-preview-description">{data.description}</p> : null}
           {!result && loadPreview ? (
@@ -224,7 +227,14 @@ function WebLink({ href, children, title }: { href: string; children: React.Reac
               正在读取网页预览…
             </p>
           ) : null}
-          {result?.failed ? <p className="pi-link-preview-description">暂时无法预览，可直接打开网页。</p> : null}
+          {result?.failed ? (
+            <div className="pi-link-preview-error" role="status">
+              <span>网页预览加载失败</span>
+              <button type="button" className="pi-link-preview-retry" onClick={() => setResult(undefined)}>
+                重试
+              </button>
+            </div>
+          ) : null}
           <div className="pi-link-preview-address">
             <span>{url.href}</span>
             <TooltipHint content={copyStatus || '复制链接'}>

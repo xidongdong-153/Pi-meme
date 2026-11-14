@@ -4,6 +4,7 @@ import { ChevronDown, Images } from 'lucide-react'
 import { maxImagePreviewBytes, type FilePreview } from '@pi-meme/contracts/app-host'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { ImageViewer } from './image-viewer'
+import { fileLinkTarget } from './markdown-link'
 
 export type MessageImageLoader = (relativePath: string) => Promise<FilePreview>
 export const MessageImageLoaderContext = React.createContext<MessageImageLoader | undefined>(undefined)
@@ -111,7 +112,9 @@ export function MessageImage({ src, alt, className }: { src: string; alt?: strin
     const rawPath = src.split(/[?#]/, 1)[0]
     let relativePath = rawPath
     try {
-      relativePath = decodeURIComponent(rawPath)
+      relativePath = rawPath.startsWith('file:')
+        ? (fileLinkTarget(rawPath)?.path ?? rawPath)
+        : decodeURIComponent(rawPath)
     } catch {
       // 保留原始路径，避免非法编码二次抛错
     }

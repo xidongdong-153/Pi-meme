@@ -1,10 +1,11 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { ChevronDown, Copy, Download, FolderOpen, RefreshCw, ExternalLink } from 'lucide-react'
 import type { FilePreview, SessionRef } from '@pi-meme/contracts/app-host'
 import type { DesktopBridge, ProjectApp } from '@pi-meme/contracts/desktop'
 import { MarkdownContent } from '@pi-meme/chat/ui/content/markdown-content'
 import { MarkdownFileSessionContext, MarkdownWorkingDirectoryContext } from '@pi-meme/chat/ui/content/markdown-link'
+import { MessageImageLoaderContext } from '@pi-meme/chat/ui/content/message-image'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { FileIcon } from '@pi-meme/ui/components/file-icon'
 import {
@@ -42,8 +43,15 @@ export function LinkedFilePanel({
   const [opening, setOpening] = useState(false)
   const [notice, setNotice] = useState('')
   const filename = tab.path.split(/[\\/]/).at(-1) || tab.path
-  const directory = tab.path.replace(/[\\/][^\\/]*$/, '')
+  const directory = /^(.*[\\/])[^\\/]*$/.exec(tab.path)?.[1] ?? './'
   const markdown = /\.(?:md|markdown|mdx)$/i.test(filename)
+  const loadImage = useCallback(
+    (source: string) => {
+      const path = /^(?:[\\/]|[a-z]:[\\/])/i.test(source) ? source : `${directory}${source}`
+      return load(tab.session, path)
+    },
+    [load, tab.session, directory],
+  )
   useEffect(() => {
     let active = true
     setLoading(true)
@@ -191,9 +199,11 @@ export function LinkedFilePanel({
         markdown && !source ? (
           <MarkdownFileSessionContext value={tab.session}>
             <MarkdownWorkingDirectoryContext value={directory}>
-              <div className="min-h-0 flex-1 overflow-auto p-5 select-text">
-                <MarkdownContent>{preview.content}</MarkdownContent>
-              </div>
+              <MessageImageLoaderContext value={loadImage}>
+                <div className="min-h-0 flex-1 overflow-auto p-5 select-text">
+                  <MarkdownContent>{preview.content}</MarkdownContent>
+                </div>
+              </MessageImageLoaderContext>
             </MarkdownWorkingDirectoryContext>
           </MarkdownFileSessionContext>
         ) : (

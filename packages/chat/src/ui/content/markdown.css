@@ -254,6 +254,27 @@
   overflow: hidden;
 }
 
+.pi-link-preview-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 6px;
+  color: var(--color-muted);
+}
+
+.pi-link-preview-retry {
+  min-height: 28px;
+  padding: 2px 6px;
+  border-radius: calc(var(--radius) * 0.625);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.pi-link-preview-retry:hover {
+  background: var(--color-surface);
+}
+
 .pi-link-preview-address {
   display: flex;
   align-items: center;

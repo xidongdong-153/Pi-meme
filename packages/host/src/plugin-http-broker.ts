@@ -4,6 +4,7 @@ import { isIP } from 'node:net'
 import ipaddr from 'ipaddr.js'
 import type { PluginGrant } from '@pi-meme/plugin-sdk/permissions'
 import type { PluginHttpRequest, PluginHttpResponse } from '@pi-meme/plugin-sdk/restricted'
+import { htmlHeadEnd } from './html-head'
 
 export function publicPluginAddress(value: string) {
   try {
@@ -24,11 +25,37 @@ export function publicPluginAddress(value: string) {
     return false
   }
 }
+export type NetworkAddress = { address: string; family: 4 | 6 }
+
+export async function resolveNetworkAddresses(hostname: string, signal: AbortSignal): Promise<NetworkAddress[]> {
+  const resolver = new Resolver({ timeout: 5000, tries: 1 })
+  const abortDns = () => resolver.cancel()
+  signal.throwIfAborted()
+  signal.addEventListener('abort', abortDns, { once: true })
+  try {
+    const [v4, v6] = await Promise.allSettled([resolver.resolve4(hostname), resolver.resolve6(hostname)])
+    signal.throwIfAborted()
+    return [
+      ...(v4.status === 'fulfilled' ? v4.value.map((address) => ({ address, family: 4 as const })) : []),
+      ...(v6.status === 'fulfilled' ? v6.value.map((address) => ({ address, family: 6 as const })) : []),
+    ]
+  } finally {
+    signal.removeEventListener('abort', abortDns)
+  }
+}
+
 export type PluginCredentialValue = { origin: string; header: 'Authorization' | 'X-Api-Key'; value: string }
 export class PluginHttpBroker {
   private pending = new Map<string, number>()
   private total = 0
-  constructor(private readonly credential: (pluginId: string, id: string) => PluginCredentialValue | undefined) {}
+  constructor(
+    private readonly credential: (pluginId: string, id: string) => PluginCredentialValue | undefined,
+    private readonly options: {
+      htmlHeadOnly?: boolean
+      followRedirects?: boolean
+      resolveAddresses?: (hostname: string, signal: AbortSignal) => Promise<NetworkAddress[]>
+    } = {},
+  ) {}
   async request(
     pluginId: string,
     grant: PluginGrant,
@@ -78,7 +105,12 @@ export class PluginHttpBroker {
       for (let redirects = 0; redirects <= 3; redirects++) {
         signal.throwIfAborted()
         const result = await this.once(url, method, headers, input.body, signal)
-        if (result.status >= 300 && result.status < 400 && result.headers.location) {
+        if (
+          this.options.followRedirects !== false &&
+          result.status >= 300 &&
+          result.status < 400 &&
+          result.headers.location
+        ) {
           if (redirects === 3) throw new Error('network-redirect-denied: 重定向次数过多')
           url = this.authorize(new URL(result.headers.location, url).href, method, grant)
           if (url.origin !== origin) throw new Error('network-redirect-denied: 不允许跨 origin 重定向')
@@ -117,23 +149,11 @@ export class PluginHttpBroker {
     body: string | undefined,
     signal: AbortSignal,
   ): Promise<PluginHttpResponse> {
-    const resolver = new Resolver({ timeout: 5000, tries: 1 })
-    const abortDns = () => resolver.cancel()
-    signal.addEventListener('abort', abortDns, { once: true })
-    let addresses: Array<{ address: string; family: 4 | 6 }>
-    try {
-      const [v4, v6] = await Promise.allSettled([resolver.resolve4(url.hostname), resolver.resolve6(url.hostname)])
-      addresses = [
-        ...(v4.status === 'fulfilled' ? v4.value.map((address) => ({ address, family: 4 as const })) : []),
-        ...(v6.status === 'fulfilled' ? v6.value.map((address) => ({ address, family: 6 as const })) : []),
-      ]
-    } finally {
-      signal.removeEventListener('abort', abortDns)
-    }
+    const addresses = await (this.options.resolveAddresses ?? resolveNetworkAddresses)(url.hostname, signal)
     signal.throwIfAborted()
-    if (!addresses!.length || addresses!.some((v) => !publicPluginAddress(v.address)))
+    if (!addresses.length || addresses.some((v) => !publicPluginAddress(v.address)))
       throw new Error('network-address-denied: DNS 包含非公开地址')
-    const pinned = addresses![0]
+    const pinned = addresses[0]
     return new Promise((resolve, reject) => {
       const agent = new https.Agent({ keepAlive: false, proxyEnv: {} })
       const request = https.request(
@@ -150,21 +170,21 @@ export class PluginHttpBroker {
         (response) => {
           if (response.headers['content-encoding'] && response.headers['content-encoding'] !== 'identity') {
             response.destroy()
+            agent.destroy()
             reject(new Error('invalid-output: 不支持压缩网络响应'))
             return
           }
           let size = 0
           const chunks: Buffer[] = []
-          response.on('data', (chunk: Buffer) => {
-            size += chunk.length
-            if (size > 1048576) response.destroy(new Error('payload-too-large: 网络响应过大'))
-            else chunks.push(chunk)
-          })
-          response.once('error', (cause) => {
-            agent.destroy()
-            reject(cause)
-          })
-          response.once('end', () => {
+          const htmlHeadOnly =
+            this.options.htmlHeadOnly &&
+            /^(?:text\/html|application\/xhtml\+xml)\b/i.test(response.headers['content-type'] ?? '')
+          const decoder = new TextDecoder()
+          let head = ''
+          let completed = false
+          const complete = (body: string) => {
+            if (completed) return
+            completed = true
             const clean: Record<string, string> = {}
             for (const [key, value] of Object.entries(response.headers))
               if (
@@ -172,8 +192,30 @@ export class PluginHttpBroker {
                 !/^(?:set-cookie|authorization|proxy-.*|connection|transfer-encoding)$/i.test(key)
               )
                 clean[key] = Array.isArray(value) ? value.join(', ') : value
+            resolve({ status: response.statusCode ?? 0, headers: clean, body })
             agent.destroy()
-            resolve({ status: response.statusCode ?? 0, headers: clean, body: Buffer.concat(chunks).toString('utf8') })
+          }
+          response.on('data', (chunk: Buffer) => {
+            if (completed) return
+            const remaining = 1048576 - size
+            size += chunk.length
+            if (htmlHeadOnly) {
+              head += decoder.decode(chunk.subarray(0, remaining), { stream: true })
+              const end = htmlHeadEnd(head)
+              if (end !== undefined) {
+                complete(head.slice(0, end))
+                response.destroy()
+                return
+              }
+            } else if (size <= 1048576) chunks.push(chunk)
+            if (size > 1048576) response.destroy(new Error('payload-too-large: 网络响应过大'))
+          })
+          response.once('error', (cause) => {
+            agent.destroy()
+            reject(cause)
+          })
+          response.once('end', () => {
+            complete(htmlHeadOnly ? head + decoder.decode() : Buffer.concat(chunks).toString('utf8'))
           })
         },
       )
