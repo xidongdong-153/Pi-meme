@@ -15,7 +15,8 @@ import type {
   MemoryTurnTicket,
   MemoryUsageRecord,
 } from '@pi-meme/contracts/memory'
-import type { MutationOptions } from '@pi-meme/contracts/app-host'
+import type { MutationOptions, SessionRef } from '@pi-meme/contracts/app-host'
+import { readPage, SystemReadError } from '@pi-meme/contracts/system-read'
 import {
   entryInput,
   integer,
@@ -358,7 +359,25 @@ export class MemoryService {
     await this.tail
     this.closing = true
   }
-  private list(query: MemoryQuery = {}) {
+  /** Execution-scoped reads filter before pagination and never touch the transaction queue. */
+  listForAgent(session: SessionRef, projectId: string | undefined, query: MemoryQuery = {}) {
+    if (session.hostId !== this.options.hostId) throw new SystemReadError('invalid-input', '记忆所属 Host 不匹配')
+    if (!this.state.config.enabled)
+      throw new SystemReadError('disabled', '记忆已关闭；可在设置 → Agent → 记忆中管理已存内容')
+    return this.list(query, { session, projectId })
+  }
+  readEntryForAgent(session: SessionRef, projectId: string | undefined, id: string) {
+    if (session.hostId !== this.options.hostId) throw new SystemReadError('invalid-input', '记忆所属 Host 不匹配')
+    if (!this.state.config.enabled)
+      throw new SystemReadError('disabled', '记忆已关闭；可在设置 → Agent → 记忆中管理已存内容')
+    text(id, '记忆标识', 256)
+    const entry = this.state.entries.find((item) => item.id === id)
+    if (!entry) throw new SystemReadError('not-found', '记忆不存在')
+    if (entry.scope.kind !== 'global' && entry.scope.projectId !== projectId)
+      throw new SystemReadError('permission-denied', '不能访问其他项目的记忆')
+    return structuredClone(entry)
+  }
+  private list(query: MemoryQuery = {}, reader?: { session: SessionRef; projectId?: string }) {
     object(query)
     keys(query, ['query', 'scope', 'cursor', 'limit'])
     if (query.scope) scope(query.scope)
@@ -366,21 +385,25 @@ export class MemoryService {
       throw new Error('搜索词超限')
     const limit = query.limit ?? 50
     integer(limit, '分页条数', 1, 100)
-    const offset = query.cursor === undefined ? 0 : Number(query.cursor)
-    if (!Number.isSafeInteger(offset) || offset < 0 || (query.cursor !== undefined && String(offset) !== query.cursor))
-      throw new Error('分页游标无效')
     const needle = query.query?.trim().toLocaleLowerCase() ?? ''
     const entries = this.state.entries
       .filter(
         (item) =>
+          (!reader || item.scope.kind === 'global' || item.scope.projectId === reader.projectId) &&
           (!query.scope || sameScope(query.scope, item.scope)) &&
           `${item.title}\n${item.content}`.toLocaleLowerCase().includes(needle),
       )
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id))
+    const page = readPage(
+      entries,
+      { cursor: query.cursor, limit },
+      hash([this.options.hostId, reader?.session ?? null, reader?.projectId ?? null, query.scope ?? null, needle]),
+      String(this.state.revision),
+    )
     return structuredClone({
-      entries: entries.slice(offset, offset + limit),
+      entries: page.items,
       revision: this.state.revision,
-      ...(offset + limit < entries.length ? { nextCursor: String(offset + limit) } : {}),
+      ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
     })
   }
   private visibleEntries(projectId: string) {

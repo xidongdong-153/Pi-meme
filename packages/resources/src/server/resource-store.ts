@@ -26,6 +26,14 @@ import {
   type ResourceFile,
 } from './resource-files'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
+import {
+  readPage,
+  readRecord,
+  readString,
+  readText,
+  SystemReadError,
+  type ReadQuery,
+} from '@pi-meme/contracts/system-read'
 
 type ImportRecord = {
   id: string
@@ -90,6 +98,7 @@ export class ResourceStore {
   readonly snapshotsDirectory: string
   readonly workspacesConfigDirectory: string
   private state?: StoreState
+  private readonly sourceLocations = new Map<string, { source: string; relative: string }>()
   private pending: Promise<unknown> = Promise.resolve()
   private writes: Promise<unknown> = Promise.resolve()
   private policyReads = new Set<Promise<unknown>>()
@@ -147,16 +156,20 @@ export class ResourceStore {
       path.dirname(this.stateFile),
     ])
       await mkdir(directory, { recursive: true })
+    this.state = await this.peekState()
+    return this.state
+  }
+  private async peekState(): Promise<StoreState> {
+    if (this.state) return this.state
     try {
       const state = JSON.parse(await readFile(this.stateFile, 'utf8')) as StoreState
       if (!Number.isSafeInteger(state.generation) || !Array.isArray(state.imports) || !state.policies)
         throw new Error('资源状态格式错误')
-      this.state = { ...state, imports: state.imports.filter((record) => record.kind === 'skill') }
+      return { ...state, imports: state.imports.filter((record) => record.kind === 'skill') }
     } catch (cause) {
-      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
-      this.state = { generation: 0, imports: [], policies: {} }
+      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('资源配置不可读取或格式无效')
+      return { generation: 0, imports: [], policies: {} }
     }
-    return this.state
   }
   private async persistState(next: StoreState) {
     await mkdir(path.dirname(this.stateFile), { recursive: true })
@@ -249,25 +262,20 @@ export class ResourceStore {
       if (committed || !replaced) await rm(backup, { recursive: true, force: true })
     }
   }
-  private async freeze(source: string) {
+  private async capture(source: string) {
     const files = await readResourceFiles(source)
-    return {
-      files,
-      directory: await materializeResource(this.snapshotsDirectory, files),
-      revision: resourceRevision(files),
-    }
+    return { files, revision: resourceRevision(files) }
   }
-  private async skillInterface(directory: string) {
+  private async skillInterface(directory: string, content?: string) {
     const metadata: { displayName?: string; shortDescription?: string; manual: boolean; diagnostics: string[] } = {
       manual: false,
       diagnostics: [],
     }
     const file = path.join(directory, 'agents/openai.yaml')
-    if (!(await exists(file))) return metadata
+    if (content === undefined) return metadata
     const diagnose = (message: string) => metadata.diagnostics.push(`${file}：${message}`)
     try {
       const { parseFrontmatter } = await loadPiSdk()
-      const content = await readFile(file, 'utf8')
       const { frontmatter, body } = parseFrontmatter(`---\n${content}\n---`)
       if (body || !frontmatter || typeof frontmatter !== 'object' || Array.isArray(frontmatter))
         throw new Error('YAML 必须是单个字段映射')
@@ -307,8 +315,9 @@ export class ResourceStore {
   private async scan(cwd?: string): Promise<ResourceCatalog> {
     const { loadSkills, parseFrontmatter } = await loadPiSdk()
     if (cwd) cwd = await canonicalCwd(cwd)
-    const state = await this.initialize()
+    const state = await this.peekState()
     const projectPolicies = await this.projectPolicies(cwd)
+    this.sourceLocations.clear()
     const items: ResourceItem[] = []
     const diagnostics: string[] = []
     const addRoot = async (
@@ -319,9 +328,10 @@ export class ResourceStore {
       declared?: { skills?: string[]; themes?: string[]; assets?: string[] },
     ) => {
       try {
-        const frozen = await this.freeze(source)
-        const root = frozen.directory
+        const captured = await this.capture(source)
         const sourceIsFile = (await lstat(source)).isFile()
+        const root = sourceIsFile ? path.dirname(source) : source
+        const capturedFiles = new Map(captured.files.map((file) => [file.path, file]))
         const relativeSource = sourceIsFile ? path.basename(source) : ''
         const fileSource = (relative: string) => (sourceIsFile ? source : path.join(source, relative))
         const base = (entry: {
@@ -333,9 +343,11 @@ export class ResourceStore {
           invocation?: ResourceInvocation
           diagnostics?: string[]
         }): ResourceItem => {
-          const relative = path.relative(root, entry.filePath)
+          const relative = path.relative(root, entry.filePath).split(path.sep).join('/')
+          if (!capturedFiles.has(relative)) throw new Error('技能入口不属于已读取的资源文件')
           const name = owner.type === 'app-package' ? `${owner.name ?? owner.id}:${entry.name}` : entry.name
           const id = identity(`${this.options.hostId ?? this.dataRoot}:${scope}:${owner.id}:${entry.kind}:${relative}`)
+          this.sourceLocations.set(id, { source, relative })
           const hostPolicy = state.policies[`host:${id}`]
           const projectPolicy = projectPolicies[id]
           return {
@@ -343,7 +355,7 @@ export class ResourceStore {
             kind: entry.kind,
             name,
             description: entry.description,
-            revision: frozen.revision,
+            revision: captured.revision,
             path: entry.filePath,
             sourcePath: fileSource(relative),
             baseDir: entry.baseDir,
@@ -365,7 +377,7 @@ export class ResourceStore {
         for (const location of skillPaths) {
           const loaded = loadSkills({ cwd: root, agentDir: root, skillPaths: [location], includeDefaults: false })
           for (const diagnostic of loaded.diagnostics) {
-            diagnostics.push(`${source}：${diagnostic.message}`)
+            diagnostics.push(`${source}：技能扫描报告 ${diagnostic.type}`)
             const existing = loaded.skills.find((skill) => skill.filePath === diagnostic.path)
             if (!existing && diagnostic.path && isInside(root, diagnostic.path) && diagnostic.type === 'error') {
               const invalid = base({
@@ -373,29 +385,40 @@ export class ResourceStore {
                 name: path.basename(path.dirname(diagnostic.path)),
                 filePath: diagnostic.path,
                 baseDir: path.dirname(diagnostic.path),
-                diagnostics: [diagnostic.message],
+                diagnostics: ['技能入口无效'],
               })
               invalid.enabled = false
               items.push(invalid)
             }
           }
           for (const skill of loaded.skills) {
-            const content = await readFile(skill.filePath, 'utf8')
-            const { frontmatter } = parseFrontmatter(content)
-            const interfaceMetadata = await this.skillInterface(skill.baseDir)
+            const relative = path.relative(root, skill.filePath).split(path.sep).join('/')
+            const file = capturedFiles.get(relative)
+            if (!file) throw new Error('技能入口在扫描期间变化，请重新读取')
+            const { frontmatter } = parseFrontmatter(new TextDecoder('utf-8', { fatal: true }).decode(file.content))
+            const interfaceRelative = path.posix.join(path.posix.dirname(relative), 'agents/openai.yaml')
+            const interfaceFile = capturedFiles.get(interfaceRelative)
+            const interfaceMetadata = await this.skillInterface(
+              skill.baseDir,
+              interfaceFile ? new TextDecoder('utf-8', { fatal: true }).decode(interfaceFile.content) : undefined,
+            )
             const item = base({
               kind: 'skill',
-              name: skill.name,
+              name:
+                typeof frontmatter.name === 'string' && frontmatter.name
+                  ? frontmatter.name
+                  : path.basename(skill.baseDir),
               filePath: skill.filePath,
               baseDir: skill.baseDir,
-              description: skill.description,
-              invocation: skill.disableModelInvocation || interfaceMetadata.manual ? 'manual' : 'automatic',
+              description: typeof frontmatter.description === 'string' ? frontmatter.description : undefined,
+              invocation:
+                frontmatter['disable-model-invocation'] === true || interfaceMetadata.manual ? 'manual' : 'automatic',
             })
             item.diagnostics.push(
               ...interfaceMetadata.diagnostics,
               ...loaded.diagnostics
                 .filter((diagnostic) => diagnostic.path === skill.filePath)
-                .map((diagnostic) => diagnostic.message),
+                .map((diagnostic) => `技能扫描报告 ${diagnostic.type}`),
             )
             const metadata =
               frontmatter.metadata && typeof frontmatter.metadata === 'object' && !Array.isArray(frontmatter.metadata)
@@ -502,7 +525,17 @@ export class ResourceStore {
     }
   }
   catalog(cwd?: string) {
+    return this.peekCatalog(cwd)
+  }
+  peekCatalog(cwd?: string) {
     return this.serialize(() => this.scan(cwd))
+  }
+  detail(id: string, cwd?: string) {
+    return this.serialize(async () => {
+      const item = (await this.scan(cwd)).items.find((entry) => entry.id === id)
+      if (!item) throw new SystemReadError('not-found', '资源不存在')
+      return item
+    })
   }
   disabledAppPluginIds(cwd?: string): Promise<Set<string>> {
     this.pendingCount++
@@ -511,7 +544,7 @@ export class ResourceStore {
       for (;;) {
         const writes = this.writes
         await writes
-        const state = await this.initialize()
+        const state = await this.peekState()
         const projectPolicies = await this.projectPolicies(cwd)
         const apps = (await this.options.getAppPackages?.()) ?? []
         if (writes !== this.writes) continue
@@ -525,11 +558,33 @@ export class ResourceStore {
     return read
   }
   snapshot(cwd: string): Promise<ResourceSnapshot> {
+    return this.readSnapshot(cwd, false)
+  }
+  /** Materialization is an explicit execution lifecycle effect, never a query side effect. */
+  snapshotForExecution(cwd: string): Promise<ResourceSnapshot> {
+    return this.readSnapshot(cwd, true)
+  }
+  private readSnapshot(cwd: string, forExecution: boolean): Promise<ResourceSnapshot> {
     return this.serialize(async () => {
       const catalog = await this.scan(cwd)
-      const active = catalog.items.filter((item) => item.enabled && !item.shadowedBy)
-      const skills = active.filter((item) => item.kind === 'skill')
+      const skills = catalog.items.filter((item) => item.kind === 'skill' && item.enabled && !item.shadowedBy)
       const appPlugins = catalog.items.filter((item) => item.kind === 'app-plugin')
+      if (forExecution) {
+        const roots = new Map<string, string>()
+        for (const item of skills) {
+          const location = this.sourceLocations.get(item.id)
+          if (!location) throw new Error('资源来源已失效，请重新读取')
+          let directory = roots.get(location.source)
+          if (!directory) {
+            const captured = await this.capture(location.source)
+            if (captured.revision !== item.revision) throw new Error('资源在准备执行期间变化，请重新读取')
+            directory = await materializeResource(this.snapshotsDirectory, captured.files)
+            roots.set(location.source, directory)
+          }
+          item.path = path.join(directory, location.relative)
+          item.baseDir = path.dirname(item.path)
+        }
+      }
       return {
         id: identity(
           JSON.stringify([
@@ -543,7 +598,7 @@ export class ResourceStore {
         skills,
         appPlugins,
       }
-    })
+    }, forExecution)
   }
   refresh(cwd?: string) {
     return this.serialize(async () => {
@@ -557,9 +612,59 @@ export class ResourceStore {
   }
   async readSkill(id: string, cwd?: string) {
     return this.serialize(async () => {
-      const item = (await this.scan(cwd)).items.find((entry) => entry.id === id && entry.kind === 'skill')
-      if (!item) throw new Error('技能不存在')
-      return { item, content: await readFile(item.path, 'utf8') }
+      const { item, files, relative } = await this.readSource(id, undefined, cwd)
+      const file = files.find((entry) => entry.path === relative)
+      if (!file) throw new SystemReadError('not-found', '技能入口不存在')
+      return { item, content: new TextDecoder('utf-8', { fatal: true }).decode(file.content) }
+    })
+  }
+  private async readSource(id: string, revision?: string, cwd?: string) {
+    readString(id, '资源 ID', 256)
+    const item = (await this.scan(cwd)).items.find((entry) => entry.id === id && entry.kind === 'skill')
+    if (!item) throw new SystemReadError('not-found', '技能资源不存在')
+    if (revision !== undefined && revision !== item.revision)
+      throw new SystemReadError('stale-cursor', '资源已变化，请重新读取目录')
+    const location = this.sourceLocations.get(item.id)
+    if (!location) throw new SystemReadError('not-found', '资源来源不存在')
+    const captured = await this.capture(location.source)
+    if (captured.revision !== item.revision) throw new SystemReadError('stale-cursor', '资源在读取期间变化，请重新读取')
+    return { item, ...captured, relative: location.relative }
+  }
+  listFiles(id: string, revision: string, query: ReadQuery = {}, cwd?: string) {
+    return this.serialize(async () => {
+      readString(revision, '资源修订', 256)
+      readRecord(query, ['cursor', 'offset', 'limit', 'revision'], '资源文件查询')
+      const { item, files } = await this.readSource(id, revision, cwd)
+      return readPage(
+        files.map((file) => ({ relativePath: file.path, size: file.content.length, kind: 'file' as const })),
+        query,
+        JSON.stringify([this.options.hostId ?? this.dataRoot, cwd ?? null, item.id]),
+        item.revision,
+      )
+    })
+  }
+  readFilePiece(id: string, revision: string, relativePath: string, query: ReadQuery = {}, cwd?: string) {
+    return this.serialize(async () => {
+      readString(revision, '资源修订', 256)
+      readRecord(query, ['offset', 'limit', 'revision'], '资源正文查询')
+      const relative = safeRelative(readString(relativePath, '资源相对路径', 4096))
+      const { item, files } = await this.readSource(id, revision, cwd)
+      const file = files.find((entry) => entry.path === relative)
+      if (!file) throw new SystemReadError('not-found', '资源文件不存在')
+      let content: string
+      try {
+        if (file.content.includes(0)) throw new Error('binary')
+        content = new TextDecoder('utf-8', { fatal: true }).decode(file.content)
+      } catch {
+        return {
+          kind: 'unsupported' as const,
+          reason: 'binary-or-encoding',
+          relativePath: relative,
+          revision: item.revision,
+          size: file.content.length,
+        }
+      }
+      return { kind: 'text' as const, relativePath: relative, ...readText(content, query, item.revision) }
     })
   }
   private async importFiles(input: ResourceImportInput): Promise<{ files: ResourceFile[]; sourcePath: string }> {
@@ -663,7 +768,8 @@ export class ResourceStore {
           skillPaths: [directory],
           includeDefaults: false,
         })
-        const relative = path.relative(path.join(this.snapshotsDirectory, replaceItem.revision), replaceItem.path)
+        const relative = this.sourceLocations.get(replaceItem.id)?.relative
+        if (!relative) throw new Error('原技能入口已失效')
         const updated = loaded.skills.find((skill) => path.relative(directory, skill.filePath) === relative)
         if (
           !updated ||
@@ -745,9 +851,11 @@ export class ResourceStore {
       if (typeof parsed.description !== 'string' || !parsed.description.trim())
         throw new Error('技能必须填写 description')
       const record = item ? state.imports.find((entry) => entry.id === item.owner.id) : undefined
-      const sourceDirectory = item ? path.join(this.snapshotsDirectory, item.revision) : undefined
-      const files = sourceDirectory ? await readResourceFiles(sourceDirectory) : []
-      const relative = item ? path.relative(sourceDirectory!, item.path) : 'SKILL.md'
+      const location = item ? this.sourceLocations.get(item.id) : undefined
+      if (item && !location) throw new Error('原技能入口已失效')
+      const files = location ? await readResourceFiles(location.source) : []
+      if (item && resourceRevision(files) !== item.revision) throw new Error('技能在保存期间变化，请重新读取')
+      const relative = location?.relative ?? 'SKILL.md'
       const nextFiles = files.filter((file) => file.path !== relative)
       nextFiles.push({ path: relative, content: Buffer.from(input.content) })
       const directory = await materializeResource(this.snapshotsDirectory, nextFiles)

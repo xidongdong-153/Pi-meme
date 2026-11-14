@@ -2103,6 +2103,40 @@ export class PiSessionPool implements PiRuntime {
       sourceClientId: this.viewContext.getStore()?.clientId,
     })
   }
+  peekModels(): PiModel[] {
+    return structuredClone(this.localAvailableModels ?? [])
+  }
+  peekDefaults() {
+    return structuredClone(this.defaults ?? null)
+  }
+  /** Read an existing record without activating it, warming metadata or contacting its Worker. */
+  peekSnapshot(sessionKey: string): Snapshot | undefined {
+    const record = this.sessions.get(sessionKey)
+    if (!record) return undefined
+    return structuredClone({
+      connection: {
+        generation: this.generation,
+        sessionKey: record.key,
+        sessionFile: record.sessionFile,
+        cwd: record.cwd,
+        status: record.dormant ? 'idle' : record.session.connection().status,
+        accessMode: record.accessMode,
+      },
+      state: { ...record.state, isStreaming: record.running },
+      messages: record.messages,
+      models: [],
+      stats: record.stats,
+      sessionEntries: record.sessionEntries,
+      branchAttachments: record.branchAttachments,
+      events: [
+        ...record.liveEvents,
+        ...record.tools.values(),
+        ...(record.queue ? [record.queue] : []),
+        ...record.extensions.values(),
+      ],
+      eventSequence: record.sequence,
+    })
+  }
   getRuntimeSession(sessionKey: string) {
     return this.target(sessionKey).session
   }

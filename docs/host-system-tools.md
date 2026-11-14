@@ -11,7 +11,7 @@ paths:
 
 # Host 内置工具与 Agent
 
-Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `system_read({operation: "capabilities", args: []})` 获取当前操作目录。目录包含名称、参数顺序、读写性质、作用范围、权限和客户端可用性。业务失败直接返回工具错误，不转换为成功提示。
+Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `system_read({operation: "capabilities", args: []})` 获取分页操作目录；有 `nextCursor` 时保持筛选继续读取。再用 `capabilities.describe([operationName])` 查询单项输入 schema、公共输出、范围、限制及续读方式。目录区分 `available` 与 `allowed`；业务失败不会转换为成功空结果，读取错误返回 `{error:{code,message}}`。完整业务与 16 个设置入口的对应关系见 [Agent 读取覆盖](agent-read-coverage.md)。
 
 工作台全局写操作复用“完全权限”，不增加第二套权限开关。`system_write` 仅在有效权限为完全权限的普通任务下开放；Worker、Host 与 codemode 嵌套调用都校验同一要求。Plan、本地只读、工作区内修改模式不能借此输入终端命令、改 Host 配置或操作客户端网页。只读工具仍可查询 Host 的内置资源，包括终端输出。内置读取、工作区写入、完全权限三类工具要求集中在 [agent-access.ts](../packages/contracts/src/agent-access.ts)。
 
@@ -19,7 +19,7 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 
 ## 操作目录
 
-以运行时 `capabilities` 为准。`args` 是按顺序排列的数组，省略的会话目标默认为当前执行根会话。显式 `SessionRef` 使用 `{hostId, sessionId}`，不能传界面选择或路径冒充会话身份。
+以运行时 `capabilities` 为准。它支持 `domain/scope/write/query` 筛选和有修订的分页，默认 50 项、最多 100 项。`args` 是按顺序排列的数组，省略的会话目标默认为当前执行根会话。显式 `SessionRef` 使用 `{hostId, sessionId}`，项目工作区可使用 `{hostId,projectId}`；不能传界面选择或路径冒充身份。下表保留读写入口概览，新增读取的完整分组见覆盖表。
 
 | 能力         | 读取                                                                      | 修改                                                                                                    |
 | ------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -46,7 +46,7 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 
 ### 终端
 
-`terminal.list` 返回终端 ID、所属会话或项目、目录、尺寸和退出状态。`terminal.read` 的参数为 `[terminalId]`，返回当前屏幕及最多 1000 行滚动缓冲的纯文本和 `outputSequence`。终端输入完成不等于命令执行完成，需要再次读取输出；不会等待 shell 提示符后才返回。
+`terminal.list([{cursor?,offset?,limit?,revision?}?])` 分页返回有权读取的终端 ID、所属会话或项目、目录、尺寸和退出状态。`terminal.read` 的参数为 `[terminalId]`，返回当前屏幕及最多 1000 行滚动缓冲的纯文本和 `outputSequence`。终端输入完成不等于命令执行完成，需要再次读取输出；不会等待 shell 提示符后才返回。
 
 `terminal.input` 参数为 `[terminalId, text]`，执行命令时显式包含换行。输入最多 64 KiB。关闭和输入具有执行副作用，均为写操作。界面关闭订阅不关闭 Host 进程；再次打开或刷新附着已有存活终端。Host 重启后进程不恢复。新建交互终端声明 `TERM=xterm-256color` 和 `COLORTERM=truecolor`，不继承 Host 日志的 `NO_COLOR` / `FORCE_COLOR` 开关；用户仍可在终端中显式设置这些变量。
 
@@ -98,6 +98,16 @@ Agent 不能删除当前执行根会话或其所属项目，避免工具执行�
 
 `sessions.attention([SessionRef?])` 读取 Host 共享的查看状态，不清除提醒。`sessions.markRead([{completionToken?,inputRequestIds?}, SessionRef?])` 确认明确版本或请求，省略目标时使用当前执行根会话；不读取界面选择、不回答交互。此操作属于会话范围写入，仅在普通模式与完全权限下开放。过期回复 token 会被拒绝，不能用旧确认清除新回复。
 
+### 完整读取与配置状态
+
+会话读取新增 `sessions.snapshot/history/tree/entry/message/events/queue/interactions/stats/sources/image`，以及主机范围 `sessions.query/search`。历史只使用已有快照或保存 JSONL，不恢复冷会话、不写历史索引。条目与事件返回公共白名单投影，隐藏思考、原始 Pi/provider 对象和原始错误不返回。子代理消息、事件、邮箱与保存计划版本分别通过 `agents.*`、`plans.history/get` 查询；读取不恢复任务、消费邮件或确认交互。
+
+大目录使用 `files.listPage`，大 UTF-8 文件使用 `files.readPiece`。后者支持超过预览上限的文件，`offset/nextOffset` 为 UTF-8 字节偏移，须携带返回的文件修订续读。通用正文分片使用 JavaScript 字符串偏移；两者都拒绝字符中间偏移。超过最终 48 KiB 文本预算的结果使用返回的 `results.read` 参数续读完整 JSON，不用预览摘要替代正文。图片单独按真实 MIME 返回。
+
+`settings.*`、`tools.execution`、`permissions.status`、`sandbox.status`、`models.*`、`imageGeneration.config`、`subagents.*`、`plugins.*`、`mcp.status/tools`、`usage.*`、`storage.*`、`host.*` 提供字段白名单。配置、捕获和有效状态分别返回；未捕获、未加载、禁用与未知状态不冒充空列表。不返回认证通知、地址中的凭据、headers/env/args、私钥或原始错误，也不为读取而认证、联网、重载插件或探测服务。
+
+`resources.catalog/detail/readSkill/files/file` 显式读取技能策略、正文和包内文件；读取不创建执行资源快照。`instructions.configured/captured/effective` 区分保存指令和本轮来源，正文显式分片。具体参数及字段以 describe 和 [覆盖表](agent-read-coverage.md) 为准。
+
 ### 配置与修订
 
 `profile.get` 返回资料摘要、`hasAvatar` 和内容修订，不携带头像 base64；`profile.avatar` 单独返回图片。`profile.save` 参数为 `[patch, revision]`。只允许 `name`、`username`、`email`、`avatarText`、`avatarData` 字符串字段，作用于当前 Host。资料事件触发已连接界面重新读取。
@@ -114,7 +124,7 @@ Agent 不能删除当前执行根会话或其所属项目，避免工具执行�
 
 记忆默认关闭，入口为“设置 → Agent → 记忆”。`memory.status([])` 可读取 Host 开关、预算及当前项目任务；主开关关闭时，其余记忆正文读取被拒绝，认证设置页仍可管理已存内容。
 
-`memory.list([{query?,cursor?,limit?:1..20}?])` 和 `memory.search([{query,cursor?,limit?:1..20}])` 只返回当前执行项目与通用记忆的有界摘要，搜索词最多 500 字符。`memory.get([memoryId])` 读取全文及最多 8 条来源。不能借显式 ID 读取其他项目，目标不取界面选择。
+`memory.list([{query?,cursor?,limit?:1..20}?])` 和 `memory.search([{query,cursor?,limit?:1..20}])` 只返回当前执行项目与通用记忆的有界摘要，搜索词最多 500 字符。`memory.get([memoryId])` 读取全文及最多 8 条来源；`memory.sources([memoryId,{cursor?,limit?,revision?}?])` 继续分页读取全部保留来源。不能借显式 ID 读取其他项目，目标不取界面选择。
 
 写操作仅在普通任务与完全权限下开放，响应用户明确的记住、纠正或忘记要求：
 
@@ -157,7 +167,9 @@ sequenceDiagram
 
 Host 用执行身份校验运行代次、运行状态和取消信号。写入使用工具调用 ID 作为幂等键，外层与业务 API 使用不同命名空间，避免互相等待。Host 共享配置写入串行处理，并复用服务的修订校验。
 
-客户端请求最长等待 30 秒。断线、取消或超时不会转发给其他客户端，也不会自动重放点击、输入或配置修改。超时可能发生在客户端已经执行之后，错误会说明结果不确定；先读取现状再决定下一步。
+客户端请求绑定提交时的 `clientId/connectionId/registrationId/documentGeneration`。保留 clientId 的重载归属，新连接和文档代次独立；同 ID 的另一连接不能接管注册或代答旧请求。事件只发送到匹配连接，回执核对当前注册与文档。读取 `client.state/navigation/panels`、`composer.*`、外观、快捷键、入口连接、SSH、平台能力与插件 UI 元数据时不跳页、不挂载面板、不发送草稿或执行插件钩子。输入框先取明确 ref 与数字修订；失效后重新读取。
+
+客户端请求最长等待 30 秒。断线、取消或超时不会转发给其他客户端，也不会自动重放点击、输入或配置修改。超时可能发生在客户端已经执行之后，错误会说明结果不确定；先读取现状再决定下一步。Desktop 浏览器新增工作区摘要、批注、档案设置、历史、下载和权限读取，摘要不恢复标签或保存工作区，历史查询不清空数据。执行 Host、外观 Host、本地浏览器档案与发起客户端分别报告，详见 [客户端覆盖](agent-read-coverage.md#发起客户端的覆盖与隔离)。
 
 ## 新增内置能力
 
@@ -166,7 +178,7 @@ Host 用执行身份校验运行代次、运行状态和取消信号。写入使
 3. Host 专有服务接入 `packages/host/src/service.ts` 的明确分支。校验未知输入；共享配置带修订，写操作带幂等键，检查取消和过期执行。不要在正在执行的工具内调用等待全局空闲的接口。
 4. 客户端操作在 `use-system-client.ts` 注册；平台方法通过契约和 preload 连接。注册名称表示客户端确实支持，不能由 Web 假装支持 Desktop。
 5. 写操作完成后发送现有业务事件或 `system-changed`，界面从服务重新读取。会话删除通过持久清理记录解绑产物、终端和客户端引用。
-6. 返回结构化数据。图片返回原生图片内容；大型列表支持分页；超过工具输出上限时返回带 `truncated` 的合法 JSON 摘要，不能从中间截断 JSON。错误包含可采取的下一步。不要把明文凭据、配置请求头或密码输入值返回模型。
-7. 更新本页目录和相关业务文档，在开发环境用真实 Agent 调用验证读取、修改、权限拒绝和过期目标；按仓库规则运行静态检查。
+6. 读取登记具体 `inputSchema/outputSchema/domain/limits`，执行时校验未知字段和范围，输出使用公共白名单。大型列表和正文使用分页或分片；超过预算由 `results.read` 保留完整 JSON，图片返回原生内容。未知异常规范化为安全错误码，不能把明文凭据、配置请求头、密码输入、原始错误或任意内部对象返回模型。写操作保留其幂等与失败语义。
+7. 更新本页和 [读取覆盖表](agent-read-coverage.md)。读取链路不得创建 Worker、索引文件、执行资源快照或业务状态；初始化放在生命周期。交付由未实施该功能的 Hacker 用真实界面、Agent 与临时数据检查权限、过期和完整性，写明 oracle 与未验范围；静态检查不代替功能验收。
 
 开发入口为 `pnpm start`；检查方式见 [测试](testing.md)。会话界面状态见 [UI 体验与动效](ui-experience.md#会话状态与工具保留)。后台截图复用同一 WebContents 的 [Electron Debugger](https://www.electronjs.org/docs/latest/api/debugger) 和 [Page.captureScreenshot](https://chromedevtools.github.io/devtools-protocol/tot/Page/#method-captureScreenshot)，不切换标签；20 秒超时并释放自身调试连接。

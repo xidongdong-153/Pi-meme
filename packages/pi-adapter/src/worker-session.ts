@@ -1,5 +1,6 @@
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { SystemToolRequest } from '@pi-meme/contracts/system-tools'
+import { SystemReadError } from '@pi-meme/contracts/system-read'
 import type { MemoryRuntimeBridge, MemoryRuntimeRequest } from '@pi-meme/contracts/memory'
 import type { ContextCapture } from '@pi-meme/contracts/context-window'
 import type { VisualizationRequest, VisualizationDocument } from '@pi-meme/contracts/visualize'
@@ -279,8 +280,18 @@ export function createWorkerSession(
                 current.postMessage({ hostReply: request.id, result })
             })
             .catch((cause: unknown) => {
-              if (worker === current && !controller.signal.aborted)
-                current.postMessage({ hostReply: request.id, error: String(cause) })
+              if (worker === current && !controller.signal.aborted) {
+                const read = request.kind === 'system' && !request.systemRequest?.write
+                current.postMessage({
+                  hostReply: request.id,
+                  error: read
+                    ? cause instanceof SystemReadError
+                      ? cause.message
+                      : '读取失败；未返回内部错误正文'
+                    : String(cause),
+                  ...(read ? { errorCode: cause instanceof SystemReadError ? cause.code : 'internal-error' } : {}),
+                })
+              }
             })
             .finally(() => hostRequests.delete(request.id))
           return

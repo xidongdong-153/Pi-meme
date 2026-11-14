@@ -31,6 +31,8 @@ paths:
 
 操作指定目标，不读取或改变客户端的界面选择。会话创建立即持久化身份，首次生成 Pi JSONL 后补充文件绑定；内部 `sessionKey` 不作为公开持久 ID。
 
+读取已有会话时使用现有运行态或保存历史，不调用会话恢复、同步目录或 Worker 初始化。无运行时的会话摘要保留冷态；读历史的前台索引仅在内存建立，不持久化索引或执行资源快照。Agent 当前临时执行会话按 Host 绑定的 reader 授权，其他窗口临时会话仍拒绝。`attention`、队列、交互和协作只读不确认、不消费。目录与会话绑定的刷新属于 Host 启动或已有生命周期，不由读取入口补写。
+
 | 接口组            | 已实现操作                                                                                                                                                                                                                      |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `capabilities()`  | Host 身份、API 版本、功能及可选文件操作能力                                                                                                                                                                                     |
@@ -94,6 +96,8 @@ await host.sessions.setPinned(chat, true, { idempotencyKey: 'bot-pin-42' })
 
 Agent 通过 `system_read/system_write` 调用同一业务 API，写操作仍要求普通任务与完全权限。工具目录、参数顺序及执行中自删限制见 [Host 内置工具](host-system-tools.md#项目与会话管理)。
 
+Agent 的扩展读取目录通过显式业务适配提供会话树、历史分片、配置投影、资源包文件、输入框与客户端状态；不会把任意 RPC 或内部对象暴露为 HostApi。完整映射见 [Agent 读取覆盖](agent-read-coverage.md)。HTTP HostApi 仍按本页的具体接口签名调用，其 `capabilities()` 与 Agent 的分页操作目录不是同一个协议。注册客户端在 HTTP control 与 RPC 中携带 `connectionId`，Host 校验当前连接；Agent 客户端读取进一步固定注册与文档代次，不读取当前界面选择来重定向任务。
+
 ## 会话查看状态
 
 `capabilities().features` 包含 `session-attention` 时，`sessions.attention(ref)` 返回该正式会话的 Host 共享查看状态，包括 `revision`、`completionToken`、`completionSource`、`inputRequestIds`、`unread` 和 `inputUnread`。读取不会标记已读。`sessions.markRead(ref, { completionToken?, inputRequestIds? }, options)` 只确认明确提交的内容，写操作携带幂等键；参数中的 token 必须匹配当前回复版本，过期时要求重新读取。交互仅确认仍属于该会话的请求 ID，不回答或取消交互。
@@ -103,6 +107,8 @@ Agent 通过 `system_read/system_write` 调用同一业务 API，写操作仍要
 ## 模型目录
 
 `capabilities().features` 包含 `models` 时，`models.list()` 返回当前 Host 可用模型的白名单投影，不依赖当前界面选择或执行会话。每项包含 `provider/id/name`，以及可选的 API 协议、思考能力和档位、上下文、输出上限、输入类型；不返回 Base URL、请求头、API Key、凭据或文件路径。类型见 [model-config.ts](../packages/contracts/src/model-config.ts)。
+
+模型目录由 Host 启动、模型配置变更与显式重连捕获。`models.list()` 只读取已有模型快照，不为了查询初始化 SDK 模型运行时、恢复会话或验证凭据。
 
 第三方注入的模型归入普通自定义提供商，沿用提交的提供商 ID 和上游模型 ID。配置读写复用已有的认证 RPC，具体参数见[第三方注入自定义提供商](configuration.md#第三方注入自定义提供商)。`HostApi.models` 只提供查询，接入已有 Host 时先查询 capabilities，缺少 `models` 能力时不要调用该组。
 

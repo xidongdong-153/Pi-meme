@@ -18,6 +18,14 @@ export async function create(context: BuiltinModuleContext) {
     'browser:download': (value) => store.download(value as BrowserDownload | string),
     'browser:clear-downloads': () => store.clearDownloads(),
     'browser:workspace': (owner) => store.workspace(String(owner)),
+    'browser:peek-workspace': (owner) => {
+      if (typeof owner !== 'string') throw new Error('浏览器读取目标无效')
+      return store.peekWorkspace(owner)
+    },
+    'browser:annotation-image': (owner, id) => {
+      if (typeof owner !== 'string' || typeof id !== 'string') throw new Error('批注读取目标无效')
+      return store.annotationImage(owner, id)
+    },
     'browser:save-workspace': (owner, value) => store.saveWorkspace(String(owner), value as BrowserWorkspace),
     'browser:rebind': (from, to) => store.rebind(String(from), String(to)),
   })

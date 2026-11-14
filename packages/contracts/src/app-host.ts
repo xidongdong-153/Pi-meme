@@ -283,6 +283,7 @@ export type HostControlRequest = {
   hostId?: string
   apiVersion: 2
   clientId: string
+  connectionId?: string
   method: string
   args: unknown[]
   idempotencyKey?: string

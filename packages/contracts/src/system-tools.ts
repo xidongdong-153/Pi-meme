@@ -7,12 +7,32 @@ export type SystemOperation = {
   parameters: string
   write: boolean
   scope: 'host' | 'session' | 'client'
+  domain?: string
+  inputSchema?: Record<string, unknown>
+  outputSchema?: Record<string, unknown>
+  limits?: { textBytes?: number; maxPageSize?: number; retained?: string }
 }
-export type SystemClientRequest = {
+export type SystemOperationAvailability = {
+  available: boolean
+  allowed: boolean
+  reason?: 'not-supported' | 'not-loaded' | 'disabled' | 'disconnected' | 'permission-denied'
+}
+export type SystemClientIdentity = {
+  connectionId: string
+  registrationId: string
+  documentGeneration: number
+}
+export type SystemClientRegistration = SystemClientIdentity & { operations: string[] }
+export type SystemClientRequest = SystemClientIdentity & {
   id: string
   operation: string
   args: unknown[]
   session: SessionRef
   deadline: number
 }
-export type SystemClientReply = { id: string; result?: unknown; error?: string }
+export type SystemClientReply = SystemClientIdentity & {
+  id: string
+  result?: unknown
+  error?: string
+  errorCode?: import('./system-read').ReadErrorCode
+}

@@ -59,6 +59,7 @@ export function WorkspacePanels({
   dataFacts = {},
   onDataRetry,
   onToolsVisibilityChange,
+  onSystemSnapshot,
   props,
   session,
   sessionTitle = '聊天',
@@ -108,6 +109,7 @@ export function WorkspacePanels({
   dataFacts?: PanelDataFacts
   onDataRetry?: () => void
   onToolsVisibilityChange?: (visible: boolean) => void
+  onSystemSnapshot?: (snapshot: { sessionId: string; layout: PanelLayoutState } | null) => void
   props: UiContributionProps
   session: string
   sessionTitle?: string
@@ -236,6 +238,10 @@ export function WorkspacePanels({
     return () => window.removeEventListener('pi-meme:workspace-bound', bind)
   }, [props.target.hostId])
   const layout = state.layout
+  useEffect(() => {
+    onSystemSnapshot?.({ sessionId: session, layout: { ...layout, tabs: [...layout.tabs], toolActive } })
+    return () => onSystemSnapshot?.(null)
+  }, [onSystemSnapshot, session, layout, toolActive])
   const setLayout = useCallback((update: (value: PanelLayoutState) => PanelLayoutState) => {
     updateState((value) => ({ ...value, inherited: false, layout: update(value.layout) }))
   }, [])

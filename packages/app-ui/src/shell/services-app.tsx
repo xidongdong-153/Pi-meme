@@ -242,6 +242,7 @@ export function ServicesApp({
               serviceId: service.id,
               active: service.id === activeId,
               services,
+              clientReads: { ssh: registry.ssh },
               imageSources,
               onImageSession: async (id, ref) => {
                 const session = await registry.get(id).host.sessions.get(ref)

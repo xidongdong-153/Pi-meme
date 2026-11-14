@@ -1,5 +1,7 @@
 import { thinkingLevels } from '@pi-meme/contracts/pi'
-import { mkdir, readFile, readdir, writeFile, rename, open, rm, lstat } from 'node:fs/promises'
+import { mkdir, readFile, readdir, writeFile, rename, open, rm, lstat, realpath } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { maxImagePreviewBytes } from '@pi-meme/contracts/app-host'
 import { createHash, randomUUID } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import path from 'node:path'
@@ -67,6 +69,61 @@ function parseSubagentDefaults(value: unknown, partial = false): Partial<Subagen
     result.thinkingLevel = input.thinkingLevel as SubagentDefaults['thinkingLevel']
   } else if (!partial) result.thinkingLevel = null
   return result
+}
+
+async function readProfileBytes(filename: string, maximum: number) {
+  const before = await lstat(filename)
+  if (!before.isFile() || before.isSymbolicLink() || (await realpath(filename)) !== filename)
+    throw new Error('个人资料文件不允许符号链接或目录跳转')
+  const file = await open(filename, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+  try {
+    const info = await file.stat()
+    if (!info.isFile() || info.size > maximum || info.dev !== before.dev || info.ino !== before.ino)
+      throw new Error('个人资料文件类型、大小或身份无效')
+    const bytes = Buffer.alloc(maximum + 1)
+    let length = 0
+    while (length < bytes.length) {
+      const result = await file.read(bytes, length, bytes.length - length, length)
+      if (!result.bytesRead) break
+      length += result.bytesRead
+    }
+    if (length > maximum) throw new Error('个人资料文件过大')
+    return bytes.subarray(0, length)
+  } finally {
+    await file.close()
+  }
+}
+function avatarMime(bytes: Buffer) {
+  if (
+    bytes.length >= 45 &&
+    bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) &&
+    bytes.toString('ascii', 12, 16) === 'IHDR' &&
+    bytes.toString('ascii', bytes.length - 8, bytes.length - 4) === 'IEND'
+  )
+    return 'image/png'
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === 255 &&
+    bytes[1] === 216 &&
+    bytes[2] === 255 &&
+    bytes.readUInt16BE(bytes.length - 2) === 65497
+  )
+    return 'image/jpeg'
+  if (
+    bytes.length >= 20 &&
+    bytes.toString('ascii', 0, 4) === 'RIFF' &&
+    bytes.toString('ascii', 8, 12) === 'WEBP' &&
+    bytes.readUInt32LE(4) + 8 === bytes.length &&
+    ['VP8 ', 'VP8L', 'VP8X'].includes(bytes.toString('ascii', 12, 16))
+  )
+    return 'image/webp'
+  if (
+    bytes.length >= 14 &&
+    ['GIF87a', 'GIF89a'].includes(bytes.toString('ascii', 0, 6)) &&
+    bytes[bytes.length - 1] === 59
+  )
+    return 'image/gif'
+  return undefined
 }
 
 export class SettingsStore {
@@ -148,39 +205,55 @@ export class SettingsStore {
   }
 
   async getUserProfile() {
-    await mkdir(this.profileDirectory, { recursive: true })
-    const profileFile = path.join(this.profileDirectory, 'profile.json')
-    let current: {
-      name?: string
-      username?: string
-      email?: string
-      avatarText?: string
-      avatarFile?: string
-    } = {}
+    let current: Record<string, unknown> = {}
+    let directory: string | undefined
     try {
-      current = JSON.parse(await readFile(profileFile, 'utf8')) as typeof current
+      const info = await lstat(this.profileDirectory)
+      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('个人资料目录无效')
+      directory = await realpath(this.profileDirectory)
+      const resolved = await lstat(directory)
+      if (resolved.dev !== info.dev || resolved.ino !== info.ino) throw new Error('个人资料目录在读取期间被替换')
+      const content = await readProfileBytes(path.join(directory, 'profile.json'), 64 * 1024)
+      const value: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(content))
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('个人资料格式无效')
+      current = value as Record<string, unknown>
     } catch (cause) {
-      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('个人资料不可读取或格式无效')
     }
 
     let avatarUrl: string | undefined
-    if (current.avatarFile) {
+    const avatar = current.avatarFile
+    if (
+      directory &&
+      typeof avatar === 'string' &&
+      avatar &&
+      !avatar.includes('/') &&
+      !avatar.includes('\\') &&
+      !avatar.includes('\0') &&
+      path.basename(avatar) === avatar
+    ) {
       try {
-        const avatarPath = path.join(this.profileDirectory, current.avatarFile)
-        const buffer = await readFile(avatarPath)
-        const ext = path.extname(current.avatarFile).replace('.', '') || 'png'
-        const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`
-        avatarUrl = `data:${mime};base64,${buffer.toString('base64')}`
+        const requested = path.join(directory, avatar)
+        if ((await lstat(requested)).isSymbolicLink()) throw new Error('头像不能使用符号链接')
+        const avatarPath = await realpath(requested)
+        const relative = path.relative(directory, avatarPath)
+        if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+          throw new Error('头像不在个人资料目录内')
+        const buffer = await readProfileBytes(avatarPath, maxImagePreviewBytes)
+        const mime = avatarMime(buffer)
+        if (mime) avatarUrl = `data:${mime};base64,${buffer.toString('base64')}`
       } catch {
-        // 头像文件不存在则忽略
+        // Invalid, missing or out-of-scope avatars never expose arbitrary file bytes.
       }
     }
 
+    const field = (key: keyof typeof DEFAULT_USER_PROFILE) =>
+      (typeof current[key] === 'string' ? current[key].trim() : '') || DEFAULT_USER_PROFILE[key]
     return {
-      name: current.name?.trim() || DEFAULT_USER_PROFILE.name,
-      username: current.username?.trim() || DEFAULT_USER_PROFILE.username,
-      email: current.email?.trim() || DEFAULT_USER_PROFILE.email,
-      avatarText: current.avatarText?.trim() || DEFAULT_USER_PROFILE.avatarText,
+      name: field('name'),
+      username: field('username'),
+      email: field('email'),
+      avatarText: field('avatarText'),
       avatarUrl,
     }
   }

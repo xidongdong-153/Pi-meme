@@ -1,4 +1,5 @@
 import { useSystemClient } from './session/use-system-client'
+import { readSystemUiSnapshot } from './session/system-ui-snapshot'
 import type { SidebarLayout } from './layout/use-sidebar-layout'
 import type { WorkspaceView } from './layout/use-workspace-view'
 import { MaterialsPage } from './materials/materials-page'
@@ -95,7 +96,13 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { PluginSlot } from './plugins/plugin-slot'
 import { WorkspacePanels } from './layout/workspace-panels'
-import { sessionUiTarget, panelAvailable, sideChatTabId, historyPanelsAvailable } from './layout/panel-layout'
+import {
+  sessionUiTarget,
+  panelAvailable,
+  sideChatTabId,
+  historyPanelsAvailable,
+  type PanelLayoutState,
+} from './layout/panel-layout'
 import { useAgentPluginSelection } from './plugins/use-agent-plugin-selection'
 import {
   Activity,
@@ -175,6 +182,10 @@ function AppContent({
   onBootComplete?: () => void
 }) {
   const browserUnstored = useRef<() => boolean>(() => false)
+  const systemPanelSnapshot = useRef<{ sessionId: string; layout: PanelLayoutState } | null>(null)
+  const receiveSystemPanelSnapshot = useCallback((snapshot: { sessionId: string; layout: PanelLayoutState } | null) => {
+    systemPanelSnapshot.current = snapshot
+  }, [])
   const userProfile = useUserProfile(bridge)
   const shortcuts = useShortcuts()
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false)
@@ -398,7 +409,6 @@ function AppContent({
   )
   const cwd = chat.connection.cwd
   const appearance = useAppearance()
-  useSystemClient(bridge, browserPlatform, hostId, appearance.bridge)
   const settings = useSettings(bridge, true, false)
   useEffect(
     () =>
@@ -2024,6 +2034,36 @@ function AppContent({
     },
     ...pluginPanels,
   ]
+  useSystemClient(
+    bridge,
+    browserPlatform,
+    hostId,
+    appearance.bridge,
+    (request) =>
+      readSystemUiSnapshot(
+        {
+          hostId,
+          session: appSession ? { hostId: appSession.hostId, sessionId: appSession.sessionId } : undefined,
+          active,
+          route,
+          canBack: navigation.canBack,
+          canForward: navigation.canForward,
+          dirty: instructionsDirty || memoryDirty || Boolean(dirtyPage) || fileStore.hasDirty(),
+          saving: instructionsSaving || memorySaving || storageMaintaining,
+          composer: registry.getComposerSnapshot,
+          panels,
+          panelSnapshot: systemPanelSnapshot.current,
+          shortcuts,
+          services: serviceUI?.services ?? [],
+          ssh: serviceUI?.clientReads?.ssh,
+          pages: pluginPages,
+          navigation: pluginNavigation,
+          messageActions: registry.getMessageActions(),
+        },
+        request,
+      ),
+    appearance.getSystemSnapshot,
+  )
   async function invokeSystemSkill(name: string, prompt?: string) {
     if (creatingSkillSession.current) return false
     creatingSkillSession.current = true
@@ -2125,6 +2165,7 @@ function AppContent({
               dataFacts={dataFacts}
               onDataRetry={retryPanelData}
               onToolsVisibilityChange={setToolsVisible}
+              onSystemSnapshot={receiveSystemPanelSnapshot}
               onNewWebPage={browserPlatform && browser.ready ? () => void browser.create() : undefined}
               browserPanelIds={browser.tabs.map((tab) => `builtin:browser:${tab.id}`)}
               onClosePanel={(id) => {

@@ -1,4 +1,5 @@
-import { mkdir, readFile, readdir, rename, writeFile, rm } from 'node:fs/promises'
+import { mkdir, open, readFile, readdir, rename, writeFile, rm } from 'node:fs/promises'
+import { constants } from 'node:fs'
 import { createHash, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type {
@@ -8,6 +9,7 @@ import type {
   BrowserSettings,
   BrowserSnapshot,
   BrowserWorkspace,
+  BrowserWorkspaceMetadata,
 } from '@pi-meme/contracts/browser'
 import { validAnnotation } from '../shared/annotations'
 
@@ -174,31 +176,63 @@ export class BrowserStore {
   private async loadAnnotation({ asset, ...value }: SavedAnnotation): Promise<BrowserAnnotation> {
     if (!asset) return value
     if (!/^[a-f0-9]{64}$/.test(asset)) throw new Error('批注图片引用无效')
-    return {
-      ...value,
-      image: {
-        type: 'image',
-        mimeType: 'image/png',
-        data: (await readFile(path.join(this.directory, `${asset}.png`))).toString('base64'),
-      },
+    const handle = await open(path.join(this.directory, `${asset}.png`), constants.O_RDONLY | constants.O_NOFOLLOW)
+    try {
+      const info = await handle.stat()
+      if (!info.isFile() || info.size < 8 || info.size > 8 * 1024 * 1024) throw new Error('批注截图文件无效或过大')
+      const bytes = Buffer.alloc(info.size)
+      let offset = 0
+      while (offset < bytes.length) {
+        const result = await handle.read(bytes, offset, bytes.length - offset, offset)
+        if (!result.bytesRead) throw new Error('批注截图在读取期间发生变化')
+        offset += result.bytesRead
+      }
+      if ((await handle.stat()).size !== info.size) throw new Error('批注截图在读取期间发生变化')
+      const data = bytes.toString('base64')
+      if (!bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) || digest(data) !== asset)
+        throw new Error('批注截图内容与引用不匹配')
+      return { ...value, image: { type: 'image', mimeType: 'image/png', data } }
+    } finally {
+      await handle.close()
     }
   }
-  async workspace(owner: string): Promise<BrowserWorkspace> {
+  private async readSavedWorkspace(owner: string): Promise<SavedWorkspace> {
     await this.pending
     try {
-      const saved = JSON.parse(
-        await readFile(path.join(this.directory, this.workspaceFile(owner)), 'utf8'),
-      ) as SavedWorkspace
-      return {
-        tabs: saved.tabs
-          .filter((tab) => tab.owner === owner)
-          .map((tab) => ({ ...tab, loading: false, canGoBack: false, canGoForward: false })),
-        annotations: await Promise.all(saved.annotations.map((item) => this.loadAnnotation(item))),
-        ...(saved.editor ? { editor: await this.loadAnnotation(saved.editor) } : {}),
-      }
+      return JSON.parse(await readFile(path.join(this.directory, this.workspaceFile(owner)), 'utf8')) as SavedWorkspace
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
       return { tabs: [], annotations: [] }
+    }
+  }
+  /** Pure archive query: never restores tabs, resets a workspace, or loads screenshot files. */
+  async peekWorkspace(owner: string): Promise<BrowserWorkspaceMetadata> {
+    const saved = await this.readSavedWorkspace(owner)
+    const metadata = ({ asset, ...item }: SavedAnnotation) => ({ ...item, hasImage: Boolean(asset) })
+    return {
+      tabs: saved.tabs
+        .filter((tab) => tab.owner === owner)
+        .map((tab) => ({ ...tab, loading: false, canGoBack: false, canGoForward: false })),
+      annotations: saved.annotations.map(metadata),
+      ...(saved.editor ? { editor: metadata(saved.editor) } : {}),
+    }
+  }
+  async annotationImage(owner: string, id: string) {
+    const saved = await this.readSavedWorkspace(owner)
+    const item = saved.annotations.find((item) => item.id === id)
+    if (!item) throw new Error('当前会话中不存在此批注')
+    const annotation = await this.loadAnnotation(item)
+    if (!annotation.image) throw new Error('此批注没有截图')
+    return annotation.image
+  }
+  async workspace(owner: string): Promise<BrowserWorkspace> {
+    const saved = await this.readSavedWorkspace(owner)
+    return {
+      tabs: saved.tabs
+        .filter((tab) => tab.owner === owner)
+        .map((tab) => ({ ...tab, loading: false, canGoBack: false, canGoForward: false })),
+      annotations: await Promise.all(saved.annotations.map((item) => this.loadAnnotation(item))),
+      ...(saved.editor ? { editor: await this.loadAnnotation(saved.editor) } : {}),
     }
   }
   saveWorkspace(owner: string, value: BrowserWorkspace) {

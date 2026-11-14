@@ -1,4 +1,6 @@
 import { validateVisualizationState } from '@pi-meme/contracts/visualize'
+import { readSessionOperation } from './session-read-operations'
+import { readPage, readString, SystemReadError, type ReadQuery } from '@pi-meme/contracts/system-read'
 import type { GoalService } from '@pi-meme/goals/server/service'
 import type { ActivityService } from '@pi-meme/activities/server/service'
 import { isLiveServiceActivity } from '@pi-meme/contracts/service-activity'
@@ -35,7 +37,7 @@ import type { HostEvent } from '@pi-meme/contracts/host'
 import type { PiSessionPool, ClientView } from '@pi-meme/pi-runtime/session-pool'
 import type { ProjectStore } from '@pi-meme/workspace/server/project-store'
 import type { SessionService } from '@pi-meme/workspace/server/session-service'
-import { readSessionHistory, readSessionBranchUserEntries } from '@pi-meme/pi-runtime/session-history'
+import { readSessionHistory, readSessionBranchUserEntries, readSessionEntry } from '@pi-meme/pi-runtime/session-history'
 import {
   readTurnChangeSummaries,
   readTurnChangeFile,
@@ -82,6 +84,13 @@ type Options = {
   projects: ProjectStore
   sessions: SessionService
   collaboration: CollaborationBridge & {
+    peekCollaboration?: (
+      key?: string,
+      file?: string,
+    ) => Promise<
+      Pick<import('@pi-meme/contracts/desktop').Snapshot, 'agents' | 'pendingInteractions' | 'agentMessages'>
+    >
+    peekAgentSnapshot?: (id: string) => Promise<import('@pi-meme/contracts/desktop').Snapshot>
     resolveSessionPlan?: (
       key: string,
       reference: import('@pi-meme/contracts/plan').PlanRef,
@@ -261,24 +270,25 @@ export async function createAppControl(options: Options) {
   const getProject = (ref: ProjectRef) => {
     validateRef(ref, 'projectId')
     const project = store.state.projects.find((item) => item.projectId === ref.projectId)
-    if (!project) throw new Error('项目不存在')
+    if (!project) throw new SystemReadError('not-found', '项目不存在')
     return project
   }
-  const getSession = (ref: SessionRef, callerClientId?: string) => {
+  const getSession = (ref: SessionRef, callerClientId?: string, reader?: SessionRef) => {
     validateRef(ref, 'sessionId')
     const session = store.state.sessions.find((item) => item.sessionId === ref.sessionId)
-    if (!session) throw new Error('会话不存在')
+    if (!session) throw new SystemReadError('not-found', '会话不存在')
     if (
       session.temporary &&
       session.ownerClientId &&
       callerClientId &&
       callerClientId !== 'host-internal' &&
+      !(reader?.hostId === hostId && reader.sessionId === session.sessionId) &&
       session.ownerClientId !== callerClientId
     ) {
-      throw new Error('无权访问其他窗口的临时会话')
+      throw new SystemReadError('permission-denied', '无权访问其他窗口的临时会话')
     }
     if (callerClientId !== 'host-internal' && options.isSessionClosing?.(session)) {
-      throw new Error('临时会话正在关闭，操作未执行')
+      throw new SystemReadError('not-loaded', '临时会话正在关闭，操作未执行')
     }
     return session
   }
@@ -319,6 +329,12 @@ export async function createAppControl(options: Options) {
     return project
   }
   const sync = async (session: AppSession, view: ClientView, persist = true) => {
+    options.lifecycle.registerPinAliases([
+      view.sessionKey ?? '',
+      (session as ManagedSession).pinnedRuntimeKey ?? '',
+      session.sessionFile ?? '',
+      `session:${session.sessionId}`,
+    ])
     const context = pi.readSessionBinding(view.sessionKey!)
     const nextFile = context.historySaved ? (context.sessionFile ?? session.sessionFile) : session.sessionFile
     const previousPinKey = (session as ManagedSession).pinnedRuntimeKey
@@ -483,13 +499,86 @@ export async function createAppControl(options: Options) {
     getSession(ref, callerClientId)
     return pi.withClientView(view, () => action(view.sessionKey!, session, view))
   }
+  const readHistoryFor = async (session: AppSession) => {
+    const key = runtime.get(session.sessionId)?.sessionKey
+    const existing = key ? pi.peekSnapshot(key) : undefined
+    const binding = key ? pi.readSessionBinding(key) : undefined
+    const file = binding?.sessionFile ?? session.sessionFile
+    if (file) {
+      try {
+        return await readSessionHistory(file)
+      } catch (cause) {
+        if ((cause as NodeJS.ErrnoException).code !== 'ENOENT' || binding?.historySaved !== false) throw cause
+      }
+    }
+    return {
+      cwd: session.cwd,
+      created: session.createdAt,
+      messages: existing?.messages ?? [],
+      sessionEntries: existing?.sessionEntries,
+      branchAttachments: existing?.branchAttachments,
+      stats: existing?.stats,
+      model: existing?.state.model,
+      thinkingLevel: existing?.state.thinkingLevel,
+    } as import('@pi-meme/contracts/sessions').SessionHistoryData
+  }
+  const readTarget = async <T>(
+    ref: SessionRef,
+    action: (key: string, session: AppSession) => Promise<T>,
+    callerClientId: string,
+    reader?: SessionRef,
+  ) => {
+    const session = getSession(ref, callerClientId, reader)
+    const result = await action(runtime.get(session.sessionId)?.sessionKey ?? session.sessionId, session)
+    getSession(ref, callerClientId, reader)
+    return structuredClone(result)
+  }
+  const readSnapshot = async (session: AppSession): Promise<import('@pi-meme/contracts/desktop').Snapshot> => {
+    const key = runtime.get(session.sessionId)?.sessionKey
+    const live = key ? pi.peekSnapshot(key) : undefined
+    const history = await readHistoryFor(session)
+    const agents = await collaboration.peekCollaboration?.(key, session.sessionFile)
+    const checkpoints = history.planCheckpoints ?? []
+    return {
+      ...live,
+      connection: live?.connection ?? {
+        cwd: session.cwd,
+        generation: 0,
+        status: 'idle',
+        sessionFile: session.sessionFile,
+      },
+      state: live?.state ?? {
+        mode: session.configuration.mode ?? 'default',
+        model: history.model,
+        thinkingLevel: history.thinkingLevel,
+        isStreaming: false,
+        isCompacting: false,
+        steeringMode: 'all',
+        followUpMode: 'one-at-a-time',
+        pendingMessageCount: 0,
+      },
+      messages: history.messages,
+      models: [],
+      stats: live?.stats ?? history.stats,
+      sessionEntries: history.sessionEntries,
+      branchAttachments: history.branchAttachments,
+      historyRevision: history.historyRevision,
+      totalMessages: history.messages.length,
+      planCheckpoints: checkpoints,
+      planDocuments: checkpoints.length ? [checkpoints[checkpoints.length - 1].document] : [],
+      ...agents,
+      goal: goals.get(session),
+      goalsSupported: true,
+      appSession: sessionProjection(session),
+    }
+  }
   const resolveRoot = async (ref: WorkspaceRef, callerClientId?: string) => {
     assertHost(ref)
     return 'projectId' in ref ? getProject(ref).cwd : getSession(ref, callerClientId).cwd
   }
-  const assertSessionAccess = (ref: WorkspaceRef, callerClientId?: string) => {
+  const assertSessionAccess = (ref: WorkspaceRef, callerClientId?: string, reader?: SessionRef) => {
     if (ref && typeof ref === 'object' && 'sessionId' in ref) {
-      getSession(ref as SessionRef, callerClientId)
+      getSession(ref as SessionRef, callerClientId, reader)
     }
   }
   type GitAvailabilityCacheEntry = {
@@ -522,8 +611,12 @@ export async function createAppControl(options: Options) {
     }
     return { file, historySaved, key: JSON.stringify([session.sessionId, session.cwd, file ?? null, historySaved]) }
   }
-  const gitAvailability = async (ref: SessionRef, callerClientId: string): Promise<GitAvailability> => {
-    const session = getSession(ref, callerClientId)
+  const gitAvailability = async (
+    ref: SessionRef,
+    callerClientId: string,
+    reader?: SessionRef,
+  ): Promise<GitAvailability> => {
+    const session = getSession(ref, callerClientId, reader)
     const owner = sessionHistoryOwner(session)
     let cached = gitAvailabilityCache.get(owner.key)
     if (!cached || (!cached.pending && cached.expires <= Date.now())) {
@@ -586,7 +679,7 @@ export async function createAppControl(options: Options) {
       cached = entry
     }
     const value = await (cached.pending ?? cached.value!)
-    const current = getSession(ref, callerClientId)
+    const current = getSession(ref, callerClientId, reader)
     if (cached.invalidated) throw new Error('会话变更数据已更新，请重新读取')
     if (sessionHistoryOwner(current).key !== owner.key) throw new Error('会话工作目录或历史已切换，请重新读取变更')
     return structuredClone(value)
@@ -602,9 +695,10 @@ export async function createAppControl(options: Options) {
     }
   }
   const terminalRoots = new Map<string, WorkspaceRef>()
-  const assertTerminalAccess = (ref: TerminalRef, callerClientId?: string) => {
+  const assertTerminalAccess = (ref: TerminalRef, callerClientId?: string, reader?: SessionRef) => {
     const root = terminalRoots.get(ref.terminalId)
-    if (root) assertSessionAccess(root, callerClientId)
+    if (!root) throw new Error('终端不存在或已关闭')
+    assertSessionAccess(root, callerClientId, reader)
   }
   const refresh = async () => {
     const saved = await sessions.getSnapshot()
@@ -1027,12 +1121,6 @@ export async function createAppControl(options: Options) {
   function sessionProjection(session: AppSession): AppSession {
     const paths = options.lifecycle.getPinnedPaths()
     const key = runtime.get(session.sessionId)?.sessionKey
-    options.lifecycle.registerPinAliases([
-      key ?? '',
-      (session as ManagedSession).pinnedRuntimeKey ?? '',
-      session.sessionFile ?? '',
-      `session:${session.sessionId}`,
-    ])
     const projected: ManagedSession = structuredClone(session)
     delete projected.pinnedRuntimeKey
     delete projected.managedDraft
@@ -1052,21 +1140,19 @@ export async function createAppControl(options: Options) {
     await store.publish({ type: 'resync', projectId: project.projectId, value: { reason: `project-${reason}` } })
     options.lifecycle.changed()
   }
-  const previewProject = async (project: AppProject) => {
-    for (const session of [...store.state.sessions]) {
-      if (
-        !session.temporary &&
-        session.project?.projectId === project.projectId &&
-        !session.sessionFile &&
-        !runtime.has(session.sessionId)
-      )
-        await resolveSession(session)
-    }
-    return options.lifecycle.previewProject(project.cwd)
-  }
+  const previewProject = async (project: AppProject) => options.lifecycle.previewProject(project.cwd)
   const deletionRevision = (project: AppProject, paths: string[]) =>
     createHash('sha256')
-      .update(JSON.stringify([project.projectId, [...new Set(paths)].sort()]))
+      .update(
+        JSON.stringify([
+          project.projectId,
+          [...new Set(paths)].sort(),
+          store.state.sessions
+            .filter((item) => item.project?.projectId === project.projectId)
+            .map((item) => item.sessionId)
+            .sort(),
+        ]),
+      )
       .digest('hex')
   const registerProject = (
     clientId: string,
@@ -1213,14 +1299,8 @@ export async function createAppControl(options: Options) {
         ),
     },
     projects: {
-      list: async () => {
-        await refresh()
-        return store.state.projects.map(projectProjection)
-      },
-      get: async (ref) => {
-        await refresh()
-        return projectProjection(getProject(ref))
-      },
+      list: async () => store.state.projects.map(projectProjection),
+      get: async (ref) => projectProjection(getProject(ref)),
       register: (input, opts) => registerProject(clientId, 'projects.register', input, opts),
       create: (input, opts) => registerProject(clientId, 'projects.create', input, opts),
       rename: (ref, name, opts) =>
@@ -1246,7 +1326,12 @@ export async function createAppControl(options: Options) {
         const preview = await previewProject(project)
         return {
           revision: deletionRevision(project, preview.paths),
-          sessionCount: preview.paths.length,
+          sessionCount: new Set([
+            ...preview.paths,
+            ...store.state.sessions
+              .filter((item) => !item.temporary && item.project?.projectId === project.projectId)
+              .map((item) => item.sessionFile ?? runtime.get(item.sessionId)?.sessionKey ?? `draft:${item.sessionId}`),
+          ]).size,
           warnings: preview.warnings,
         }
       },
@@ -1260,6 +1345,9 @@ export async function createAppControl(options: Options) {
             throw new Error('项目会话清单已变化，请重新预览删除')
           const result = await options.lifecycle.deleteProject(project.cwd, preview.paths)
           if (!result.errors.length) {
+            for (const session of [...store.state.sessions])
+              if (!session.temporary && session.project?.projectId === project.projectId)
+                await store.deleteSession(session.sessionId)
             await store.deleteProject(project.projectId)
             await publishProject(project, 'deleted')
           } else options.lifecycle.changed()
@@ -1319,7 +1407,6 @@ export async function createAppControl(options: Options) {
       list: async (input = {}) => {
         record(input, ['project'], '会话筛选')
         if (input?.project) getProject(input.project)
-        await refresh()
         return structuredClone(
           store.state.sessions
             .filter(
@@ -1328,10 +1415,7 @@ export async function createAppControl(options: Options) {
             .map(sessionProjection),
         )
       },
-      get: async (ref) => {
-        await refresh()
-        return sessionProjection(getSession(ref, clientId))
-      },
+      get: async (ref) => sessionProjection(getSession(ref, clientId, contextReader)),
       rename: (ref, name, opts) =>
         mutate(clientId, 'sessions.rename', [ref, name], opts, async () => {
           const session = getSession(ref, clientId)
@@ -1380,33 +1464,27 @@ export async function createAppControl(options: Options) {
           options.lifecycle.changed()
           return result
         }),
-      attention: (ref) => options.sessionAttention.get(getSession(ref, clientId)),
+      attention: (ref) => options.sessionAttention.get(getSession(ref, clientId, contextReader)),
       markRead: (ref, observed, opts) =>
         mutate(clientId, 'sessions.markRead', [ref, observed], opts, () =>
           options.sessionAttention.markRead(getSession(ref, clientId), observed),
         ),
       snapshot: (ref) =>
-        target(
+        readTarget(
           ref,
-          async (_key, session, view) => {
-            const controlCursor = store.read().cursor
-            const result = await options.snapshot()
-            await sync(session, view)
-            return { ...result, goal: goals.get(session), goalsSupported: true, controlCursor }
-          },
+          async (_key, session) => ({ ...(await readSnapshot(session)), controlCursor: store.read().cursor }),
           clientId,
+          contextReader,
         ),
       history: (ref, input) =>
-        target(
+        readTarget(
           ref,
-          async (key, session) => {
+          async (_key, session) => {
             const offset = input?.offset ?? 0
             const limit = input?.limit ?? 100
             if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 500)
               throw new Error('历史分页参数无效')
-            const history = session.sessionFile
-              ? await readSessionHistory(session.sessionFile)
-              : pi.getRuntimeHistory(key)!
+            const history = await readHistoryFor(session)
             const totalMessages = history.messages.length
             return {
               ...history,
@@ -1416,18 +1494,17 @@ export async function createAppControl(options: Options) {
             }
           },
           clientId,
+          contextReader,
         ),
       messages: (ref, input = {}) =>
-        target(
+        readTarget(
           ref,
-          async (key, session) => {
+          async (_key, session) => {
             const limit = input.limit ?? 100
             let offset = input.offset ?? 0
             if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500 || !Number.isSafeInteger(offset) || offset < 0)
               throw new ControlError('invalid-input', '消息分页参数无效')
-            const history = session.sessionFile
-              ? await readSessionHistory(session.sessionFile)
-              : pi.getRuntimeHistory(key)!
+            const history = await readHistoryFor(session)
             const leafId = 'sessionEntries' in history ? (history.sessionEntries?.leafId ?? null) : null
             const branchRevision = createHash('sha256')
               .update(
@@ -1477,20 +1554,20 @@ export async function createAppControl(options: Options) {
             }
           },
           clientId,
+          contextReader,
         ),
       message: (ref, input) =>
-        target(
+        readTarget(
           ref,
-          async (key, session) => {
-            const history = session.sessionFile
-              ? await readSessionHistory(session.sessionFile)
-              : pi.getRuntimeHistory(key)!
+          async (_key, session) => {
+            const history = await readHistoryFor(session)
             const message = history.messages.find((m) => m.sourceEntry?.id === input.entryId)
             const projected = message && projectUiMessage(message, ref)
             if (!projected?.ref) throw new ControlError('message-not-found', '消息不存在于当前分支')
             return projected
           },
           clientId,
+          contextReader,
         ),
       configure: (ref, config, opts) =>
         mutate(clientId, 'sessions.configure', [ref, config], opts, () =>
@@ -1635,11 +1712,11 @@ export async function createAppControl(options: Options) {
       receipt: async (id) => {
         const receipt = store.state.receipts.find((item) => item.operationId === id)
         if (!receipt) throw new Error('提交回执不存在')
-        getSession(receipt.session, clientId)
+        getSession(receipt.session, clientId, contextReader)
         return structuredClone(receipt)
       },
       submissions: async (ref) => {
-        getSession(ref, clientId)
+        getSession(ref, clientId, contextReader)
         return structuredClone(store.state.receipts.filter((item) => item.session.sessionId === ref.sessionId))
       },
       cancelSubmission: (id, opts) => {
@@ -1677,7 +1754,11 @@ export async function createAppControl(options: Options) {
             if (!sessionId) return true
             const session = store.state.sessions.find((s) => s.sessionId === sessionId)
             if (session?.temporary && session.ownerClientId) {
-              return clientId === 'host-internal' || session.ownerClientId === clientId
+              return (
+                clientId === 'host-internal' ||
+                session.ownerClientId === clientId ||
+                (contextReader?.hostId === hostId && contextReader.sessionId === session.sessionId)
+              )
             }
             return true
           }),
@@ -1701,23 +1782,23 @@ export async function createAppControl(options: Options) {
     files: {
       ...options.workspace.files,
       list: (ref, rel) => {
-        assertSessionAccess(ref, clientId)
+        assertSessionAccess(ref, clientId, contextReader)
         return options.workspace.files.list(ref, rel)
       },
       read: (ref, rel) => {
-        assertSessionAccess(ref, clientId)
+        assertSessionAccess(ref, clientId, contextReader)
         return options.workspace.files.read(ref, rel)
       },
       preview: (ref, rel) => {
-        assertSessionAccess(ref, clientId)
+        assertSessionAccess(ref, clientId, contextReader)
         return options.workspace.files.preview(ref, rel)
       },
       search: (ref, input) => {
-        assertSessionAccess(ref, clientId)
+        assertSessionAccess(ref, clientId, contextReader)
         return options.workspace.files.search(ref, input)
       },
       write: (ref, input, opts) => {
-        assertSessionAccess(ref, clientId)
+        assertSessionAccess(ref, clientId, contextReader)
         return mutate(clientId, 'files.write', [ref, input], opts, () =>
           options.workspace.files.write(ref, input, opts),
         )
@@ -1725,11 +1806,11 @@ export async function createAppControl(options: Options) {
     },
     terminal: {
       list: async (root) => {
-        if (root) assertSessionAccess(root, clientId)
+        if (root) assertSessionAccess(root, clientId, contextReader)
         const entries = (await options.workspace.terminal.list?.(root)) ?? []
         return entries.filter((entry) => {
           try {
-            assertSessionAccess(entry.root, clientId)
+            assertSessionAccess(entry.root, clientId, contextReader)
             return true
           } catch {
             return false
@@ -1737,7 +1818,7 @@ export async function createAppControl(options: Options) {
         })
       },
       open: (ref, input, opts) => {
-        assertSessionAccess(ref, clientId)
+        assertSessionAccess(ref, clientId, contextReader)
         return mutate(clientId, 'terminal.open', [ref, input], opts, async () => {
           const snapshot = await options.workspace.terminal.open(ref, input, opts)
           terminalRoots.set(snapshot.terminalId, ref)
@@ -1745,23 +1826,23 @@ export async function createAppControl(options: Options) {
         })
       },
       attach: (ref) => {
-        assertTerminalAccess(ref, clientId)
+        assertTerminalAccess(ref, clientId, contextReader)
         return options.workspace.terminal.attach(ref)
       },
       input: (ref, data, opts) => {
-        assertTerminalAccess(ref, clientId)
+        assertTerminalAccess(ref, clientId, contextReader)
         return mutate(clientId, 'terminal.input', [ref, data], opts, () =>
           options.workspace.terminal.input(ref, data, opts),
         )
       },
       resize: (ref, size, opts) => {
-        assertTerminalAccess(ref, clientId)
+        assertTerminalAccess(ref, clientId, contextReader)
         return mutate(clientId, 'terminal.resize', [ref, size], opts, () =>
           options.workspace.terminal.resize(ref, size, opts),
         )
       },
       close: (ref, opts) => {
-        assertTerminalAccess(ref, clientId)
+        assertTerminalAccess(ref, clientId, contextReader)
         return mutate(clientId, 'terminal.close', [ref], opts, async () => {
           const result = await options.workspace.terminal.close(ref, opts)
           terminalRoots.delete(ref.terminalId)
@@ -1770,27 +1851,29 @@ export async function createAppControl(options: Options) {
       },
     },
     git: {
-      availability: (ref) => gitAvailability(ref, clientId),
+      availability: (ref) => gitAvailability(ref, clientId, contextReader),
       turnChangeSummaries: (ref, entryIds) =>
-        target(
+        readTarget(
           ref,
-          async (key) => {
+          async (_key, session) => {
             if (!Array.isArray(entryIds) || entryIds.length > 200 || entryIds.some((id) => typeof id !== 'string'))
               throw new Error('变更轮次参数无效')
-            const file = pi.getSessionContext(key).sessionFile
+            const file = sessionHistoryOwner(session).file
             return file ? readTurnChangeSummaries(file, entryIds) : []
           },
           clientId,
+          contextReader,
         ),
       turnFile: (ref, entryId, filePath) =>
-        target(
+        readTarget(
           ref,
-          async (key) => {
-            const file = pi.getSessionContext(key).sessionFile
+          async (_key, session) => {
+            const file = sessionHistoryOwner(session).file
             if (!file) throw new Error('本轮未保存历史内容')
             return readTurnChangeFile(file, entryId, filePath)
           },
           clientId,
+          contextReader,
         ),
       undoTurn: (ref, entryId, opts) =>
         mutate(clientId, 'git.undoTurn', [ref, entryId], opts, () =>
@@ -1842,25 +1925,26 @@ export async function createAppControl(options: Options) {
     },
     agents: {
       list: (ref) =>
-        target(
+        readTarget(
           ref,
-          async (key) => {
-            await options.bindRoot(key)
-            return collaboration.getAgents(key)
-          },
+          async (_key, session) =>
+            (await collaboration.peekCollaboration?.(runtime.get(session.sessionId)?.sessionKey, session.sessionFile))
+              ?.agents ?? [],
           clientId,
+          contextReader,
         ),
       get: async (id) => {
         const rootKey = collaboration.rootSessionKey?.(id)
         if (rootKey) {
           const rootSession = store.state.sessions.find((s) => runtime.get(s.sessionId)?.sessionKey === rootKey)
           if (rootSession) {
-            getSession(rootSession, clientId)
+            getSession(rootSession, clientId, contextReader)
           } else if (collaboration.isTemporarySession?.(rootKey)) {
             throw new Error('会话不存在或已关闭')
           }
         }
-        return collaboration.getAgentSnapshot(id)
+        if (!collaboration.peekAgentSnapshot) throw new Error('当前服务不支持只读子代理快照')
+        return collaboration.peekAgentSnapshot(id)
       },
       stop: async (id, opts) => {
         const rootKey = collaboration.rootSessionKey?.(id)
@@ -1868,7 +1952,7 @@ export async function createAppControl(options: Options) {
         if (rootKey) {
           rootSession = store.state.sessions.find((s) => runtime.get(s.sessionId)?.sessionKey === rootKey)
           if (rootSession) {
-            getSession(rootSession, clientId)
+            getSession(rootSession, clientId, contextReader)
           } else if (collaboration.isTemporarySession?.(rootKey)) {
             throw new Error('会话不存在或已关闭')
           }
@@ -1881,26 +1965,26 @@ export async function createAppControl(options: Options) {
     },
     activities: {
       list: async (ref) => {
-        getSession(ref, clientId)
+        getSession(ref, clientId, contextReader)
         if (!options.activities) throw new Error('当前服务不支持活动服务')
         const cursor = store.read().cursor
         return { ...options.activities.list(ref), cursor }
       },
       logs: async (ref, id) => {
-        getSession(ref, clientId)
+        getSession(ref, clientId, contextReader)
         if (!options.activities) throw new Error('当前服务不支持活动服务')
         return options.activities.logs(ref, id)
       },
       stop: (ref, id, opts) =>
         mutate(clientId, 'activities.stop', [ref, id], opts, async () => {
-          getSession(ref, clientId)
+          getSession(ref, clientId, contextReader)
           if (!options.activities) throw new Error('当前服务不支持活动服务')
           return options.activities.stop(ref, id, '用户停止')
         }),
     },
     goals: {
       get: async (ref) => {
-        getSession(ref, clientId)
+        getSession(ref, clientId, contextReader)
         return goals.get(ref)
       },
       start: (ref, input, opts) =>
@@ -1972,7 +2056,7 @@ export async function createAppControl(options: Options) {
     visualizations: options.visualizations
       ? {
           list: (ref) =>
-            target(
+            readTarget(
               ref,
               async (key, session) => {
                 const refs = await readVisualizationReferences(session)
@@ -1984,18 +2068,28 @@ export async function createAppControl(options: Options) {
                 )
               },
               clientId,
+              contextReader,
             ),
           get: (ref, reference) =>
-            target(
+            readTarget(
               ref,
               async (key, session) => {
                 return options.visualizations!(key).read(reference, await readVisualizationReferences(session))
               },
               clientId,
+              contextReader,
             ),
         }
       : undefined,
-    plans: { list: (ref) => target(ref, async () => (await options.snapshot()).planDocuments ?? [], clientId) },
+    plans: {
+      list: (ref) =>
+        readTarget(
+          ref,
+          async (_key, session) => (await readSnapshot(session)).planDocuments ?? [],
+          clientId,
+          contextReader,
+        ),
+    },
   })
   const api = apiFor('host-internal')
   const writes = new Set([
@@ -2139,8 +2233,22 @@ export async function createAppControl(options: Options) {
     }, 0)
     goalTimers.set(session.sessionId, timer)
   }
+  let catalogRefresh: Promise<void> | undefined
   const observe = (event: HostEvent) => {
-    if (closing || !event.value || !('sessionKey' in event.value)) return
+    if (closing) return
+    if (event.type === 'sessions-changed') {
+      // Discovery belongs to the Host lifecycle, never to an Agent read.
+      if (!catalogRefresh) {
+        catalogRefresh = Promise.resolve()
+          .then(refresh)
+          .catch(options.onError)
+          .finally(() => {
+            catalogRefresh = undefined
+          })
+      }
+      return
+    }
+    if (!event.value || !('sessionKey' in event.value)) return
     const eventKey = event.value.sessionKey
     if (!eventKey) return
     const rootId = event.type === 'event' ? event.value.rootAgentId : undefined
@@ -2295,8 +2403,87 @@ export async function createAppControl(options: Options) {
     )
   }
   await refresh()
+  const peekSessionForRuntime = (key: string): AppSession => {
+    const binding = pi.readSessionBinding(key)
+    const session = store.state.sessions.find(
+      (item) =>
+        runtime.get(item.sessionId)?.sessionKey === key ||
+        Boolean(binding.sessionFile && item.sessionFile === binding.sessionFile),
+    )
+    if (!session) throw new SystemReadError('not-loaded', '执行会话尚未完成生命周期登记')
+    return structuredClone(sessionProjection(session))
+  }
   return {
     api,
+    peekSessionForRuntime,
+    refreshCatalog: refresh,
+    async systemRead(operation: string, args: unknown[], reader: SessionRef): Promise<unknown> {
+      getSession(reader, undefined)
+      const caller = `system-api:${reader.sessionId}`
+      const scoped = apiFor(caller, reader)
+      if (operation === 'terminal.list' || operation === 'terminal.read') {
+        const terminals = (await scoped.terminal.list?.()) ?? []
+        if (operation === 'terminal.list')
+          return readPage(
+            terminals.map(({ output: _output, ...item }) => item),
+            (args[0] ?? {}) as ReadQuery,
+            `${hostId}:terminals:${reader.sessionId}`,
+          )
+        const id = readString(args[0], '终端 ID', 128)
+        if (!terminals.some((item) => item.terminalId === id))
+          throw new SystemReadError('permission-denied', '终端不存在或无权读取')
+        const terminal = options.workspace.terminal as HostApi['terminal'] & {
+          read?: (ref: TerminalRef) => Promise<unknown>
+        }
+        if (!terminal.read) throw new SystemReadError('not-supported', '当前平台不支持终端文本读取')
+        return terminal.read({ hostId, terminalId: id })
+      }
+      const accessed = new Map<string, SessionRef>()
+      const result = await readSessionOperation(
+        {
+          hostId,
+          reader,
+          session: (ref) => {
+            const target = getSession(ref, caller, reader)
+            accessed.set(target.sessionId, target)
+            return target
+          },
+          list: () =>
+            store.state.sessions
+              .filter((item) => !item.temporary || item.sessionId === reader.sessionId)
+              .map(sessionProjection),
+          history: readHistoryFor,
+          snapshot: readSnapshot,
+          entry: async (session, id) => {
+            const file = sessionHistoryOwner(session).file
+            if (file) return readSessionEntry(file, id)
+            const history = await readHistoryFor(session)
+            const message = history.messages.find((item) => item.sourceEntry?.id === id)
+            if (!message) throw new SystemReadError('not-found', '运行时条目不存在')
+            return message
+          },
+          agent: async (id) => {
+            if (!collaboration.peekAgentSnapshot)
+              throw new SystemReadError('not-supported', '当前服务不支持子代理只读快照')
+            return collaboration.peekAgentSnapshot(id)
+          },
+          turns: async (session, ids) => {
+            const file = sessionHistoryOwner(session).file
+            return file ? readTurnChangeSummaries(file, ids) : []
+          },
+          turnFile: async (session, id, filePath) => {
+            const file = sessionHistoryOwner(session).file
+            if (!file) throw new SystemReadError('not-found', '会话尚无保存的轮次')
+            return readTurnChangeFile(file, id, filePath)
+          },
+        },
+        operation,
+        args,
+      )
+      getSession(reader, undefined)
+      for (const ref of accessed.values()) getSession(ref, caller, reader)
+      return result
+    },
     apiFor,
     publishContext: (session: SessionRef, value: { requestId: string; revision: number }) =>
       store.publish({ type: 'context-window', sessionId: session.sessionId, value }),

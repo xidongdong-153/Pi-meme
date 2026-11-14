@@ -56,6 +56,11 @@ export function runGit(cwd: string, args: string[], limits?: { timeoutMs: number
   })
 }
 
+/** Read commands must not refresh the index or invoke repository fsmonitor hooks. */
+export function runGitReadOnly(cwd: string, args: string[], limits?: Parameters<typeof runGit>[2]) {
+  return runGit(cwd, ['--no-optional-locks', '-c', 'core.fsmonitor=false', ...args], limits)
+}
+
 function decodeStatus(output: string): GitFileChange[] {
   const fields = output.split('\0')
   const files: GitFileChange[] = []
@@ -78,12 +83,11 @@ function decodeStatus(output: string): GitFileChange[] {
 export async function getGitWorkspaceAvailability(cwd: string): Promise<GitWorkspaceAvailability> {
   try {
     const directory = await realpath(cwd)
-    const flags = ['--no-optional-locks', '-c', 'core.fsmonitor=false']
     const root = (
-      await runGit(directory, [...flags, 'rev-parse', '--show-toplevel'], { timeoutMs: 5000, outputBytes: 64 * 1024 })
+      await runGitReadOnly(directory, ['rev-parse', '--show-toplevel'], { timeoutMs: 5000, outputBytes: 64 * 1024 })
     ).stdout.replace(/\r?\n$/, '')
     if (!root) throw new Error('Git 未返回工作树目录')
-    const status = await runGit(root, [...flags, 'status', '--porcelain=v1', '-z', '--untracked-files=normal'], {
+    const status = await runGitReadOnly(root, ['status', '--porcelain=v1', '-z', '--untracked-files=normal'], {
       timeoutMs: 5000,
       outputBytes: 1024 * 1024,
     })
@@ -107,20 +111,20 @@ export async function getGitWorkspaceAvailability(cwd: string): Promise<GitWorks
 
 export async function getGitSnapshot(cwd: string): Promise<GitSnapshot> {
   try {
-    const root = await realpath((await runGit(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim())
+    const root = await realpath((await runGitReadOnly(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim())
     const [status, branchResult, hasHead] = await Promise.all([
-      runGit(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']),
-      runGit(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() =>
-        runGit(root, ['rev-parse', '--short', 'HEAD']).catch(() => ({ stdout: '未提交', stderr: '', code: 0 })),
+      runGitReadOnly(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']),
+      runGitReadOnly(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() =>
+        runGitReadOnly(root, ['rev-parse', '--short', 'HEAD']).catch(() => ({ stdout: '未提交', stderr: '', code: 0 })),
       ),
-      runGit(root, ['rev-parse', '--verify', 'HEAD'])
+      runGitReadOnly(root, ['rev-parse', '--verify', 'HEAD'])
         .then(() => true)
         .catch(() => false),
     ])
     const stats = hasHead
       ? [
           (
-            await runGit(root, [
+            await runGitReadOnly(root, [
               '--literal-pathspecs',
               'diff',
               '--numstat',
@@ -133,10 +137,16 @@ export async function getGitSnapshot(cwd: string): Promise<GitSnapshot> {
           ).stdout,
         ]
       : await Promise.all([
-          runGit(root, ['diff', '--cached', '--numstat', '--no-renames', '--no-ext-diff', '--no-textconv', '--']).then(
-            (result) => result.stdout,
-          ),
-          runGit(root, ['diff', '--numstat', '--no-renames', '--no-ext-diff', '--no-textconv', '--']).then(
+          runGitReadOnly(root, [
+            'diff',
+            '--cached',
+            '--numstat',
+            '--no-renames',
+            '--no-ext-diff',
+            '--no-textconv',
+            '--',
+          ]).then((result) => result.stdout),
+          runGitReadOnly(root, ['diff', '--numstat', '--no-renames', '--no-ext-diff', '--no-textconv', '--']).then(
             (result) => result.stdout,
           ),
         ])
@@ -203,20 +213,20 @@ export async function getGitDiff(cwd: string, filePath: string, kind: GitFileCha
     '--',
     filePath,
   ]
-  return (await runGit(snapshot.root, args)).stdout
+  return (await runGitReadOnly(snapshot.root, args)).stdout
 }
 
 export async function getGitEnvironment(cwd: string): Promise<GitEnvironment> {
   const snapshot = await getGitSnapshot(cwd)
   if (!snapshot.root) throw new Error(snapshot.error === 'unavailable' ? '未找到 Git' : '当前目录不是 Git 仓库')
-  const refs = await runGit(snapshot.root, [
+  const refs = await runGitReadOnly(snapshot.root, [
     'for-each-ref',
     '--format=%(refname) %(symref)',
     'refs/heads/',
     'refs/remotes/',
   ])
   const occupied = new Map<string, string>()
-  const worktrees = (await runGit(snapshot.root, ['worktree', 'list', '--porcelain', '-z'])).stdout
+  const worktrees = (await runGitReadOnly(snapshot.root, ['worktree', 'list', '--porcelain', '-z'])).stdout
   for (const entry of worktrees.split('\0\0')) {
     const lines = entry.split('\0')
     const directory = lines.find((line) => line.startsWith('worktree '))?.slice(9)
@@ -226,7 +236,7 @@ export async function getGitEnvironment(cwd: string): Promise<GitEnvironment> {
       if (normalized !== snapshot.root) occupied.set(branch, normalized)
     }
   }
-  const headSha = await runGit(snapshot.root, ['rev-parse', '--verify', 'HEAD^{commit}'])
+  const headSha = await runGitReadOnly(snapshot.root, ['rev-parse', '--verify', 'HEAD^{commit}'])
     .then((result) => result.stdout.trim())
     .catch(() => undefined)
   return {

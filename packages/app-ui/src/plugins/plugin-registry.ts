@@ -128,6 +128,7 @@ export class UiPluginRegistry {
   getPageRequest = () => this.pageRequest
   getBackRequest = () => this.backRequest
   getReactiveSnapshot = () => this.dataSource.reactive.getSnapshot()
+  getComposerSnapshot = () => this.composer?.current() ?? null
   setComposerController(controller: ComposerAdapter | null) {
     this.composer = controller
   }

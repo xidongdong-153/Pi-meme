@@ -7,7 +7,7 @@ import type {
   GitReviewOptions,
   GitReviewFile,
 } from '@pi-meme/contracts/git-review'
-import { getGitEnvironment, runGit } from './git-service'
+import { getGitEnvironment, runGitReadOnly } from './git-service'
 
 const previewLimit = 200 * 1024
 const emptyTree = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
@@ -25,24 +25,24 @@ function validateQuery(query: GitReviewQuery) {
 
 async function comparison(cwd: string, query: GitReviewQuery) {
   validateQuery(query)
-  const root = await realpath((await runGit(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim())
-  const head = await runGit(root, ['rev-parse', '--verify', 'HEAD^{commit}'])
+  const root = await realpath((await runGitReadOnly(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim())
+  const head = await runGitReadOnly(root, ['rev-parse', '--verify', 'HEAD^{commit}'])
     .then((r) => r.stdout.trim())
     .catch(() => emptyTree)
   let before = query.scope === 'unstaged' ? ':' : head
   let after = query.scope === 'staged' ? ':' : ''
   if (query.scope === 'commit') {
     if (!/^[a-f0-9]{7,64}$/i.test(query.ref!)) throw new Error('提交编号无效')
-    after = (await runGit(root, ['rev-parse', '--verify', `${query.ref}^{commit}`])).stdout.trim()
-    const parents = (await runGit(root, ['rev-list', '--parents', '-n', '1', after])).stdout.trim().split(' ')
+    after = (await runGitReadOnly(root, ['rev-parse', '--verify', `${query.ref}^{commit}`])).stdout.trim()
+    const parents = (await runGitReadOnly(root, ['rev-list', '--parents', '-n', '1', after])).stdout.trim().split(' ')
     before = parents[1] ?? emptyTree
   } else if (query.scope === 'branch') {
     const refs = (
-      await runGit(root, ['for-each-ref', '--format=%(refname)', 'refs/heads/', 'refs/remotes/'])
+      await runGitReadOnly(root, ['for-each-ref', '--format=%(refname)', 'refs/heads/', 'refs/remotes/'])
     ).stdout.split('\n')
     if (!refs.includes(query.ref!)) throw new Error('比较分支已不存在，请重新选择')
     if (head === emptyTree) throw new Error('仓库尚无提交，不能比较分支')
-    before = (await runGit(root, ['merge-base', head, query.ref!])).stdout.trim()
+    before = (await runGitReadOnly(root, ['merge-base', head, query.ref!])).stdout.trim()
     after = head
   }
   const revisions = after === ':' ? ['--cached', before] : before === ':' ? [] : after ? [before, after] : [before]
@@ -75,12 +75,12 @@ async function versionFile(root: string, revision: string, file: string) {
   if (!revision) return currentFile(root, file)
   if (revision === emptyTree) return { text: '', exists: false }
   const spec = revision === ':' ? `:${file}` : `${revision}:${file}`
-  const size = await runGit(root, ['cat-file', '-s', spec])
+  const size = await runGitReadOnly(root, ['cat-file', '-s', spec])
     .then((r) => Number(r.stdout.trim()))
     .catch(() => null)
   if (size === null) return { text: '', exists: false }
   if (size > previewLimit) return { exists: true, notice: '文件超过 200 KiB，未在面板中预览。' }
-  const data = (await runGit(root, ['cat-file', 'blob', spec])).stdout
+  const data = (await runGitReadOnly(root, ['cat-file', 'blob', spec])).stdout
   return data.includes('\0') ? { exists: true, notice: '二进制文件，不提供文本预览。' } : { exists: true, text: data }
 }
 
@@ -91,7 +91,7 @@ function addedPatch(file: string, text: string) {
 
 export async function getGitReview(cwd: string, query: GitReviewQuery): Promise<GitReviewSnapshot> {
   validateQuery(query)
-  const repository = await runGit(cwd, ['rev-parse', '--show-toplevel']).catch((cause: unknown) => {
+  const repository = await runGitReadOnly(cwd, ['rev-parse', '--show-toplevel']).catch((cause: unknown) => {
     const error = cause as { code?: string | number; message?: string }
     if (error.code === 'ENOENT') return 'unavailable' as const
     if (error.code === 128 && error.message?.includes('not a git repository')) return 'not-repository' as const
@@ -101,12 +101,12 @@ export async function getGitReview(cwd: string, query: GitReviewQuery): Promise<
     return { cwd, root: cwd, files: [], insertions: 0, deletions: 0, error: repository }
   const { root, revisions } = await comparison(cwd, query)
   const [names, stats, untracked, branch] = await Promise.all([
-    runGit(root, ['diff', ...diffFlags, '--name-status', '-z', ...revisions, '--']),
-    runGit(root, ['diff', ...diffFlags, '--numstat', '-z', ...revisions, '--']),
+    runGitReadOnly(root, ['diff', ...diffFlags, '--name-status', '-z', ...revisions, '--']),
+    runGitReadOnly(root, ['diff', ...diffFlags, '--numstat', '-z', ...revisions, '--']),
     query.scope === 'uncommitted' || query.scope === 'unstaged'
-      ? runGit(root, ['ls-files', '--others', '--exclude-standard', '-z'])
+      ? runGitReadOnly(root, ['ls-files', '--others', '--exclude-standard', '-z'])
       : Promise.resolve({ stdout: '' }),
-    runGit(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
+    runGitReadOnly(root, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
       .then((r) => r.stdout.trim())
       .catch(() => '分离 HEAD'),
   ])
@@ -194,7 +194,7 @@ export async function getGitReviewFile(
     file.status === '?'
       ? addedPatch(file.path, newContent.text ?? '')
       : (
-          await runGit(root, [
+          await runGitReadOnly(root, [
             '--literal-pathspecs',
             'diff',
             ...diffFlags,
@@ -221,11 +221,11 @@ export async function getGitReviewOptions(
   if (state.error) return { branches: [], commits: [], hasMore: false, error: state.error }
   const environment = await getGitEnvironment(cwd)
   const [upstream, log] = await Promise.all([
-    runGit(environment.root, ['rev-parse', '--symbolic-full-name', '@{upstream}'])
+    runGitReadOnly(environment.root, ['rev-parse', '--symbolic-full-name', '@{upstream}'])
       .then((r) => r.stdout.trim())
       .catch(() => undefined),
     environment.headSha
-      ? runGit(environment.root, [
+      ? runGitReadOnly(environment.root, [
           'log',
           '--all',
           '--format=%H%x00%s',

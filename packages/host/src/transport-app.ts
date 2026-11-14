@@ -302,7 +302,13 @@ function registerEvents(app: Hono<TransportEnv>, { host, remotes }: TransportSer
             return
           }
           void remotes
-            .events(remote[1], clientId, ws.raw, remote[2] ? (url.searchParams.get('subscription') ?? '{}') : undefined)
+            .events(
+              remote[1],
+              clientId,
+              ws.raw,
+              remote[2] ? (url.searchParams.get('subscription') ?? '{}') : undefined,
+              url.searchParams.get('connectionId') ?? undefined,
+            )
             .catch(() => ws.close(1011, '远程服务订阅失败'))
           return
         }
@@ -311,9 +317,13 @@ function registerEvents(app: Hono<TransportEnv>, { host, remotes }: TransportSer
             ws.send(JSON.stringify({ hostId: host.hostId, type: 'services-changed' }))
         })
         void host
-          .subscribe(clientId, (event) => {
-            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event))
-          })
+          .subscribe(
+            clientId,
+            (event) => {
+              if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event))
+            },
+            url.searchParams.get('connectionId') ?? undefined,
+          )
           .then((unsubscribe) => {
             if (ws.readyState === WebSocket.OPEN) dispose = unsubscribe
             else unsubscribe()

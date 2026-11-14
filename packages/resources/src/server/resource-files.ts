@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { chmod, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, open, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
 import path from 'node:path'
 import { inflateRawSync } from 'node:zlib'
 
@@ -11,25 +12,61 @@ export function safeRelative(value: string) {
   }
   const parts = value.split('/')
   if (parts.some((part) => part === '..' || part === '')) throw new Error('资源路径不能包含空目录或 ..')
-  return parts.filter((part) => part !== '.').join('/')
+  const relative = parts.filter((part) => part !== '.').join('/')
+  if (!relative) throw new Error('资源路径必须指向包内文件')
+  return relative
 }
 export async function readResourceFiles(directory: string): Promise<ResourceFile[]> {
   const files: ResourceFile[] = []
+  const initial = await lstat(directory)
+  if (initial.isSymbolicLink()) throw new Error('资源不允许软链接')
+  const root = await realpath(directory)
+  const resolved = await lstat(root)
+  if (resolved.dev !== initial.dev || resolved.ino !== initial.ino) throw new Error('资源根目录在读取期间被替换')
   let size = 0
-  async function walk(current: string, relative: string) {
+  let count = 0
+  async function walk(current: string, relative: string, depth: number) {
+    if (depth > 64 || ++count > 10000) throw new Error('资源目录层级或文件数超限')
     const info = await lstat(current)
-    if (info.isSymbolicLink()) throw new Error(`资源不允许软链接：${current}`)
+    if (info.isSymbolicLink()) throw new Error('资源不允许软链接')
+    const actual = await realpath(current)
+    const fromRoot = path.relative(root, actual)
+    if (fromRoot === '..' || fromRoot.startsWith(`..${path.sep}`) || path.isAbsolute(fromRoot))
+      throw new Error('资源文件超出资源目录')
     if (info.isDirectory()) {
-      for (const entry of (await readdir(current)).sort())
-        await walk(path.join(current, entry), relative ? `${relative}/${entry}` : entry)
+      for (const entry of (await readdir(actual)).sort())
+        await walk(path.join(actual, entry), relative ? `${relative}/${entry}` : entry, depth + 1)
     } else if (info.isFile()) {
-      size += info.size
-      if (size > resourceSizeLimit) throw new Error('资源超过 32 MiB')
-      const content = await readFile(current)
+      if (size + info.size > resourceSizeLimit) throw new Error('资源超过 32 MiB')
+      const file = await open(actual, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+      let content: Buffer
+      try {
+        const opened = await file.stat()
+        if (!opened.isFile() || opened.dev !== info.dev || opened.ino !== info.ino)
+          throw new Error('资源文件在读取期间被替换')
+        const available = resourceSizeLimit - size
+        const chunks: Buffer[] = []
+        let length = 0
+        while (length <= available) {
+          const chunk = Buffer.alloc(Math.min(64 * 1024, available + 1 - length))
+          const { bytesRead } = await file.read(chunk, 0, chunk.length, length)
+          if (!bytesRead) break
+          length += bytesRead
+          if (length > available) throw new Error('资源超过 32 MiB')
+          chunks.push(chunk.subarray(0, bytesRead))
+        }
+        const after = await file.stat()
+        if (after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || length !== opened.size)
+          throw new Error('资源文件在读取期间变化')
+        content = Buffer.concat(chunks, length)
+      } finally {
+        await file.close()
+      }
+      size += content.length
       files.push({ path: relative || path.basename(current), content, mode: info.mode & 0o777 })
-    } else throw new Error(`资源不允许特殊文件：${current}`)
+    } else throw new Error('资源不允许特殊文件')
   }
-  await walk(directory, '')
+  await walk(root, '', 0)
   return files
 }
 export function resourceRevision(files: ResourceFile[]) {

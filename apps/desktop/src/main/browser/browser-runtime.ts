@@ -26,10 +26,18 @@ import type {
   BrowserSnapshot,
   BrowserTab,
   BrowserWorkspace,
+  BrowserWorkspaceMetadata,
 } from '@pi-meme/contracts/browser'
 import type { ThemeColors } from '@pi-meme/contracts/settings'
 import { browserUrl, isLocalBrowserUrl } from '@pi-meme/browser/shared/navigation'
 import { validAnnotation } from '@pi-meme/browser/shared/annotations'
+import {
+  browserClientReadNames,
+  clientReadList,
+  clientReadPage,
+  systemMetadataUrl,
+} from '@pi-meme/contracts/system-client-reads'
+import { readText, readRecord, SystemReadError } from '@pi-meme/contracts/system-read'
 
 type Rpc = <T>(method: string, args?: unknown[]) => Promise<T>
 type Tab = {
@@ -990,88 +998,201 @@ export function registerBrowserRuntime(options: {
       case 'agent': {
         const [owner, operation, input] = args as [string, string, unknown[]]
         if (typeof owner !== 'string' || !Array.isArray(input)) throw new Error('网页操作参数无效')
-        const workspace = await options.rpc<BrowserWorkspace>('browser:workspace', [owner])
-        if (operation === 'list') return workspace.tabs.map((item) => tabs.get(item.id)?.state ?? item)
-        if (operation === 'open') {
-          if (typeof input[0] !== 'string') throw new Error('网页地址无效')
-          const created = await makeTab(owner, randomUUID(), input[0])
-          await options.rpc('browser:save-workspace', [owner, { ...workspace, tabs: [...workspace.tabs, created] }])
-          emit({ type: 'tab', tab: created })
-          return created
-        }
-        const tab = tabs.get(String(input[0]))
-        if (!tab || tab.state.owner !== owner) throw new Error('网页未加载、已关闭或不属于此会话')
-        const web = tab.view.webContents
-        if (operation === 'close') {
-          await options.rpc('browser:save-workspace', [
-            owner,
-            { ...workspace, tabs: workspace.tabs.filter((item) => item.id !== tab.state.id) },
-          ])
-          if (visible === tab) {
-            visible = undefined
-            closeOverlays()
-          }
-          attachedWindow?.contentView.removeChildView(tab.view)
-          web.close()
-          tabs.delete(tab.state.id)
-          emit({ type: 'tab-closed', owner, id: tab.state.id })
-          return { closed: true }
-        }
-        if (operation === 'navigate') {
-          if (typeof input[1] !== 'string') throw new Error('网页地址无效')
-          await command(tab, { type: 'navigate', url: input[1] })
-          return tab.state
-        }
-        if (operation === 'screenshot') {
-          if (!tab.capture) {
-            tab.capture = (async () => {
-              if (web.debugger.isAttached()) throw new Error('网页调试器正在使用，请关闭该网页的开发者工具后重试截图')
-              web.debugger.attach('1.3')
-              let timer: ReturnType<typeof setTimeout> | undefined
-              try {
-                const capture = async () => {
-                  const metrics = await web.debugger.sendCommand('Page.getLayoutMetrics')
-                  const viewport = metrics.cssVisualViewport
-                  if (!viewport || viewport.clientWidth <= 0 || viewport.clientHeight <= 0)
-                    throw new Error('网页尚未完成布局，请加载完成后重试截图')
-                  const result = await web.debugger.sendCommand('Page.captureScreenshot', {
-                    format: 'png',
-                    fromSurface: true,
-                    captureBeyondViewport: true,
-                    clip: {
-                      x: viewport.pageX,
-                      y: viewport.pageY,
-                      width: viewport.clientWidth,
-                      height: viewport.clientHeight,
-                      scale: 1,
-                    },
-                  })
-                  if (typeof result.data !== 'string' || !result.data.startsWith('iVBORw0KGgo'))
-                    throw new Error('网页截图未返回有效 PNG')
-                  return result.data as string
-                }
-                return await Promise.race([
-                  capture(),
-                  new Promise<never>((_, reject) => {
-                    timer = setTimeout(() => reject(new Error('网页截图超时，请检查页面状态')), 20_000)
-                  }),
-                ])
-              } finally {
-                clearTimeout(timer)
-                if (!web.isDestroyed() && web.debugger.isAttached()) web.debugger.detach()
+        const structuredRead = browserClientReadNames.includes(`browser.${operation}`)
+        try {
+          // These branches only peek at the profile. In particular, history() clears
+          // records and the UI workspace() wrapper can reset restore=false workspaces.
+          if (
+            [
+              'settings.get',
+              'history.list',
+              'downloads.list',
+              'downloads.get',
+              'permissions.list',
+              'data.status',
+            ].includes(operation)
+          ) {
+            const profile = await refresh()
+            const scope = { kind: 'client-browser-profile', shared: true }
+            if (operation === 'settings.get') {
+              const { downloadDirectory, ...settings } = profile.settings
+              return { scope, settings, hasDownloadDirectory: Boolean(downloadDirectory) }
+            }
+            if (operation === 'data.status')
+              return {
+                scope,
+                historyCount: profile.history.length,
+                downloadCount: profile.downloads.length,
+                permissionCount: profile.permissions.length,
+                activeDownloads: activeDownloads.size,
+                cacheBytes: await guestSession.getCacheSize(),
+                websiteStorage: 'not-inspected',
+                cookies: 'not-inspected',
               }
-            })().finally(() => {
-              tab.capture = undefined
+            const download = (item: BrowserSnapshot['downloads'][number]) => ({
+              id: item.id,
+              url: systemMetadataUrl(item.url),
+              name: item.name,
+              received: item.received,
+              total: item.total,
+              state: item.state,
+              createdAt: item.createdAt,
             })
+            if (operation === 'downloads.get') {
+              if (typeof input[0] !== 'string') throw new SystemReadError('invalid-input', '下载标识无效')
+              const item = profile.downloads.find((item) => item.id === input[0])
+              if (!item) throw new SystemReadError('not-found', '下载记录不存在')
+              return { scope, download: download(item) }
+            }
+            const query = clientReadPage(input[0]).query.toLowerCase()
+            const items =
+              operation === 'history.list'
+                ? profile.history.map((item) => ({ ...item, url: systemMetadataUrl(item.url) }))
+                : operation === 'downloads.list'
+                  ? profile.downloads.map(download)
+                  : profile.permissions.map((item) => ({ ...item, origin: systemMetadataUrl(item.origin) }))
+            return {
+              scope,
+              ...clientReadList(
+                items.filter((item) => JSON.stringify(item).toLowerCase().includes(query)),
+                input[0],
+                operation,
+              ),
+            }
           }
-          return { type: 'image', mimeType: 'image/png', data: await tab.capture }
-        }
-        const documentId = tab.state.documentId
-        if (operation === 'read') {
-          const prefix = randomUUID()
-          const result = await web.executeJavaScriptInIsolatedWorld(998, [
-            {
-              code: `(() => {
+          if (operation === 'annotations.image') {
+            if (typeof input[0] !== 'string') throw new SystemReadError('invalid-input', '批注标识无效')
+            return await options.rpc('browser:annotation-image', [owner, input[0]])
+          }
+          if (['list', 'workspace', 'annotations.list', 'annotations.get'].includes(operation)) {
+            const workspace = await options.rpc<BrowserWorkspaceMetadata>('browser:peek-workspace', [owner])
+            const tabMetadata = (item: BrowserTab) => {
+              const state = tabs.get(item.id)?.state ?? item
+              return { ...state, url: systemMetadataUrl(state.url), favicon: undefined }
+            }
+            if (operation === 'list') return workspace.tabs.map(tabMetadata)
+            if (operation === 'workspace')
+              return {
+                tabs: workspace.tabs.map(tabMetadata),
+                annotationCount: workspace.annotations.length,
+                editor: workspace.editor
+                  ? {
+                      id: workspace.editor.id,
+                      tabId: workspace.editor.tabId,
+                      kind: workspace.editor.kind,
+                      hasImage: workspace.editor.hasImage,
+                      hasComment: Boolean(workspace.editor.comment),
+                    }
+                  : undefined,
+              }
+            if (operation === 'annotations.list')
+              return clientReadList(
+                workspace.annotations.map((item) => ({
+                  id: item.id,
+                  tabId: item.tabId,
+                  documentId: item.documentId,
+                  kind: item.kind,
+                  title: item.title,
+                  url: systemMetadataUrl(item.url),
+                  capturedAt: item.capturedAt,
+                  comment: item.comment.slice(0, 500),
+                  hasImage: item.hasImage,
+                })),
+                input[0],
+                `${operation}:${owner}`,
+              )
+            if (typeof input[0] !== 'string') throw new SystemReadError('invalid-input', '批注标识无效')
+            const item = workspace.annotations.find((item) => item.id === input[0])
+            if (!item) throw new SystemReadError('not-found', '当前会话中不存在此批注')
+            const record = {
+              ...item,
+              url: systemMetadataUrl(item.url),
+              frameUrl: item.frameUrl ? systemMetadataUrl(item.frameUrl) : undefined,
+            }
+            const query = readRecord(input[1], ['offset', 'limit', 'revision'])
+            return { id: item.id, format: 'application/json', ...readText(JSON.stringify(record), query) }
+          }
+          const workspace = await options.rpc<BrowserWorkspace>('browser:workspace', [owner])
+          if (operation === 'open') {
+            if (typeof input[0] !== 'string') throw new Error('网页地址无效')
+            const created = await makeTab(owner, randomUUID(), input[0])
+            await options.rpc('browser:save-workspace', [owner, { ...workspace, tabs: [...workspace.tabs, created] }])
+            emit({ type: 'tab', tab: created })
+            return created
+          }
+          const tab = tabs.get(String(input[0]))
+          if (!tab || tab.state.owner !== owner) throw new Error('网页未加载、已关闭或不属于此会话')
+          const web = tab.view.webContents
+          if (operation === 'close') {
+            await options.rpc('browser:save-workspace', [
+              owner,
+              { ...workspace, tabs: workspace.tabs.filter((item) => item.id !== tab.state.id) },
+            ])
+            if (visible === tab) {
+              visible = undefined
+              closeOverlays()
+            }
+            attachedWindow?.contentView.removeChildView(tab.view)
+            web.close()
+            tabs.delete(tab.state.id)
+            emit({ type: 'tab-closed', owner, id: tab.state.id })
+            return { closed: true }
+          }
+          if (operation === 'navigate') {
+            if (typeof input[1] !== 'string') throw new Error('网页地址无效')
+            await command(tab, { type: 'navigate', url: input[1] })
+            return tab.state
+          }
+          if (operation === 'screenshot') {
+            if (!tab.capture) {
+              tab.capture = (async () => {
+                if (web.debugger.isAttached()) throw new Error('网页调试器正在使用，请关闭该网页的开发者工具后重试截图')
+                web.debugger.attach('1.3')
+                let timer: ReturnType<typeof setTimeout> | undefined
+                try {
+                  const capture = async () => {
+                    const metrics = await web.debugger.sendCommand('Page.getLayoutMetrics')
+                    const viewport = metrics.cssVisualViewport
+                    if (!viewport || viewport.clientWidth <= 0 || viewport.clientHeight <= 0)
+                      throw new Error('网页尚未完成布局，请加载完成后重试截图')
+                    const result = await web.debugger.sendCommand('Page.captureScreenshot', {
+                      format: 'png',
+                      fromSurface: true,
+                      captureBeyondViewport: true,
+                      clip: {
+                        x: viewport.pageX,
+                        y: viewport.pageY,
+                        width: viewport.clientWidth,
+                        height: viewport.clientHeight,
+                        scale: 1,
+                      },
+                    })
+                    if (typeof result.data !== 'string' || !result.data.startsWith('iVBORw0KGgo'))
+                      throw new Error('网页截图未返回有效 PNG')
+                    return result.data as string
+                  }
+                  return await Promise.race([
+                    capture(),
+                    new Promise<never>((_, reject) => {
+                      timer = setTimeout(() => reject(new Error('网页截图超时，请检查页面状态')), 20_000)
+                    }),
+                  ])
+                } finally {
+                  clearTimeout(timer)
+                  if (!web.isDestroyed() && web.debugger.isAttached()) web.debugger.detach()
+                }
+              })().finally(() => {
+                tab.capture = undefined
+              })
+            }
+            return { type: 'image', mimeType: 'image/png', data: await tab.capture }
+          }
+          const documentId = tab.state.documentId
+          if (operation === 'read') {
+            const prefix = randomUUID()
+            const result = await web.executeJavaScriptInIsolatedWorld(998, [
+              {
+                code: `(() => {
             const elements = new Map();
             const items = [];
             for (const element of document.querySelectorAll('a,button,input,textarea,select,[role="button"],[contenteditable="true"]')) {
@@ -1084,24 +1205,24 @@ export function registerBrowserRuntime(options: {
             globalThis.__piWorkbenchElements = elements;
             return { title: document.title, text: document.body?.innerText.slice(0,40000) ?? '', elements: items };
           })()`,
-            },
-          ])
-          if (tab.state.documentId !== documentId) throw new Error('网页已导航，请重新读取')
-          return { tab: tab.state, documentId, ...result }
-        }
-        if (!['click', 'input', 'scroll'].includes(operation) || input[1] !== documentId)
-          throw new Error('网页操作或文档版本无效，请重新读取页面')
-        if (operation === 'scroll') {
-          const delta = input[2]
-          if (typeof delta !== 'number' || !Number.isFinite(delta) || Math.abs(delta) > 10000)
-            throw new Error('滚动距离无效')
-          await web.executeJavaScriptInIsolatedWorld(998, [{ code: `window.scrollBy(0, ${delta})` }])
-        } else {
-          if (typeof input[2] !== 'string' || (operation === 'input' && typeof input[3] !== 'string'))
-            throw new Error('网页元素参数无效')
-          await web.executeJavaScriptInIsolatedWorld(998, [
-            {
-              code: `(() => {
+              },
+            ])
+            if (tab.state.documentId !== documentId) throw new Error('网页已导航，请重新读取')
+            return { tab: tab.state, documentId, ...result }
+          }
+          if (!['click', 'input', 'scroll'].includes(operation) || input[1] !== documentId)
+            throw new Error('网页操作或文档版本无效，请重新读取页面')
+          if (operation === 'scroll') {
+            const delta = input[2]
+            if (typeof delta !== 'number' || !Number.isFinite(delta) || Math.abs(delta) > 10000)
+              throw new Error('滚动距离无效')
+            await web.executeJavaScriptInIsolatedWorld(998, [{ code: `window.scrollBy(0, ${delta})` }])
+          } else {
+            if (typeof input[2] !== 'string' || (operation === 'input' && typeof input[3] !== 'string'))
+              throw new Error('网页元素参数无效')
+            await web.executeJavaScriptInIsolatedWorld(998, [
+              {
+                code: `(() => {
             const element = globalThis.__piWorkbenchElements?.get(${JSON.stringify(input[2])});
             if (!element?.isConnected || !element.getClientRects().length || getComputedStyle(element).visibility === 'hidden' || element.closest('[inert]') || element.disabled) throw new Error('元素已变化，请重新读取');
             if (${JSON.stringify(operation)} === 'click') element.click();
@@ -1118,10 +1239,18 @@ export function registerBrowserRuntime(options: {
               element.dispatchEvent(new Event('change', {bubbles:true}));
             }
           })()`,
-            },
-          ])
+              },
+            ])
+          }
+          return { tabId: tab.state.id, documentId: tab.state.documentId, applied: true }
+        } catch (cause) {
+          if (!structuredRead) throw cause
+          return {
+            type: 'browser-agent-read-error',
+            errorCode: cause instanceof SystemReadError ? cause.code : 'internal-error',
+            error: cause instanceof SystemReadError ? cause.message : '浏览器读取失败，请核对目标与浏览器状态',
+          }
         }
-        return { tabId: tab.state.id, documentId: tab.state.documentId, applied: true }
       }
       case 'snapshot':
         return refresh()

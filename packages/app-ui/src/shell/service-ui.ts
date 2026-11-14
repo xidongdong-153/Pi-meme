@@ -4,7 +4,12 @@ import type { HostServiceRegistry } from '@pi-meme/client/service-registry'
 import type { HostClient } from '@pi-meme/client/host-client'
 import type { ReactNode } from 'react'
 import type { HostService } from '@pi-meme/contracts/host'
-import type { SshConnectionPhase, SshConnectionStep } from '@pi-meme/contracts/ssh-connections'
+import type {
+  SshConnectionPhase,
+  SshConnectionStep,
+  SshCapabilities,
+  SshConnection,
+} from '@pi-meme/contracts/ssh-connections'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
 import type { useAppSession } from '../session/use-app-session'
 
@@ -22,6 +27,7 @@ export type ServiceUI = {
   serviceId: string
   active: boolean
   services: HostService[]
+  clientReads?: { ssh: { capabilities: () => Promise<SshCapabilities>; list: () => Promise<SshConnection[]> } }
   imageSources?: ImageLibrarySource[]
   onImageSession?: (serviceId: string, session: SessionRef) => Promise<void>
   onCreateImage?: (serviceId: string, item?: GalleryImage, isCurrent?: () => boolean) => Promise<void>

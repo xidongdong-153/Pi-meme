@@ -35,6 +35,7 @@ import type {
   SettingsSnapshot,
   Theme,
 } from '@pi-meme/contracts/settings'
+import type { SystemClientIdentity, SystemClientRegistration } from '@pi-meme/contracts/system-tools'
 import type { PluginClient } from './plugin-client'
 import { createResourceClient, type ResourceClient } from './resource-client'
 
@@ -152,6 +153,9 @@ export class HostClient {
   private readonly appearanceListeners = new Set<() => void>()
   private systemHandler?: (request: import('@pi-meme/contracts/system-tools').SystemClientRequest) => Promise<unknown>
   private systemOperations: string[] = []
+  private connectionId = crypto.randomUUID()
+  private readonly documentGeneration = crypto.getRandomValues(new Uint32Array(1))[0] + 1
+  private systemIdentity?: SystemClientIdentity
   private socket?: WebSocket
   private reconnectTimer?: ReturnType<typeof setTimeout>
   private reconnectAttempts = 0
@@ -423,6 +427,7 @@ export class HostClient {
           body: JSON.stringify({
             requestId,
             clientId: this.clientId,
+            connectionId: this.connectionId,
             hostId: this.hostId || undefined,
             sessionId: sessionId ?? undefined,
             method,
@@ -617,6 +622,7 @@ export class HostClient {
       apiVersion: 2,
       hostId: this.connectedHostId,
       clientId: this.clientId,
+      connectionId: this.connectionId,
       method,
       args,
       idempotencyKey,
@@ -923,6 +929,9 @@ export class HostClient {
     const url = this.endpoint('/api/events')
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     url.searchParams.set('clientId', this.clientId)
+    this.connectionId = crypto.randomUUID()
+    this.systemIdentity = undefined
+    url.searchParams.set('connectionId', this.connectionId)
     const socket = (this.options.createSocket ?? ((address) => new WebSocket(address)))(url.href)
     this.socket = socket
     this.publishTransportConnection()
@@ -948,6 +957,7 @@ export class HostClient {
     socket.addEventListener('close', () => {
       if (this.socket !== socket) return
       this.socket = undefined
+      this.systemIdentity = undefined
       this.publishTransportConnection(true)
       if (this.closed || this.suspended || epoch !== this.networkEpoch) return
       if (this.selected)
@@ -1131,14 +1141,45 @@ export class HostClient {
         break
       case 'system-request': {
         const request = envelope.value
+        const identity = this.systemIdentity
+        const handler = this.systemHandler
+        const current = () =>
+          Boolean(
+            identity &&
+            identity === this.systemIdentity &&
+            handler === this.systemHandler &&
+            request.connectionId === identity.connectionId &&
+            request.registrationId === identity.registrationId &&
+            request.documentGeneration === identity.documentGeneration &&
+            this.transportConnected,
+          )
+        // Ignore another document's request, including copied sessionStorage client IDs.
+        if (!current()) break
         const execute = async () => {
-          if (!this.systemHandler || Date.now() > request.deadline) throw new Error('客户端操作不可用或已过期')
-          return this.systemHandler(request)
+          if (!handler || Date.now() > request.deadline) throw new Error('客户端操作不可用或已过期')
+          return handler(request)
         }
         void execute()
           .then(
-            (result) => this.rpc('system:reply', [{ id: request.id, result }], null),
-            (cause) => this.rpc('system:reply', [{ id: request.id, error: String(cause) }], null),
+            (result) =>
+              current() && Date.now() <= request.deadline
+                ? this.rpc('system:reply', [{ id: request.id, ...identity, result }], null)
+                : undefined,
+            (cause) =>
+              current() && Date.now() <= request.deadline
+                ? this.rpc(
+                    'system:reply',
+                    [
+                      {
+                        id: request.id,
+                        ...identity,
+                        error: String(cause),
+                        errorCode: cause instanceof Error && 'code' in cause ? cause.code : undefined,
+                      },
+                    ],
+                    null,
+                  )
+                : undefined,
           )
           .catch((cause) => this.reportError(`无法提交客户端操作结果：${String(cause)}`))
         break
@@ -1196,8 +1237,25 @@ export class HostClient {
   }
 
   private async registerSystemCapabilities() {
-    if (this.closed || !(await this.host.capabilities()).features.includes('system-tools')) return
-    await this.rpc('system:register', [this.systemOperations], null)
+    const handler = this.systemHandler
+    const connectionId = this.connectionId
+    if (this.closed || !handler || !this.transportConnected) return
+    if (!(await this.host.capabilities()).features.includes('system-tools')) return
+    if (handler !== this.systemHandler || connectionId !== this.connectionId || !this.transportConnected) return
+    if (this.systemIdentity?.connectionId === connectionId) return
+    const identity: SystemClientIdentity = {
+      connectionId,
+      registrationId: crypto.randomUUID(),
+      documentGeneration: this.documentGeneration,
+    }
+    this.systemIdentity = identity
+    const registration: SystemClientRegistration = { ...identity, operations: [...this.systemOperations] }
+    try {
+      await this.rpc('system:register', [registration], null)
+    } catch (cause) {
+      if (this.systemIdentity === identity) this.systemIdentity = undefined
+      throw cause
+    }
   }
 
   private async directory() {
@@ -1278,13 +1336,21 @@ export class HostClient {
     }
     return {
       registerSystemClient: (operations, handler) => {
+        const previousIdentity = this.systemIdentity
+        this.systemIdentity = undefined
+        if (previousIdentity && this.transportConnected)
+          void this.rpc('system:unregister', [previousIdentity], null).catch(() => {})
         this.systemHandler = handler
         this.systemOperations = operations
         void this.registerSystemCapabilities().catch((cause) => this.reportError(String(cause)))
         return () => {
           if (this.systemHandler === handler) {
+            const identity = this.systemIdentity
             this.systemHandler = undefined
             this.systemOperations = []
+            this.systemIdentity = undefined
+            if (identity && this.transportConnected)
+              void this.rpc('system:unregister', [identity], null).catch(() => {})
           }
         }
       },

@@ -11,7 +11,7 @@ import {
   type SaveModelProvider,
 } from '@pi-meme/contracts/model-config'
 import { loadPiSdk } from '@pi-meme/pi-runtime/sdk/load'
-import { createDesktopModelRuntime } from '@pi-meme/pi-runtime/sdk/model-runtime'
+import { createDesktopModelRuntime, desktopBuiltinProviderIds } from '@pi-meme/pi-runtime/sdk/model-runtime'
 
 type JsonObject = Record<string, unknown>
 export function object(value: unknown, label: string): JsonObject {
@@ -203,6 +203,79 @@ function stripPlaintextSecrets(data: JsonObject) {
         if (model && typeof model === 'object') stripHeaders((model as JsonObject).headers)
   }
 }
+/** Read defaults without constructing SDK settings managers or applying migrations. */
+export async function readConfiguredModelDefaults(agentDir: string) {
+  let raw: string
+  try {
+    raw = await readFile(path.join(agentDir, 'settings.json'), 'utf8')
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'ENOENT')
+      return { status: 'missing', source: 'host-settings', model: null, thinkingLevel: null }
+    throw new Error('模型默认配置不可读取')
+  }
+  const errors: ParseError[] = []
+  const parsed = parse(raw.replace(/^\uFEFF/, ''), errors, { allowTrailingComma: true }) as unknown
+  if (errors.length || !parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+    throw new Error('模型默认配置无效')
+  const value = parsed as Record<string, unknown>
+  const levels = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+  return {
+    status: 'configured',
+    source: 'host-settings',
+    model:
+      typeof value.defaultProvider === 'string' && typeof value.defaultModel === 'string'
+        ? { provider: value.defaultProvider, id: value.defaultModel }
+        : null,
+    thinkingLevel:
+      typeof value.defaultThinkingLevel === 'string' && levels.includes(value.defaultThinkingLevel)
+        ? value.defaultThinkingLevel
+        : null,
+  }
+}
+
+/** Only credential metadata leaves this helper; it never refreshes or resolves auth. */
+export async function readConfiguredModelAuth(credentials: SecureCredentialStorage) {
+  const stored = credentials.entries('model-provider:').map(([key, raw]) => {
+    const provider = key.slice('model-provider:'.length)
+    try {
+      const value = JSON.parse(raw) as { credential?: { type?: unknown; key?: unknown }; env?: unknown }
+      const type = value?.credential?.type
+      return {
+        provider,
+        configured:
+          type === 'oauth' ||
+          (type === 'api_key' && typeof value.credential?.key === 'string' && Boolean(value.credential.key)),
+        authType: type === 'oauth' || type === 'api_key' ? type : 'unknown',
+        source: 'host-credential-store',
+        status: 'stored',
+        validity: 'unknown',
+        headersConfigured: Boolean(value?.env && typeof value.env === 'object' && Object.keys(value.env).length),
+      }
+    } catch {
+      return {
+        provider,
+        configured: false,
+        authType: 'unknown',
+        source: 'host-credential-store',
+        status: 'invalid',
+        validity: 'unknown',
+      }
+    }
+  })
+  const known = new Set(stored.map((entry) => entry.provider))
+  const unconfigured = [...(await desktopBuiltinProviderIds())]
+    .filter((provider) => !known.has(provider))
+    .map((provider) => ({
+      provider,
+      configured: false,
+      authType: 'unknown',
+      source: 'none',
+      status: 'missing',
+      validity: 'unknown',
+    }))
+  return [...stored, ...unconfigured].sort((left, right) => left.provider.localeCompare(right.provider))
+}
+
 export class ModelConfigStore {
   private writing = false
   constructor(

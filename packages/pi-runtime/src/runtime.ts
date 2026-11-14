@@ -31,6 +31,9 @@ export interface PiRuntime {
   configureDefaultAccessMode: (mode: AgentAccessMode) => Promise<void>
   cwd: string
   connection: () => Connection
+  /** Captured models and defaults only; never creates or refreshes a runtime. */
+  peekModels: () => PiModel[]
+  peekDefaults: () => Pick<PiState, 'model' | 'thinkingLevel' | 'steeringMode' | 'followUpMode'> | null
   getSessionContext: (sessionKey: string) => {
     accessMode: AgentAccessMode
     state: Pick<PiState, 'mode' | 'activeMode'>

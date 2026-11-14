@@ -1,6 +1,7 @@
 import { thinkingLevels, type ThinkingLevel } from '@pi-meme/contracts/pi'
 import { loadPiSdk } from '@pi-meme/pi-runtime/sdk/load'
 import { createDesktopSettingsManager } from '@pi-meme/pi-runtime/sdk/settings'
+import { readConfiguredModelDefaults } from './config-store'
 
 /** 读写 Desktop 自有 Pi 目录中 settings.json 的 defaultThinkingLevel。 */
 async function settingsManager(agentDir: string) {
@@ -12,7 +13,7 @@ export function isThinkingLevel(value: unknown): value is ThinkingLevel {
 }
 
 export async function readDefaultThinkingLevel(agentDir: string): Promise<ThinkingLevel | null> {
-  const level = (await settingsManager(agentDir)).getGlobalSettings().defaultThinkingLevel
+  const level = (await readConfiguredModelDefaults(agentDir)).thinkingLevel
   return isThinkingLevel(level) ? level : null
 }
 

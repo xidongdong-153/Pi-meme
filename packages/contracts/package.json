@@ -48,6 +48,8 @@
     "./visualize": "./src/visualize.ts",
     "./image-library": "./src/image-library.ts",
     "./system-tools": "./src/system-tools.ts",
+    "./system-read": "./src/system-read.ts",
+    "./system-client-reads": "./src/system-client-reads.ts",
     "./context-window": "./src/context-window.ts"
   },
   "scripts": {

@@ -307,7 +307,7 @@ async function readIndex(file: string, background = false): Promise<Index | unde
     remember(file, retained)
     return retained
   }
-  const running = pending.get(file)
+  const running = background ? pending.get(file) : undefined
   if (running) {
     if (!background) {
       const queued = builds.findIndex((job) => job.file === file)
@@ -355,14 +355,20 @@ async function readIndex(file: string, background = false): Promise<Index | unde
         /* 缓存缺失或损坏时从原生文件重建。 */
       }
     }
-    const value = await scheduleBuild(file, background, async () => {
+    const buildCurrent = async () => {
       const current = await signature(file)
       return (
         (retained?.version === version ? await appendIndex(file, retained, current) : undefined) ??
         (await build(file, current, version))
       )
-    })
+    }
+    // Foreground reads never create an index file or join a background writer.
+    const value = background ? await scheduleBuild(file, true, buildCurrent) : await buildCurrent()
     if (!value || revision !== (revisions.get(file) ?? 0)) return
+    if (!background) {
+      remember(file, value)
+      return value
+    }
     const temporary = `${target}.${randomUUID()}.tmp`
     try {
       await mkdir(path.dirname(target), { recursive: true, mode: 0o700 })
@@ -384,11 +390,11 @@ async function readIndex(file: string, background = false): Promise<Index | unde
     remember(file, value)
     return value
   })()
-  pending.set(file, request)
+  if (background) pending.set(file, request)
   try {
     return await request
   } finally {
-    if (pending.get(file) === request) pending.delete(file)
+    if (background && pending.get(file) === request) pending.delete(file)
   }
 }
 

@@ -549,7 +549,7 @@ export class RemoteServices {
       throw cause
     }
   }
-  async events(id: string, clientId: string, downstream: WebSocket, subscription?: string) {
+  async events(id: string, clientId: string, downstream: WebSocket, subscription?: string, connectionId?: string) {
     const state = this.get(id)
     await this.authenticate(id)
     this.assertCurrent(state)
@@ -558,6 +558,7 @@ export class RemoteServices {
     if (subscription !== undefined) url.searchParams.set('subscription', subscription)
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     url.searchParams.set('clientId', clientId)
+    if (connectionId) url.searchParams.set('connectionId', connectionId)
     const connect = (renewed: boolean) => {
       this.assertCurrent(state)
       if (downstream.readyState !== WebSocket.OPEN) return

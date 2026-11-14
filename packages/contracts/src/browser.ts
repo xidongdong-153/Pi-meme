@@ -63,6 +63,12 @@ export type BrowserWorkspace = {
   annotations: BrowserAnnotation[]
   editor?: BrowserAnnotation
 }
+export type BrowserAnnotationMetadata = Omit<BrowserAnnotation, 'image'> & { hasImage: boolean }
+export type BrowserWorkspaceMetadata = {
+  tabs: BrowserTab[]
+  annotations: BrowserAnnotationMetadata[]
+  editor?: BrowserAnnotationMetadata
+}
 export type BrowserSnapshot = {
   settings: BrowserSettings
   permissions: BrowserPermission[]

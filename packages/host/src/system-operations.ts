@@ -1,5 +1,19 @@
-import type { HostApi, ProjectRef, SessionRef, MutationOptions } from '@pi-meme/contracts/app-host'
-import type { SystemOperation, SystemToolRequest } from '@pi-meme/contracts/system-tools'
+import type { HostApi, ProjectRef, SessionRef, WorkspaceRef, MutationOptions } from '@pi-meme/contracts/app-host'
+import type { SystemOperation, SystemToolRequest, SystemOperationAvailability } from '@pi-meme/contracts/system-tools'
+import {
+  readInteger,
+  readPage,
+  readRecord,
+  readString,
+  SystemReadError,
+  validateReadArguments,
+} from '@pi-meme/contracts/system-read'
+import { systemClientReadDefinitions } from '@pi-meme/contracts/system-client-reads'
+import { systemSessionReadDefinitions } from './session-read-operations'
+import { systemSettingsReadDefinitions } from './system-settings-reads'
+import { systemResourceReadDefinitions } from './system-resource-reads'
+import type { SystemReadResults } from './system-read-results'
+import { systemReadInputSchema } from './system-read-schemas'
 import type { TerminalService } from './terminal-service'
 
 export type SystemOperationContext = {
@@ -7,7 +21,10 @@ export type SystemOperationContext = {
   session: SessionRef
   terminal: TerminalService
   canWrite: boolean
+  identity: string
+  results: SystemReadResults
   clientAvailable: (operation: string) => boolean
+  clientUnavailableReason?: () => 'not-supported' | 'disconnected'
   client: (operation: string, args: unknown[]) => Promise<unknown>
   read: (operation: string, args: unknown[]) => Promise<unknown>
   write: (operation: string, args: unknown[]) => Promise<unknown>
@@ -28,7 +45,18 @@ export function createSystemOperations(context: SystemOperationContext) {
     run: (args: unknown[], mutation: MutationOptions) => unknown,
   ) => {
     if (operations.has(name)) throw new Error(`重复的内置操作：${name}`)
-    operations.set(name, { definition: { name, description, parameters, write, scope }, run })
+    operations.set(name, {
+      definition: {
+        name,
+        description,
+        parameters,
+        write,
+        scope,
+        domain: name.split('.')[0],
+        ...(!write ? { inputSchema: systemReadInputSchema(name) } : {}),
+      },
+      run,
+    })
   }
   const { api } = context
   const session: SessionRef = { hostId: context.session.hostId, sessionId: context.session.sessionId }
@@ -41,7 +69,7 @@ export function createSystemOperations(context: SystemOperationContext) {
       !('sessionId' in value) ||
       typeof value.sessionId !== 'string'
     )
-      throw new Error('会话目标无效')
+      throw new SystemReadError('invalid-input', '会话目标无效')
     return value as SessionRef
   }
   const projectTarget = (value: unknown): ProjectRef => {
@@ -54,9 +82,11 @@ export function createSystemOperations(context: SystemOperationContext) {
       typeof value.projectId !== 'string' ||
       !value.projectId
     )
-      throw new Error('项目目标无效，请从 projects.list 获取 ProjectRef')
+      throw new SystemReadError('invalid-input', '项目目标无效，请从 projects.list 获取 ProjectRef')
     return { hostId: value.hostId, projectId: value.projectId }
   }
+  const workspaceTarget = (value: unknown): WorkspaceRef =>
+    value && typeof value === 'object' && 'projectId' in value ? projectTarget(value) : target(value)
   const explicitSessionTarget = (value: unknown): SessionRef => {
     if (value === undefined || value === null) throw new Error('此操作必须显式提供 SessionRef')
     return target(value)
@@ -66,8 +96,13 @@ export function createSystemOperations(context: SystemOperationContext) {
       throw new Error('终端不存在')
     return { hostId: session.hostId, terminalId: id }
   }
-  register('terminal.list', '列出当前 Host 的终端及其所属会话或项目', '[]', false, 'host', () =>
-    context.terminal.entries(),
+  register(
+    'terminal.list',
+    '分页列出有权读取的终端元数据，不包含输出',
+    '[{cursor?,offset?,limit?,revision?}?]',
+    false,
+    'host',
+    (args) => context.read('terminal.list', args),
   )
   register(
     'terminal.read',
@@ -75,7 +110,7 @@ export function createSystemOperations(context: SystemOperationContext) {
     '[terminalId]',
     false,
     'host',
-    ([id]) => context.terminal.read(terminalRef(id)),
+    (args) => context.read('terminal.read', args),
   )
   register(
     'terminal.open',
@@ -144,7 +179,10 @@ export function createSystemOperations(context: SystemOperationContext) {
       return api.projects.delete(project, input as { revision: string }, mutation)
     },
   )
-  register('models.list', '列出可用模型，不包含凭据', '[]', false, 'host', () => api.models?.list())
+  register('models.list', '列出已加载的可用模型目录，不初始化模型运行时', '[]', false, 'host', () => {
+    if (!api.models) throw new SystemReadError('not-supported', '当前 Host 不支持模型目录')
+    return api.models.list()
+  })
   if (api.memory) {
     for (const [name, description, parameters] of [
       ['status', '读取当前 Host 记忆开关、预算与当前项目任务状态', '[]'],
@@ -235,7 +273,7 @@ export function createSystemOperations(context: SystemOperationContext) {
   register(
     'sessions.messages',
     '分页读取会话可见消息',
-    '[{offset?,limit?}?, SessionRef?]',
+    '[{offset?,limit?,cursor?}?, SessionRef?]',
     false,
     'session',
     ([input, ref]) => api.sessions.messages(target(ref), input as Parameters<HostApi['sessions']['messages']>[1]),
@@ -366,10 +404,10 @@ export function createSystemOperations(context: SystemOperationContext) {
           : api.visualizations?.get(target(ref), input as { id: string; revision: number }),
     )
   register('files.list', '列出会话目录内的文件', '[relativePath?,SessionRef?]', false, 'session', ([name, ref]) =>
-    api.files.list(target(ref), name as string | undefined),
+    api.files.list(workspaceTarget(ref), name as string | undefined),
   )
   register('files.read', '读取会话目录内的文本文件', '[relativePath,SessionRef?]', false, 'session', ([name, ref]) =>
-    api.files.read(target(ref), name as string),
+    api.files.read(workspaceTarget(ref), name as string),
   )
   register(
     'files.preview',
@@ -377,10 +415,10 @@ export function createSystemOperations(context: SystemOperationContext) {
     '[relativePath,SessionRef?]',
     false,
     'session',
-    ([name, ref]) => api.files.preview(target(ref), name as string),
+    ([name, ref]) => api.files.preview(workspaceTarget(ref), name as string),
   )
   register('files.search', '搜索会话目录文件', '[{query,cursor?},SessionRef?]', false, 'session', ([input, ref]) =>
-    api.files.search(target(ref), input as { query: string; cursor?: string }),
+    api.files.search(workspaceTarget(ref), input as { query: string; cursor?: string }),
   )
   register(
     'files.write',
@@ -393,7 +431,7 @@ export function createSystemOperations(context: SystemOperationContext) {
   )
   register('plans.list', '读取会话计划文档', '[SessionRef?]', false, 'session', ([ref]) => api.plans.list(target(ref)))
   register('git.diff', '读取指定文件差异', '[{path,staged?,kind?},SessionRef?]', false, 'session', ([input, ref]) =>
-    api.git.diff(target(ref), input as Parameters<HostApi['git']['diff']>[1]),
+    api.git.diff(workspaceTarget(ref), input as Parameters<HostApi['git']['diff']>[1]),
   )
   register('plugins.defaults', '读取默认 Agent 插件选择', '[]', false, 'host', () =>
     api.plugins.getDefaultAgentPlugins(),
@@ -407,7 +445,7 @@ export function createSystemOperations(context: SystemOperationContext) {
     ([ids], mutation) => api.plugins.setDefaultAgentPlugins(ids as string[], mutation),
   )
   register('git.snapshot', '读取会话仓库状态', '[SessionRef?]', false, 'session', ([ref]) =>
-    api.git.snapshot(target(ref)),
+    api.git.snapshot(workspaceTarget(ref)),
   )
   if (api.git.availability)
     register(
@@ -471,31 +509,237 @@ export function createSystemOperations(context: SystemOperationContext) {
     ['browser.close', '关闭所属会话的网页', '[tabId]', true],
   ] as const)
     register(name, description, parameters, write, 'client', (args) => context.client(name, args))
+  register('host.capabilities', '读取执行 Host 的实际业务能力与 API 版本', '[]', false, 'host', () =>
+    api.capabilities(),
+  )
+  register('sessions.receipt', '读取指定提交回执，不代表目标已经完成', '[operationId]', false, 'session', ([id]) =>
+    api.sessions.receipt(readString(id, '提交操作标识', 256)),
+  )
+  register(
+    'sessions.submissions',
+    '分页读取会话提交回执，与原生输入队列分开',
+    '[{cursor?,offset?,limit?,revision?}?,SessionRef?]',
+    false,
+    'session',
+    async ([input, ref]) => {
+      const selected = target(ref)
+      const query = readRecord(input, ['cursor', 'offset', 'limit', 'revision'])
+      return readPage(await api.sessions.submissions(selected), query, JSON.stringify(selected))
+    },
+  )
+  register('events.read', '读取有权访问的有界事件与补读游标，不创建订阅', '[query?]', false, 'host', (args) =>
+    context.read('events.read', args),
+  )
+  register('git.environment', '读取工作区本地 Git 分支与环境，不 fetch', '[WorkspaceRef?]', false, 'session', ([ref]) =>
+    api.git.environment(workspaceTarget(ref)),
+  )
+  for (const name of ['review', 'reviewFile', 'reviewOptions'] as const)
+    register(
+      `git.${name}`,
+      name === 'review'
+        ? '读取指定 Git 范围的变更文件'
+        : name === 'reviewFile'
+          ? '读取 Git 文件前后内容及 patch'
+          : '读取可查看的分支与提交选项',
+      name === 'review'
+        ? '[{scope,ref?},WorkspaceRef?]'
+        : name === 'reviewFile'
+          ? '[{query:{scope,ref?},path},WorkspaceRef?]'
+          : '[{search?,offset?},WorkspaceRef?]',
+      false,
+      'session',
+      ([input, ref]) => (api.git[name] as (ref: WorkspaceRef, input: unknown) => unknown)(workspaceTarget(ref), input),
+    )
+  register(
+    'files.listPage',
+    '分页枚举项目或会话目录，支持超过 10000 项的目录',
+    '[{relativePath?,cursor?,offset?,limit?,revision?}?,WorkspaceRef?]',
+    false,
+    'session',
+    (args) => context.read('files.listPage', args),
+  )
+  register(
+    'files.readPiece',
+    '按文件修订流式分片读取工作区 UTF-8 文本，offset/nextOffset 为 UTF-8 字节偏移，不限于 1 MiB 预览',
+    '[{relativePath,offset?,limit?,revision?},WorkspaceRef?]',
+    false,
+    'session',
+    (args) => context.read('files.readPiece', args),
+  )
+  register(
+    'memory.sources',
+    '分页读取当前项目或通用记忆的全部保留来源',
+    '[memoryId,{cursor?,limit?,revision?}?]',
+    false,
+    'session',
+    (args) => context.read('memory.sources', args),
+  )
+  for (const definition of [
+    ...systemSessionReadDefinitions,
+    ...systemSettingsReadDefinitions,
+    ...systemResourceReadDefinitions,
+    ...systemClientReadDefinitions,
+  ]) {
+    const existing = operations.get(definition.name)
+    if (existing?.definition.write || definition.write) throw new Error(`读取目录包含写操作：${definition.name}`)
+    operations.set(definition.name, {
+      definition: { domain: definition.name.split('.')[0], ...definition },
+      run: (args) =>
+        definition.scope === 'client' ? context.client(definition.name, args) : context.read(definition.name, args),
+    })
+  }
+  const availability = (definition: SystemOperation): SystemOperationAvailability => {
+    const allowed = !definition.write || context.canWrite
+    if (definition.scope === 'client' && !context.clientAvailable(definition.name))
+      return { available: false, allowed, reason: context.clientUnavailableReason?.() ?? 'disconnected' }
+    const supported = definition.name.startsWith('contextWindow.')
+      ? Boolean(api.contextWindow)
+      : definition.name.startsWith('visualizations.')
+        ? Boolean(api.visualizations)
+        : definition.name.startsWith('images.')
+          ? Boolean(api.imageLibrary)
+          : definition.name.startsWith('memory.')
+            ? Boolean(api.memory)
+            : definition.name === 'models.list'
+              ? Boolean(api.models)
+              : true
+    return supported
+      ? { available: true, allowed, ...(!allowed ? { reason: 'permission-denied' as const } : {}) }
+      : { available: false, allowed, reason: 'not-supported' }
+  }
+  const invokeRead = async (name: string, args: unknown[]): Promise<unknown> => {
+    const entry = operations.get(name)
+    if (!entry || entry.definition.write)
+      throw new SystemReadError('not-supported', '读取操作不存在，请先查询 capabilities')
+    const state = availability(entry.definition)
+    if (!state.available) throw new SystemReadError(state.reason ?? 'not-supported', '此读取能力在当前上下文不可用')
+    validateReadArguments(entry.definition.inputSchema, args)
+    return entry.run(args, { idempotencyKey: '' })
+  }
+  register(
+    'results.read',
+    '分片续读超出工具预算的完整 JSON 结果；每次重新校验原目标权限',
+    '[{id,revision,offset?,limit?}]',
+    false,
+    'session',
+    ([input]) => context.results.read(context.identity, input, invokeRead),
+  )
+  register(
+    'capabilities.describe',
+    '读取单项操作的参数、结果、范围与限制',
+    '[operationName]',
+    false,
+    'host',
+    ([name]) => {
+      const entry = operations.get(readString(name, '操作名称', 128))
+      if (!entry) throw new SystemReadError('not-supported', '操作不存在，请先查询 capabilities')
+      return {
+        ...entry.definition,
+        inputSchema: entry.definition.inputSchema ?? {
+          type: 'array',
+          maxItems: 8,
+          description: entry.definition.parameters,
+        },
+        outputSchema: entry.definition.outputSchema ?? {
+          description: '保留原业务公共投影；超长结果使用 results.read 返回的 JSON 分片',
+          oneOf: [
+            { type: 'object' },
+            { type: 'array' },
+            { type: 'string' },
+            { type: 'number' },
+            { type: 'boolean' },
+            { type: 'null' },
+          ],
+        },
+        ...availability(entry.definition),
+        limits: { textBytes: 48 * 1024, maxPageSize: 100, ...entry.definition.limits },
+        continuation: {
+          operation: 'results.read',
+          parameters: '[{id,revision,offset?,limit?}]',
+          retentionSeconds: 300,
+        },
+      }
+    },
+  )
+  register(
+    'capabilities',
+    '分页读取当前执行可发现的操作目录与可用原因',
+    '[{domain?,scope?,write?,query?,cursor?,offset?,limit?}?]',
+    false,
+    'host',
+    ([input]) => {
+      const query = readRecord(input, ['domain', 'scope', 'write', 'query', 'cursor', 'offset', 'limit'])
+      if (query.write !== undefined && typeof query.write !== 'boolean')
+        throw new SystemReadError('invalid-input', 'write 筛选必须是布尔值')
+      if (query.scope !== undefined && !['host', 'session', 'client'].includes(query.scope as string))
+        throw new SystemReadError('invalid-input', 'scope 筛选无效')
+      const domain = query.domain === undefined ? undefined : readString(query.domain, '能力域', 128)
+      const search = query.query === undefined ? '' : readString(query.query, '能力搜索词', 500).toLocaleLowerCase()
+      const definitions = [...operations.values()]
+        .map(({ definition }) => ({
+          name: definition.name,
+          description: definition.description,
+          parameters: definition.parameters,
+          write: definition.write,
+          scope: definition.scope,
+          domain: definition.domain,
+          ...availability(definition),
+        }))
+        .filter(
+          (definition) =>
+            (!domain || definition.domain === domain) &&
+            (!query.scope || definition.scope === query.scope) &&
+            (query.write === undefined || definition.write === query.write) &&
+            (!search || `${definition.name} ${definition.description}`.toLocaleLowerCase().includes(search)),
+        )
+      const page = readPage(
+        definitions,
+        { ...query, limit: readInteger(query.limit, 50, 100, 1) },
+        JSON.stringify([session, domain, query.scope, query.write, search]),
+      )
+      return {
+        session,
+        operations: page.items,
+        total: page.total,
+        revision: page.revision,
+        nextCursor: page.nextCursor,
+        observedAt: page.observedAt,
+      }
+    },
+  )
   return {
     async execute(request: SystemToolRequest) {
       if (
         !request ||
         typeof request.operation !== 'string' ||
+        request.operation.length > 128 ||
         !Array.isArray(request.args) ||
         request.args.length > 8 ||
         typeof request.callId !== 'string' ||
         request.callId.length > 256
       )
-        throw new Error('工作台操作参数无效')
-      if (request.operation === 'capabilities' && !request.write)
-        return {
-          session,
-          operations: [...operations.values()].map((value) => ({
-            ...value.definition,
-            available: value.definition.scope !== 'client' || context.clientAvailable(value.definition.name),
-            allowed: !value.definition.write || context.canWrite,
-          })),
-        }
+        throw new SystemReadError('invalid-input', '工作台操作参数无效')
       const operation = operations.get(request.operation)
-      if (!operation) throw new Error(`内置操作不存在：${request.operation}，请先读取 capabilities`)
-      if (operation.definition.write !== request.write) throw new Error('请使用与操作读写性质一致的工具')
-      if (request.write && !context.canWrite) throw new Error('工作台写操作需要普通模式和完全权限')
-      return operation.run(request.args, { idempotencyKey: request.callId })
+      if (!operation) throw new SystemReadError('not-supported', '操作不存在，请先查询 capabilities')
+      if (operation.definition.write !== request.write)
+        throw new SystemReadError('invalid-input', '请使用与操作读写性质一致的工具')
+      if (request.write) {
+        if (!context.canWrite) throw new SystemReadError('permission-denied', '工作台写操作需要普通模式和完全权限')
+        return operation.run(request.args, { idempotencyKey: request.callId })
+      }
+      if (Buffer.byteLength(JSON.stringify(request.args)) > 64 * 1024)
+        throw new SystemReadError('invalid-input', '读取参数超过 64 KiB，请缩小查询')
+      try {
+        const result = await invokeRead(request.operation, request.args)
+        return context.results.capture(context.identity, request.operation, request.args, result)
+      } catch (cause) {
+        if (cause instanceof SystemReadError) throw cause
+        const code = cause && typeof cause === 'object' && 'code' in cause ? String(cause.code) : ''
+        if (code === 'stale-cursor') throw new SystemReadError('stale-cursor', '数据或游标已变化，请重新读取')
+        if (code === 'ENOENT') throw new SystemReadError('not-found', '目标不存在或已删除')
+        if (code === 'EACCES' || code === 'EPERM') throw new SystemReadError('permission-denied', '没有读取目标的权限')
+        throw new SystemReadError('internal-error', '读取失败；请核对目标、权限和参数，或查询对应域的诊断状态')
+      }
     },
   }
 }

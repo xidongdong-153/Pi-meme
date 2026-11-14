@@ -161,6 +161,13 @@ function useAppearanceController(bridge: DesktopBridge) {
   )
   return {
     bridge,
+    getSystemSnapshot: () => ({
+      snapshot: state.snapshot,
+      previewMode,
+      systemDark,
+      systemMotion,
+      pending: state.pending,
+    }),
     registerMaintenanceGuard,
     ...state,
     error: state.error || operationError,

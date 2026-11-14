@@ -2356,6 +2356,58 @@ export class HostCollaborationBridge {
       .filter((record) => record.summary.depth > 0)
       .map((record) => ({ sessionId: record.summary.sessionId, sessionFile: record.summary.sessionFile }))
   }
+  /** Observations never bind a root, infer origins, acknowledge mail or persist records. */
+  async peekCollaboration(sessionKey?: string, sessionFile?: string) {
+    await this.ready
+    const root =
+      (sessionKey ? this.roots.get(sessionKey) : undefined) ??
+      [...this.roots.values()].find((entry) => Boolean(sessionFile) && entry.summary.sessionFile === sessionFile)
+    if (!root) return { agents: [], pendingInteractions: [], agentMessages: [] }
+    const records = this.tree(root)
+    return structuredClone({
+      agents: records.map((entry) => entry.summary),
+      pendingInteractions: records.flatMap((entry) => entry.interactions),
+      agentMessages: records.flatMap((entry) => entry.mailbox),
+    })
+  }
+  async peekAgentSnapshot(agentId: string): Promise<Snapshot> {
+    await this.ready
+    const record = this.records.get(agentId)
+    if (!record) throw new Error('Agent 不存在')
+    const history = record.summary.sessionFile ? await readSessionHistory(record.summary.sessionFile) : undefined
+    const own =
+      record.summary.conversationOrigin && record.summary.sessionFile
+        ? await readAgentConversation(record.summary.sessionFile, record.summary.conversationOrigin)
+        : undefined
+    return structuredClone({
+      connection: {
+        cwd: record.summary.cwd,
+        generation: record.summary.executionGeneration,
+        sessionKey: record.summary.sessionKey,
+        status: 'idle',
+      },
+      state: {
+        mode: record.summary.mode,
+        model: record.summary.model,
+        thinkingLevel: record.summary.thinkingLevel,
+        isStreaming: false,
+        isCompacting: false,
+        steeringMode: 'all',
+        followUpMode: 'one-at-a-time',
+        pendingMessageCount: 0,
+      },
+      messages: own?.messages ?? history?.messages ?? [],
+      sessionEntries: own?.sessionEntries ?? history?.sessionEntries,
+      models: [],
+      agent: record.summary,
+      agents: this.tree(record).map((entry) => entry.summary),
+      pendingInteractions: record.interactions,
+      agentMessages: record.mailbox,
+      stats: history?.stats,
+      events: record.events ?? [],
+      eventSequence: record.sequence,
+    })
+  }
   async getAgents(sessionKey: string) {
     return (await this.snapshot(sessionKey)).agents
   }

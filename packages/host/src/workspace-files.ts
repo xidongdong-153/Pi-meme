@@ -3,6 +3,7 @@ import { open, readdir, realpath, rename, rm, stat } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { maxImagePreviewBytes } from '@pi-meme/contracts/app-host'
+import { readInteger, readPage, readText, SystemReadError, type ReadQuery } from '@pi-meme/contracts/system-read'
 import type {
   FileContent,
   FileEntry,
@@ -138,6 +139,31 @@ export function createWorkspaceFiles(
     return { filename }
   }
   const api = {
+    async listPage(ref: WorkspaceRef, relative = '', query: ReadQuery = {}) {
+      const { filename, root } = await target(ref, relative)
+      const entries = (await readdir(filename, { withFileTypes: true })).sort(
+        (left, right) =>
+          Number(right.isDirectory()) - Number(left.isDirectory()) || left.name.localeCompare(right.name),
+      )
+      const signature = createHash('sha256')
+        .update(JSON.stringify(entries.map((entry) => [entry.name, entry.isDirectory(), entry.isSymbolicLink()])))
+        .digest('hex')
+      const page = readPage(entries, query, JSON.stringify([ref, root, relative]), signature)
+      const items = await Promise.all(
+        page.items.map(async (entry): Promise<FileEntry | null> => {
+          const relativePath = path.posix.join(relative, entry.name)
+          try {
+            const resolved = await target(ref, relativePath)
+            const info = await stat(resolved.filename)
+            if (!info.isDirectory() && !info.isFile()) return null
+            return { name: entry.name, relativePath, kind: info.isDirectory() ? 'directory' : 'file', size: info.size }
+          } catch {
+            return null
+          }
+        }),
+      )
+      return { ...page, items: items.filter((entry): entry is FileEntry => entry !== null), filtered: true }
+    },
     async list(ref: WorkspaceRef, relative = ''): Promise<FileEntry[]> {
       const { filename } = await target(ref, relative)
       const entries = await readdir(filename, { withFileTypes: true })
@@ -158,6 +184,60 @@ export function createWorkspaceFiles(
       return files
         .filter((entry): entry is FileEntry => entry !== null)
         .sort((a, b) => Number(b.kind === 'directory') - Number(a.kind === 'directory') || a.name.localeCompare(b.name))
+    },
+    async readPiece(ref: WorkspaceRef, relative: string, query: ReadQuery = {}) {
+      const { filename } = await target(ref, relative)
+      const file = await open(filename, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | constants.O_NONBLOCK)
+      try {
+        const before = await file.stat()
+        if (!before.isFile()) throw new SystemReadError('invalid-input', '只能读取普通文件')
+        const signature = (info: typeof before) =>
+          createHash('sha256')
+            .update(JSON.stringify([info.dev, info.ino, info.size, info.mtimeMs, info.ctimeMs]))
+            .digest('hex')
+        const revision = signature(before)
+        if (query.revision !== undefined && query.revision !== revision)
+          throw new SystemReadError('stale-cursor', '文件已变化，请从头读取')
+        const offset = readInteger(query.offset, 0, before.size)
+        const limit = readInteger(query.limit, 12000, 20000, 1)
+        const buffer = Buffer.alloc(Math.min(Math.max(limit * 4, 4), 80_000, before.size - offset))
+        const { bytesRead } = await file.read(buffer, 0, buffer.length, offset)
+        const bytes = buffer.subarray(0, bytesRead)
+        if (bytes.includes(0)) return { kind: 'unsupported', relativePath: relative, reason: 'binary' }
+        if (bytes.length && (bytes[0] & 0xc0) === 0x80)
+          throw new SystemReadError('invalid-input', '文件偏移必须位于 UTF-8 字符边界')
+        let content: string
+        try {
+          content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes, {
+            stream: offset + bytesRead < before.size,
+          })
+        } catch {
+          return { kind: 'unsupported', relativePath: relative, reason: 'encoding' }
+        }
+        const piece = readText(content, { limit }, revision)
+        const next = offset + Buffer.byteLength(piece.content, 'utf8')
+        const after = await file.stat()
+        const resolved = await target(ref, relative)
+        if (
+          signature(after) !== revision ||
+          resolved.filename !== filename ||
+          signature(await stat(filename)) !== revision
+        )
+          throw new SystemReadError('stale-cursor', '文件在读取期间变化，请重新读取')
+        return {
+          kind: 'text',
+          relativePath: relative,
+          content: piece.content,
+          offset,
+          total: before.size,
+          offsetUnit: 'utf8-bytes',
+          revision,
+          observedAt: piece.observedAt,
+          nextOffset: next < before.size ? next : undefined,
+        }
+      } finally {
+        await file.close()
+      }
     },
     async read(ref: WorkspaceRef, relative: string): Promise<FileContent> {
       const { filename } = await target(ref, relative)

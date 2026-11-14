@@ -1,4 +1,5 @@
 import { createSystemTools } from './system-tools'
+import { SystemReadError, type ReadErrorCode } from '@pi-meme/contracts/system-read'
 import { projectBranchVisualizations } from '@pi-meme/contracts/visualize'
 import type { VisualizationRequest, VisualizationDocument } from '@pi-meme/contracts/visualize'
 import type { Goal, GoalRequest, GoalRun } from '@pi-meme/contracts/goal'
@@ -352,12 +353,16 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
       hostReply?: string
       result?: unknown
       error?: string
+      errorCode?: ReadErrorCode
     }) => {
       if (request.hostReply) {
         const pending = pendingHost.get(request.hostReply)
         pendingHost.delete(request.hostReply)
         pending?.cleanup()
-        if (request.error) pending?.reject(new Error(request.error))
+        if (request.error)
+          pending?.reject(
+            request.errorCode ? new SystemReadError(request.errorCode, request.error) : new Error(request.error),
+          )
         else pending?.resolve(request.result)
         return
       }

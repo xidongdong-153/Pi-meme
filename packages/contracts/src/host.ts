@@ -31,6 +31,7 @@ export type CredentialImportResult = { imported: number; skipped: number; reconn
 export type HostRpcRequest = {
   requestId: string
   clientId: string
+  connectionId?: string
   hostId?: string
   sessionId?: string
   method: string

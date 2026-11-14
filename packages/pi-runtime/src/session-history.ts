@@ -74,6 +74,20 @@ export async function readSessionHistory(filePath: string, window?: SessionWindo
   }
 }
 
+/** Explicit entry reads parse an in-memory copy and never open a writable SessionManager. */
+export async function readSessionEntry(filePath: string, entryId: string) {
+  const { parseSessionEntries, migrateSessionEntries } = await loadPiSdk()
+  const before = await stat(filePath)
+  const entries = parseSessionEntries(await readFile(filePath, 'utf8'))
+  migrateSessionEntries(entries)
+  const after = await stat(filePath)
+  if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs)
+    throw new Error('会话历史已变化，请重新读取条目')
+  const entry = entries.find((item) => item.type !== 'session' && item.id === entryId)
+  if (!entry) throw new Error('原生会话条目不存在')
+  return structuredClone(entry)
+}
+
 /** 冷旧格式回退复用完整历史缓存；常规路径仅读取已有索引。 */
 export async function readSessionBranchUserEntries(filePath: string) {
   return readIndexedBranchUserEntries(filePath, () => readSessionHistory(filePath))

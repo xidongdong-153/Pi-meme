@@ -1,4 +1,10 @@
 import { createSystemOperations } from './system-operations'
+import { SystemReadResults } from './system-read-results'
+import { createSettingsReads, systemSettingsReadDefinitions } from './system-settings-reads'
+import { createResourceReads, systemResourceReadDefinitions } from './system-resource-reads'
+import { systemSessionReadDefinitions } from './session-read-operations'
+import { readInteger, readRecord, readString, SystemReadError } from '@pi-meme/contracts/system-read'
+import type { SystemClientIdentity, SystemClientRegistration } from '@pi-meme/contracts/system-tools'
 import { MemoryCoordinator, memoryModelCompletion } from './memory-coordinator'
 import { memorySystem } from './memory-system'
 import type { MemoryService } from '@pi-meme/memory/server/service'
@@ -66,7 +72,11 @@ import { createWorkerSession } from '@pi-meme/pi-adapter/worker-session'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
 import { FileCredentialStore } from '@pi-meme/pi-adapter/file-credentials'
-import { ModelConfigStore } from '@pi-meme/models/server/config-store'
+import {
+  ModelConfigStore,
+  readConfiguredModelDefaults,
+  readConfiguredModelAuth,
+} from '@pi-meme/models/server/config-store'
 import { ModelService } from '@pi-meme/models/server/model-service'
 import { SettingsStore } from '@pi-meme/settings/server/store'
 import { InstructionsStore, parseSaveInstruction } from '@pi-meme/settings/server/instructions'
@@ -134,6 +144,9 @@ const sessionWrites = new Set([
   'git:create-worktree',
 ])
 const reads = new Set([
+  'system:register',
+  'system:unregister',
+  'system:reply',
   'pi:connection',
   'host:session-ref',
   'pi:snapshot',
@@ -252,6 +265,7 @@ export async function createHost(options: HostOptions = {}) {
       }
     }
     const listeners = new Map<string, Set<(event: HostEvent) => void>>()
+    const listenerConnections = new Map<(event: HostEvent) => void, string>()
     settings.setAppearanceObserver((revision) => {
       const event: HostEvent = { hostId, type: 'appearance-changed', value: { revision } }
       for (const subscribers of listeners.values())
@@ -325,15 +339,22 @@ export async function createHost(options: HostOptions = {}) {
     let mcp: McpConfigStore
     let terminal: TerminalService
     let pi: PiSessionPool
+    let models: ModelConfigStore
     let appControl: Awaited<ReturnType<typeof createAppControl>> | undefined
     let memory: MemoryService | undefined
     let memorySourceChanges: Promise<void> = Promise.resolve()
     let systemWrites: Promise<unknown> = Promise.resolve()
-    const executionClients = new Map<string, { clientId: string; rootTaskId: string; epoch: number }>()
+    const readResults = new SystemReadResults()
+    const executionClients = new Map<
+      string,
+      { clientId: string; rootTaskId: string; epoch: number; identity?: SystemClientIdentity }
+    >()
     const systemClients = new SystemClientBridge((clientId, value) => {
       const subscribers = listeners.get(clientId)
       if (!subscribers?.size) return false
-      for (const subscriber of subscribers) subscriber({ hostId, type: 'system-request', value })
+      const subscriber = [...subscribers].find((entry) => listenerConnections.get(entry) === value.connectionId)
+      if (!subscriber) return false
+      subscriber({ hostId, type: 'system-request', value })
       return true
     })
     const systemChanged = () => {
@@ -595,6 +616,14 @@ export async function createHost(options: HostOptions = {}) {
     let builtins: Awaited<ReturnType<typeof createBuiltinModules>> | undefined
     let retireWorkers: (keys: string[]) => Promise<void>
     const workerSnapshots = new Map<string, ResourceSnapshot>()
+    const workerReadSnapshots = new Map<
+      string,
+      {
+        settings: typeof settings.settings
+        tools: Record<string, boolean>
+        instructions: Awaited<ReturnType<InstructionsStore['snapshot']>>
+      }
+    >()
     const resources = new ResourceStore(root, {
       hostId,
       getAppPackages: () => plugins?.resourcePackages() ?? [],
@@ -670,7 +699,8 @@ export async function createHost(options: HostOptions = {}) {
             paths
       const contextSessions = new Set<string>()
       const session = createWorkerSession(cwd, notify, effectivePaths, async (access, taskMode) => {
-        let snapshot = (parentSessionKey && workerSnapshots.get(parentSessionKey)) || (await resources.snapshot(cwd))
+        let snapshot =
+          (parentSessionKey && workerSnapshots.get(parentSessionKey)) || (await resources.snapshotForExecution(cwd))
         let lease: ReturnType<PluginManager['acquire']> | undefined
         if (!canUseExternalAgentTools(access, taskMode)) {
           lease = plugins.acquire(() => false)
@@ -713,12 +743,21 @@ export async function createHost(options: HostOptions = {}) {
               break
             }
             await candidate.release()
-            snapshot = await resources.snapshot(cwd)
+            snapshot = await resources.snapshotForExecution(cwd)
           }
           if (!lease) throw new Error('插件在资源扫描期间更新，请重试当前任务')
         }
         const releaseResource = resources.acquire(snapshot)
         workerSnapshots.set(sessionKey, snapshot)
+        workerReadSnapshots.set(sessionKey, {
+          settings: structuredClone(settings.settings),
+          tools: {
+            codemodeEnabled: true,
+            mcpEnabled: Boolean(settings.settings.mcpEnabled),
+            subagentsEnabled: settings.settings.subagentsEnabled !== false,
+          },
+          instructions: await instructions.snapshot(cwd),
+        })
         workerPlugins.set(sessionKey, lease.descriptors)
         workerPluginIds.set(sessionKey, new Set(lease.retainedIds))
         workers.set(sessionKey, session)
@@ -803,8 +842,10 @@ export async function createHost(options: HostOptions = {}) {
                   clientId: sourceClientId,
                   rootTaskId: admitted.rootTaskId,
                   epoch: admitted.epoch,
+                  identity: systemClients.identity(sourceClientId),
                 })
               else executionClients.delete(admitted.rootSessionKey)
+              await appControl?.sessionForRuntime(admitted.rootSessionKey)
             }
             const run =
               actor.depth === 0
@@ -992,19 +1033,75 @@ export async function createHost(options: HostOptions = {}) {
                 throw new Error('工作台写操作需要普通模式和完全权限')
             }
             assertActive()
-            const ref = await appControl!.sessionForRuntime(actor.rootSessionKey)
+            const ref = request.write
+              ? await appControl!.sessionForRuntime(actor.rootSessionKey)
+              : appControl!.peekSessionForRuntime(actor.rootSessionKey)
             const api = appControl!.apiFor(`system-api:${ref.sessionId}`, ref)
             const memoryAccess = memory && memorySystem(memory, ref, ref.project?.projectId)
+            const settingsReads = createSettingsReads({
+              hostId,
+              session: ref,
+              cwd: actor.cwd,
+              configuration: () => settings.snapshot(),
+              models: () => models.snapshot(),
+              modelDefaults: () => readConfiguredModelDefaults(paths.agentDir),
+              modelAuth: () => readConfiguredModelAuth(credentials),
+              imageGeneration: () => imageGeneration.config.snapshot(),
+              subagents: async () =>
+                (await optionalRuntimeExtensions(settings.settings, path.join(paths.agentDir, 'subagents'))).catalog,
+              plugins: () => plugins.list(),
+              pluginDiagnostics: () => plugins.diagnostics(),
+              sessionPlugins: () => workerPlugins.get(actor.rootSessionKey) ?? [],
+              mcp: () => mcp.snapshot(),
+              usage: () => builtins!.handlers['settings:usage-stats'](),
+              instructions: () => instructions.snapshot(actor.cwd),
+              captured: () => workerReadSnapshots.get(actor.rootSessionKey),
+              execution: () => ({ mode: actor.mode, accessMode: actor.accessMode }),
+              runtime: () => ({
+                hostId,
+                piVersion: pi.connection().piVersion,
+                platform: process.platform,
+                arch: process.arch,
+                nodeVersion: process.versions.node,
+                status: closing ? 'stopping' : 'running',
+                connection: pi.connection(),
+              }),
+              modules: () => builtins!.diagnostics(),
+              services: () => Object.keys(builtins!.services),
+              sandbox: () => (builtins!.services['agent.sandbox'] as { capability: () => unknown }).capability(),
+              storage: () => ({
+                hostId,
+                dataRoot: root,
+                source:
+                  process.env.PI_MEME_DATA_ROOT && hostDataRoot(process.env.PI_MEME_DATA_ROOT) === root
+                    ? 'environment'
+                    : options.dataRoot
+                      ? 'custom'
+                      : 'default',
+                status: closing ? 'unknown' : 'ready',
+              }),
+            })
+            const resolveReadWorkspace = async (target: unknown = ref) => {
+              if (!target || typeof target !== 'object' || !('hostId' in target) || target.hostId !== hostId)
+                throw new SystemReadError('invalid-input', '读取目标必须属于当前 Host')
+              if ('projectId' in target)
+                return (await api.projects.get(target as import('@pi-meme/contracts/app-host').ProjectRef)).cwd
+              if ('sessionId' in target)
+                return (await api.sessions.get(target as import('@pi-meme/contracts/app-host').SessionRef)).cwd
+              throw new SystemReadError('invalid-input', '读取目标必须是 ProjectRef 或 SessionRef')
+            }
+            const resourceReads = createResourceReads(resources, resolveReadWorkspace)
+            const pagedFiles = createWorkspaceFiles(resolveReadWorkspace)
             const safeMcp = async () => {
               const value = await mcp.snapshot()
               return {
                 revision: value.revision,
-                error: value.error,
+                error: value.error ? { code: 'mcp-configuration-error' } : undefined,
                 servers: value.servers.map((entry) => {
                   const config = entry.config as Record<string, unknown> | undefined
                   return {
                     name: entry.name,
-                    error: entry.error,
+                    error: entry.error ? { code: 'mcp-entry-error' } : undefined,
                     enabled: config?.enabled !== false,
                     transport: config?.command ? 'stdio' : 'http',
                     authorized: config?.desktopAuthorized === true,
@@ -1019,7 +1116,9 @@ export async function createHost(options: HostOptions = {}) {
             }
             const initiatingClient = () => {
               const origin = executionClients.get(actor.rootSessionKey)
-              return origin?.rootTaskId === actor.rootTaskId && origin.epoch === actor.epoch
+              return origin?.rootTaskId === actor.rootTaskId &&
+                origin.epoch === actor.epoch &&
+                systemClients.matches(origin.clientId, origin.identity)
                 ? origin.clientId
                 : undefined
             }
@@ -1028,6 +1127,9 @@ export async function createHost(options: HostOptions = {}) {
               session: ref,
               terminal,
               canWrite: isBuiltinAgentToolAllowed('system_write', effectiveAgentAccess(actor.accessMode, actor.mode)),
+              identity: JSON.stringify([ref, actor.rootTaskId, actor.runId, actor.epoch, actor.executionGeneration]),
+              results: readResults,
+              clientUnavailableReason: () => (initiatingClient() ? 'not-supported' : 'disconnected'),
               clientAvailable: (operation) => systemClients.supports(initiatingClient(), operation),
               client: async (operation, args) => {
                 assertActive()
@@ -1036,8 +1138,94 @@ export async function createHost(options: HostOptions = {}) {
               read: async (operation, args) => {
                 assertActive()
                 if (operation.startsWith('memory.')) {
-                  if (!memoryAccess) throw new Error('当前服务不支持记忆')
+                  if (!memoryAccess) throw new SystemReadError('not-supported', '当前服务不支持记忆')
                   return memoryAccess.read(operation, args)
+                }
+                if (
+                  systemSessionReadDefinitions.some((definition) => definition.name === operation) ||
+                  operation === 'terminal.list' ||
+                  operation === 'terminal.read'
+                )
+                  return appControl!.systemRead(operation, args, ref)
+                if (systemSettingsReadDefinitions.some((definition) => definition.name === operation))
+                  return settingsReads.read(operation, args)
+                if (systemResourceReadDefinitions.some((definition) => definition.name === operation))
+                  return resourceReads.read(operation, args)
+                if (operation === 'files.listPage') {
+                  const query = readRecord(args[0], ['relativePath', 'cursor', 'offset', 'limit', 'revision'])
+                  const selected = (args[1] ?? ref) as import('@pi-meme/contracts/app-host').WorkspaceRef
+                  return pagedFiles.listPage(
+                    selected,
+                    query.relativePath === undefined || query.relativePath === ''
+                      ? ''
+                      : readString(query.relativePath, '目录相对路径', 4096),
+                    query,
+                  )
+                }
+                if (operation === 'files.readPiece') {
+                  const query = readRecord(args[0], ['relativePath', 'offset', 'limit', 'revision'])
+                  const selected = (args[1] ?? ref) as import('@pi-meme/contracts/app-host').WorkspaceRef
+                  return pagedFiles.readPiece(selected, readString(query.relativePath, '文件相对路径', 4096), query)
+                }
+                if (operation === 'events.read') {
+                  const query = readRecord(args[0], ['project', 'session', 'terminalId', 'after', 'limit'])
+                  const project = query.project as import('@pi-meme/contracts/app-host').ProjectRef | undefined
+                  const selected = (query.session ?? (project ? undefined : ref)) as
+                    import('@pi-meme/contracts/app-host').SessionRef | undefined
+                  if (project) await api.projects.get(project)
+                  if (selected) await api.sessions.get(selected)
+                  if (query.terminalId !== undefined) {
+                    const allowed = await api.terminal.list?.()
+                    if (!allowed?.some((entry) => entry.terminalId === query.terminalId))
+                      throw new SystemReadError('permission-denied', '没有读取此终端事件的权限')
+                  }
+                  const limit = readInteger(query.limit, 50, 100, 1)
+                  const page = await api.events.read({
+                    projectId: project?.projectId,
+                    sessionId: selected?.sessionId,
+                    terminalId: query.terminalId as string | undefined,
+                    after: query.after as import('@pi-meme/contracts/app-host').EventCursor | undefined,
+                  })
+                  const events = page.events.slice(0, limit).map((event) => {
+                    const value = event.value as Record<string, unknown>
+                    const safeValue: Record<string, unknown> = {}
+                    if (value && typeof value === 'object')
+                      for (const key of [
+                        'operationId',
+                        'submissionId',
+                        'runId',
+                        'sessionId',
+                        'projectId',
+                        'terminalId',
+                        'requestId',
+                        'revision',
+                        'status',
+                        'outputSequence',
+                        'exitCode',
+                        'reason',
+                      ]) {
+                        const item = value[key]
+                        if (key === 'reason') {
+                          safeValue.reason = 'changed'
+                          continue
+                        }
+                        if (
+                          (typeof item === 'string' && item.length <= 256) ||
+                          typeof item === 'number' ||
+                          typeof item === 'boolean'
+                        )
+                          safeValue[key] = item
+                      }
+                    return { ...event, value: safeValue }
+                  })
+                  const last = events.at(-1)
+                  const cursor = last ? { journalEpoch: last.journalEpoch, seq: last.seq } : page.cursor
+                  return {
+                    events,
+                    cursor,
+                    nextAfter: page.events.length > events.length ? cursor : undefined,
+                    resyncRequired: page.resyncRequired,
+                  }
                 }
                 if (operation === 'profile.get') return profile()
                 if (operation === 'profile.avatar') {
@@ -1163,6 +1351,7 @@ export async function createHost(options: HostOptions = {}) {
               releaseResource()
               workerPluginBridges.delete(sessionKey)
               workerSnapshots.delete(sessionKey)
+              workerReadSnapshots.delete(sessionKey)
               workerPlugins.delete(sessionKey)
               workerPluginIds.delete(sessionKey)
               workers.delete(sessionKey)
@@ -1433,8 +1622,9 @@ export async function createHost(options: HostOptions = {}) {
       mcpEnabled: settings.settings.mcpEnabled ?? false,
     })
     if (settings.settings.defaultAccessMode) await pi.configureDefaultAccessMode(settings.settings.defaultAccessMode)
-    const models = new ModelConfigStore(path.join(paths.agentDir, 'models.json'), credentials, paths.agentDir)
+    models = new ModelConfigStore(path.join(paths.agentDir, 'models.json'), credentials, paths.agentDir)
     const modelService = new ModelService(pi, models)
+    await modelService.refreshCatalog()
     mcp = new McpConfigStore(path.join(paths.agentDir, 'mcp.json'), credentials)
     const uiDescriptors = (descriptors: PluginDescriptor[]) =>
       descriptors.map((descriptor) => ({
@@ -1831,7 +2021,7 @@ export async function createHost(options: HostOptions = {}) {
       ).capability(),
     )
     pi.configureResources(
-      (cwd) => resources.snapshot(cwd),
+      (cwd) => resources.snapshotForExecution(cwd),
       () => commandRevision,
     )
     pi.configureResourceDiscovery(true)
@@ -2555,7 +2745,15 @@ export async function createHost(options: HostOptions = {}) {
         closing = true
       },
       app: appControl.api,
-      control: appControl,
+      control: {
+        ...appControl,
+        dispatch: async (request: import('@pi-meme/contracts/app-host').HostControlRequest) => {
+          const identity = systemClients.identity(request.clientId)
+          if (identity && request.connectionId !== identity.connectionId)
+            return { hostId, error: { code: 'permission-denied', message: '控制请求来自其他客户端连接，操作未执行' } }
+          return appControl!.dispatch(request)
+        },
+      },
       settings,
       pi,
       credentials,
@@ -2671,12 +2869,28 @@ export async function createHost(options: HostOptions = {}) {
         const pending = registry.run(
           request,
           async () => {
-            if (request.method === 'system:register') return systemClients.register(request.clientId, request.args[0])
-            if (request.method === 'system:reply')
-              return systemClients.reply(
-                request.clientId,
-                request.args[0] as import('@pi-meme/contracts/system-tools').SystemClientReply,
+            if (request.method === 'system:register') {
+              const registration = request.args[0] as SystemClientRegistration | undefined
+              const connected = [...(listeners.get(request.clientId) ?? [])].some(
+                (entry) => listenerConnections.get(entry) === registration?.connectionId,
               )
+              if (!registration || request.connectionId !== registration.connectionId || !connected)
+                throw new Error('客户端注册必须绑定当前已连接的事件通道')
+              return systemClients.register(request.clientId, registration)
+            }
+            if (request.method === 'system:unregister') {
+              const identity = request.args[0] as SystemClientIdentity | undefined
+              if (!identity || request.connectionId !== identity.connectionId) throw new Error('客户端注销来源不匹配')
+              return systemClients.unregister(request.clientId, identity)
+            }
+            if (request.method === 'system:reply') {
+              const reply = request.args[0] as import('@pi-meme/contracts/system-tools').SystemClientReply
+              if (request.connectionId !== reply?.connectionId) throw new Error('客户端回执连接不匹配')
+              return systemClients.reply(request.clientId, reply)
+            }
+            const registered = systemClients.identity(request.clientId)
+            if (registered && request.connectionId !== registered.connectionId)
+              throw new Error('请求来自其他客户端连接，操作未执行')
             const deletion = request.method === 'session:delete' || request.method === 'project:remove'
             const deletionEpoch = selectionEpochs.get(request.clientId) ?? 0
             const epoch = selections.has(request.method) ? (selectionEpochs.get(request.clientId) ?? 0) + 1 : undefined
@@ -2881,17 +3095,24 @@ export async function createHost(options: HostOptions = {}) {
         }
       },
       plugins,
-      async subscribe(clientId: string, callback: (event: HostEvent) => void) {
+      async subscribe(clientId: string, callback: (event: HostEvent) => void, connectionId?: string) {
+        if (connectionId !== undefined && !/^[a-zA-Z0-9-]{1,128}$/.test(connectionId))
+          throw new Error('客户端连接标识无效')
         await client(clientId)
         const values = listeners.get(clientId) ?? new Set()
+        if (connectionId && [...values].some((entry) => listenerConnections.get(entry) === connectionId))
+          throw new Error('事件连接标识已经使用')
         listeners.set(clientId, values)
         values.add(callback)
+        if (connectionId) listenerConnections.set(callback, connectionId)
         scheduleClientRelease(clientId)
         return () => {
           values.delete(callback)
+          listenerConnections.delete(callback)
+          if (connectionId) systemClients.disconnect(clientId, connectionId)
           if (!values.size) {
             listeners.delete(clientId)
-            systemClients.disconnect(clientId)
+            if (!connectionId) systemClients.disconnect(clientId)
             scheduleClientRelease(clientId)
           }
         }
@@ -2925,6 +3146,8 @@ export async function createHost(options: HostOptions = {}) {
             await (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.()
           } finally {
             listeners.clear()
+            listenerConnections.clear()
+            readResults.clear()
             views.clear()
             await unlock()
           }
