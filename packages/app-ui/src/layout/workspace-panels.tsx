@@ -347,7 +347,8 @@ export function WorkspacePanels({
   const tabs = unified || visibleTabs.length ? visibleTabs : [toolsTabId]
   const active = tabs.includes(layout.active) ? layout.active : tabs[0]
   const selected = available.find((panel) => panel.id === active)
-  const showTool = unified && toolActive && tabs.includes(layout.active)
+  const activeTool = toolActive && tabs.includes(layout.active)
+  const showTool = unified && activeTool
   useEffect(() => {
     onChatVisibilityChange?.(!showTool)
     return () => onChatVisibilityChange?.(false)
@@ -434,10 +435,18 @@ export function WorkspacePanels({
       setInternalClosingTabs((prev) => prev.filter((item) => item !== id))
     }
   }
-  const changeView = (next: boolean, forceTool = false) => {
-    if (!next && (showTool || forceTool)) setLayout((value) => ({ ...value, open: true }))
-    setUnified(next)
+  const previousUnified = useRef(unified)
+  useLayoutEffect(() => {
+    if (previousUnified.current === unified) return
+    previousUnified.current = unified
+    // 顶栏、快捷键和设置共用切换行为；首次恢复时保留已选工具。
+    if (!unified && activeTool) setLayout((value) => ({ ...value, open: true }))
     setToolActive(false)
+  }, [unified, activeTool, setLayout, setToolActive])
+  const changeView = (next: boolean, forceTool = false) => {
+    if (!next && forceTool) setLayout((value) => ({ ...value, open: true }))
+    if (next === unified) setToolActive(false)
+    setUnified(next)
   }
   const workspaceWidth = Math.max(0, containerWidth - (sidebarOpen ? sidebarWidth : 0))
   const maxWidth = Math.max(0, workspaceWidth - Math.min(480, containerWidth * 0.6))

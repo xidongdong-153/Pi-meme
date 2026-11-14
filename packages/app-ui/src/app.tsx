@@ -122,6 +122,7 @@ import type { SystemClientRequest, SystemClientExecutionContext } from '@pi-meme
 import { CustomizationPage } from './plugins/customization-page'
 import { PluginPage } from './settings/plugin-page'
 import { SettingsPage, type SettingsSection } from './settings/settings-page'
+import { WorkspaceViewSettings } from './settings/workspace-view-settings'
 import { SkillPage } from './settings/skill-page'
 import { useUserProfile } from './settings/user-profile'
 import { loadPluginUI } from './plugins/load-plugin-ui'
@@ -2883,28 +2884,31 @@ function AppContent({
                   )
                 if (section === 'about' || section === 'appearance' || section === 'instructions')
                   return (
-                    <SettingsContent
-                      section={section}
-                      {...contentProps}
-                      {...(section === 'appearance'
-                        ? {
-                            snapshot: appearance.snapshot,
-                            error: appearance.error,
-                            onOperation: appearance.onOperation,
-                            status: appearance.status,
-                            frozen: appearance.frozen,
-                            onRetry: () => void appearance.retryAppearance(),
-                            onAdoptLatest: appearance.adoptLatestAppearance,
-                            onPreview: appearance.previewAppearance,
-                            onFlush: appearance.flushAppearance,
-                            loadFonts: appearance.getInstalledFonts,
-                            onImport: () => void appearance.importTheme(),
-                            onExport: (theme) => void appearance.exportTheme(theme),
-                            onReload: () => void appearance.reload(),
-                            onOpenDirectory: () => void appearance.openDirectory(),
-                          }
-                        : {})}
-                    />
+                    <>
+                      {section === 'appearance' && <WorkspaceViewSettings workspaceView={workspaceView} />}
+                      <SettingsContent
+                        section={section}
+                        {...contentProps}
+                        {...(section === 'appearance'
+                          ? {
+                              snapshot: appearance.snapshot,
+                              error: appearance.error,
+                              onOperation: appearance.onOperation,
+                              status: appearance.status,
+                              frozen: appearance.frozen,
+                              onRetry: () => void appearance.retryAppearance(),
+                              onAdoptLatest: appearance.adoptLatestAppearance,
+                              onPreview: appearance.previewAppearance,
+                              onFlush: appearance.flushAppearance,
+                              loadFonts: appearance.getInstalledFonts,
+                              onImport: () => void appearance.importTheme(),
+                              onExport: (theme) => void appearance.exportTheme(theme),
+                              onReload: () => void appearance.reload(),
+                              onOpenDirectory: () => void appearance.openDirectory(),
+                            }
+                          : {})}
+                      />
+                    </>
                   )
                 if (section === 'subagents')
                   return (

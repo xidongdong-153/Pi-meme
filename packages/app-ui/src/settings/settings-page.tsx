@@ -65,7 +65,7 @@ const groups = [
         icon: User,
         description: '查看并管理个人账户信息与显示偏好。',
       },
-      { id: 'appearance', label: '外观', icon: Palette, description: '调整主题、字号和界面效果。' },
+      { id: 'appearance', label: '外观', icon: Palette, description: '调整完整视图、主题、字号和界面效果。' },
       { id: 'profile', label: '用量', icon: ChartNoAxesCombined, description: '查看 Token 用量与活动记录。' },
     ],
   },
