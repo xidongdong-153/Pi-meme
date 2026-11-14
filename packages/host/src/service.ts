@@ -222,6 +222,7 @@ export async function createHost(options: HostOptions = {}) {
     await installBuiltinSkills(
       options.builtinSkillsSource ?? fileURLToPath(new URL('../../../pi/skills', import.meta.url)),
       paths.builtinSkillsDirectory,
+      root,
     )
     await mkdir(paths.sessionsDirectory, { recursive: true })
     await mkdir(storagePaths.attachmentsDirectory, { recursive: true, mode: 0o700 })

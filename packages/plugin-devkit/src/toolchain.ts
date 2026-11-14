@@ -89,6 +89,8 @@ async function prepareToolchain() {
           const relative = path.relative(source, file)
           if (!relative) return true
           if (relative.split(path.sep).includes('node_modules') || file.endsWith('.map')) return false
+          // Chord 的分发包附带整站文档；离线构建只需要运行代码、类型和包元数据。
+          if (name === '@earendil-works/chord' && relative.split(path.sep)[0] === 'docs') return false
           if (name === 'typescript')
             return (
               !path.extname(file) ||

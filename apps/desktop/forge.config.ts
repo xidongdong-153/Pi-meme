@@ -6,6 +6,7 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses'
 import { copyFile } from 'node:fs/promises'
 import path from 'node:path'
 import { copyPiRuntime } from '../../scripts/copy-pi-runtime.mjs'
+import { preparePluginSkill } from '../../scripts/copy-builtin-skills.mjs'
 import { prepareNodeRuntime } from '../../scripts/node-runtime.mjs'
 import { prepareWindowsNative } from '../../scripts/windows-native.mjs'
 import { desktopResources, releaseResourceFiles, writeReleaseResources } from '../../scripts/release.mjs'
@@ -40,6 +41,10 @@ const config: ForgeConfig = {
   rebuildConfig: {},
   makers: [new MakerZIP({}, ['darwin', 'win32'])],
   hooks: {
+    // 工具链准备失败时在 Vite watcher 启动前报错，避免 writeBundle 失败后一直显示 Building。
+    generateAssets: async () => {
+      await preparePluginSkill()
+    },
     prePackage: async (_config, platform, arch) => {
       if (platform !== process.platform || arch !== process.arch)
         throw new Error('Desktop 必须在目标平台与架构的原生环境中构建')
