@@ -266,9 +266,15 @@ Desktop 包含本机 Host；只使用桌面应用时无需再下载 Host。Host 
 
 Desktop 解压后将 Pi meme.app 放入 /Applications。macOS 使用 ad-hoc 签名，未做 Developer ID 签名与公证，首次打开可能被 Gatekeeper 阻止。仅在确认来源并校验文件后允许打开具体应用，不要关闭系统 Gatekeeper。
 
-Windows Desktop 解压整个 ZIP 后运行 \`Pi meme.exe\`，需要 Git for Windows 及其 bash。Windows 包未配置代码签名、安装向导或自动更新。Windows 本机 Host 尚不支持受限权限、受限插件和 Agent 受管服务；需要受限执行时连接 macOS/Linux Host，不会自动切换为完全权限。
+Windows Desktop 解压整个 ZIP 后运行 \`Pi meme.exe\`，需要 Git for Windows 及其 bash。Windows 包未配置代码签名、安装向导或自动更新。本机 Host 的只读、工作区写入和受限插件使用原生 PSEC 沙箱，需要已更新的 Windows 11 24H2（26100.9278）、25H2（26200.9278）或更新版本；能力探测失败时明确报错，不自动改为完全权限。命令与 Agent 受管服务优先使用 PowerShell 7，缺失时使用 Windows PowerShell 5.1。
 
 Host 解压后运行 \`./pi-meme-host/bin/pi-meme-host\`，访问 http://127.0.0.1:3185。需要 Git 和 bash；Linux 还需要可用的 bubblewrap。远程监听必须配置 HTTPS 证书、私钥和令牌。
+
+## 升级注意
+
+Desktop/Web 客户端与远程 Host 请同步升级。当前自有 API 已移除版本字段，客户端定向请求与回执增加连接、注册和文档代次；旧客户端或旧 Host 不能混用，直接调用 API 的集成需同步适配。
+
+Pi 与 Chord 已升级至 1.5.2，可信 Server 插件必须使用 Chord 1.5.2 DevKit 重新构建，旧构建产物不再加载。本地只读、工作区修改和 Plan 不再加载插件 Agent 或 MCP；需要使用它们时选择完全权限的普通任务并明确授权。
 
 数据默认位于 ~/.pi-meme。升级前退出旧 Host 的管理方并备份数据目录；不提供自动更新或自动注册系统服务，不承诺数据格式变化后的降级兼容。
 
