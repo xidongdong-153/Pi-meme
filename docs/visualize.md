@@ -2,7 +2,7 @@
 description: '内置可视化的图表、交互讲解、模拟、UI 预览与状态、导出协议'
 status: implemented
 paths:
-  - packages/visualize/src
+  - packages/visualize/src/**
   - packages/contracts/src/visualize.ts
   - pi/skills/visualize/SKILL.md
 ---

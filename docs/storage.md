@@ -12,6 +12,10 @@ paths:
   - 'packages/host/src/connection-credentials.ts'
   - 'packages/host/src/remote-services.ts'
   - 'packages/memory/src/server/store.ts'
+  - 'packages/image-generation/src/server/library-store.ts'
+  - 'packages/image-generation/src/server/library-state.ts'
+  - 'packages/host/src/image-uploads.ts'
+  - 'packages/contracts/src/image-library.ts'
   - 'packages/usage/src/server/background-usage.ts'
 ---
 
@@ -122,7 +126,7 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 | `plugins/data/`                      | 外部插件持久私有数据                     | 已安装外部 App 插件                                       | 否（插件私有资产） | 插件卸载默认保留，不自动删除                            |
 | `workspaces/standalone/`             | 独立会话的工作目录                       | Host 进程与会话 Worker                                    | 否（用户代码）     | 仅在无任何会话引用的空目录可安全回收                    |
 | `workspaces/worktrees/`              | Git Worktree 检出目录                    | `GitService`                                              | 否（工作树）       | 显式关闭/删除 Worktree 时清理                           |
-| `cache/`                             | 会话索引与远程连接摘要                   | `SessionService`, `RemoteServices`                        | 是                 | 缓存清理时安全清空                                      |
+| `cache/`                             | 会话索引、远程摘要与 SSH 部署包缓存      | `SessionService`, `RemoteServices`                        | 是                 | 仅清理下文白名单，SSH 部署包缓存不在其中                |
 | `logs/mcp.log`                       | MCP 服务运行日志                         | `McpConfigStore`                                          | 是                 | 正常日志输出                                            |
 | `backups/`                           | 升级历史与旧内容归档                     | `upgradeStorageLayout`                                    | 否（恢复备份）     | 用户手动管理，不自动删除                                |
 
@@ -140,15 +144,17 @@ Host 串行提交，临时文件 `0600`，同步并原子替换；文件损坏�
 
 ## 资料空间图片
 
-资料空间复用 `state/modules/%40pi-meme%2Fimage-generation/library.json` 保存图片索引。格式 2 区分生成图与上传图，保存改名、移除状态、历史扫描进度和导入幂等回执；原图仍保存在 `data/attachments/`，升级不搬图、不重算既有图片 ID。
+资料空间复用 `state/modules/%40pi-meme%2Fimage-generation/library.json` 保存图片索引。格式 2 区分生成图与上传图，保存真实 MIME、展示名、移除状态、历史扫描进度和导入幂等回执。原图保存在 `data/attachments/`，索引不复制第二份图片；升级不搬图、不重算既有图片 ID。Host 串行写入临时文件后原子替换；索引损坏时保留原文件并报告错误。实现见 [library-store.ts](../packages/image-generation/src/server/library-store.ts) 和 [library-state.ts](../packages/image-generation/src/server/library-state.ts)。
 
 读取格式 1 时，旧记录按生成 PNG 解释；首次升级先以独占写入保留原始索引字节到 `library.json.v1.bak`，再通过临时文件与原子替换写入格式 2。备份已存在时，只有内容与本次升级来源一致才继续，冲突或原索引损坏会报错并保留文件。备份不随日常改名、移除或列表刷新覆盖。旧 Host 不能读取格式 2；恢复旧备份会失去升级后的索引变更，不能视为无损降级。
 
-Host 级 `/api/images/upload` 接收单张不超过 8 MiB 的 PNG、JPEG 或 WebP 二进制流，不绑定聊天会话。服务端校验真实格式与展示尺寸，文件落盘与索引收录都完成后才返回成功。上传使用客户端与请求幂等键识别重放，相同键的不同内容或名称拒绝入库；重复请求只删除本次新写目录，不删除原图。客户端取消、断线、保存或入库失败同样仅清理本次文件。已经成功入库但响应丢失时，重试相同请求可取得原回执。
+上传复用附件存储，不绑定聊天会话。真实格式与展示尺寸校验、文件落盘及索引收录全部完成后才返回成功。导入回执记录客户端与请求幂等键，相同键的不同内容或名称拒绝入库；重复请求、取消、断线或失败只清理本次新写目录，不删除已收录原图。已经成功入库但响应丢失时，重试同一请求可取得原回执。接线见 [image-uploads.ts](../packages/host/src/image-uploads.ts)。
 
-上传图属于目标 Host 的全局资料，没有虚构的来源会话、模型或项目。生成图的来源会话删除后仍保留图片，来源状态改为独立素材。图库移除仅隐藏索引项，聊天与原文件保留，也不会被历史补录自动恢复；尚无回收站或自动清除原图功能。
+上传图属于目标 Host 的全局资料，没有来源会话、模型或项目。删除生成图的来源会话时，持久清理将其标记为 `sourceStatus: detached`，保留图片与项目归属；列表读取也会补偿旧缺失来源，文件访问错误不能当作会话已删除。图库移除仅隐藏索引项，聊天与原文件保留，也不会被历史补录恢复；尚无回收站或自动清除原图功能。
 
-`image-library-upload` 能力声明上传与来源筛选协议。旧客户端的默认列表仍只见生成图；新界面显式请求全部或上传图。旧 Host 不支持上传查询时，界面显示版本限制，不把生成图当上传图。图片读取与下载保留真实 MIME 和扩展名，图片原件及索引都不是可直接清空的缓存。
+历史补录只从可验证的 `image_gen` 成功结果建立生成图记录，不扫描附件目录猜测来源。上传图通过显式上传或附件导入建立记录；临时会话沿用 `data/temporary-sessions/` 的生命周期，不写长期索引。图片原件与索引都不是可直接清空的缓存。
+
+用户操作见[资料空间](configuration.md#资料空间)，上传格式与限额、`image-library-upload` 能力协商和旧客户端筛选语义见 [HostApi 图像库](host-api.md#图像库)。
 
 ## SSH 连接资料与摘要
 
@@ -294,7 +300,7 @@ flowchart TD
 
 ### 上下文快照
 
-[会话上下文窗口](context-window.md)的摘要存放于 `state/modules/%40pi-meme%2Fcontext-window/`，按正式会话与请求ID的哈希隔离。请求和回复正文默认只在Host内存保留；显式开启归档后写gzip，容量与日期分别清理。正文不写Pi JSONL、控制快照或事件日志。删除会话时同时清理摘要、归档及内存正文；临时会话仅使用自己的临时目录，不写永久归档。
+[会话上下文窗口](context-window.md)的摘要存放于 `state/modules/%40pi-meme%2Fcontext-window/`，按正式会话与请求 ID 的哈希隔离。请求和回复正文默认只在 Host 内存保留；显式开启归档后写 gzip，容量与日期分别清理。正文不写 Pi JSONL、控制快照或事件日志。删除会话时同时清理摘要、归档及内存正文；临时会话仅使用自己的临时目录，不写永久归档。
 
 ### 侧边临时会话目录与草稿隔离
 
@@ -322,9 +328,3 @@ flowchart TD
 3. **符号链接防护与维护互斥**：
    - 采用 `physicalPath` 逐段核验物理路径，严防符号链接逃逸与跨目录穿越；检测到符号链接项标记为 `symlink_detected` 并安全跳过，绝不沿链接删除；
    - 启动前权威检测维护状态：若存在源根重定向标记（`.pi-meme-relocated.json`）、未提交的维护账本（`.pi-meme-storage-job.json` 且阶段非 `committed`）或升级中标记（`.storage-layout-upgrade-*.json`），完整跳过启动临时文件清理。
-
-## 图像库索引
-
-图像库索引位于 `state/modules/%40pi-meme%2Fimage-generation/library.json`，记录作品元数据、附件路径、来源会话和项目、移除标记及历史扫描进度。Host 串行写入临时文件后原子替换；索引损坏时保留原文件并报告错误。
-
-原图继续保存在 `data/attachments/`，图像库不复制第二份。删除来源会话不清理已收录原图；持久删除流程将素材标记为 `sourceStatus: detached`，保留项目归属。图像页显示“独立素材”，不再提供失效的来源跳转。读取图像列表时也会补偿旧缺失来源；文件访问错误不能当作来源已删除。图像库移除操作不删除附件。临时会话沿用 `data/temporary-sessions/` 的生命周期，不写入长期索引。索引只保存历史记录中可验证的生成结果，不通过扫描附件目录猜测图片来源。

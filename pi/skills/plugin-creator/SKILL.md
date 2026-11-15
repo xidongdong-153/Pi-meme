@@ -29,7 +29,7 @@ metadata:
 | 面板、页面、输入框、消息或导航  | [references/ui.md](references/ui.md)                     |
 | 主题、图片或包内技能            | [references/resources.md](references/resources.md)       |
 
-具体接口读取本技能 `dist/toolchain/node_modules/@pi-meme/plugin-sdk/src/` 下对应的 `.d.ts`，它们与随附构建工具版本一致。不要猜接口。`agents/openai.yaml` 不参与 Pi 的权限或调用配置。
+具体接口读取本技能 `dist/toolchain/node_modules/@pi-meme/plugin-sdk/src/` 下对应的 `.d.ts`，它们与随附构建工具版本一致。不要猜接口；包内技能的展示与调用策略独立于插件入口授权，不因附带技能授予插件能力。
 
 ## 2. 检查环境并初始化
 
@@ -54,7 +54,7 @@ node <技能目录>/scripts/plugin.mjs create <新目录绝对路径> <package-n
 
 初始化生成入口、manifest、TypeScript 配置、命令和 `.pi-meme-devkit/` 本地工具。工具与 SDK 使用工程内路径，移动工程时一起保留；不执行依赖安装或安装脚本。模板里的时间工具、面板和说明技能只是可运行起点，按真实需求替换后再交付。
 
-已有插件不运行 `create`。使用它现有的构建流程。由本技能生成的工程把开发工具产物放在 `.pi-meme-devkit/dist/`，不作为业务源码提交；重新检出或工具缺失时，运行 `node <技能目录>/scripts/plugin.mjs prepare <插件目录>` 恢复工具，保留已有源码、配置和命令入口。其他工程可使用本技能命令 `check/build/validate/pack <插件目录>`，配置中的 SDK 类型路径指向本技能对应目录。若缺失依赖或构建约定不兼容，停在失败点说明原因，不擅自重写工程配置或安装依赖。
+由本技能生成的工程把开发工具产物放在 `.pi-meme-devkit/dist/`，不作为业务源码提交；重新检出或工具缺失时，运行 `node <技能目录>/scripts/plugin.mjs prepare <插件目录>` 恢复工具，保留已有源码、配置和命令入口。其他工程可使用本技能命令 `check/build/validate/pack <插件目录>`，配置中的 SDK 类型路径指向本技能对应目录。若缺失依赖或构建约定不兼容，停在失败点说明原因，不擅自重写工程配置或安装依赖。
 
 ## 3. 实现并检查源码
 
@@ -66,8 +66,7 @@ node .pi-meme-devkit/cli.mjs check .
 
 `check` 检查 manifest、内置身份冲突、资源路径、包内技能格式、源入口和必要导出，运行 TypeScript 检查，并检查 UI 是否可作为浏览器代码构建。纯资源插件检查资源，不要求创建 TS 源码。
 
-- 使用当前 SDK 类型，工具返回 `{ text, data? }`，只传 JSON 可序列化数据。
-- 调用 Server 明确 audience、effect 和 capabilities。插件 Agent 仅在完全权限普通任务中按既有授权加载；Plan、本地只读和工作区修改不加载插件 Agent，也不回退可信入口。
+- Agent/Server 的调用与权限边界见 [Agent 与 Server](references/agent-server.md)，UI 能力见 [UI](references/ui.md)；实现前按需读取，不靠猜测字段或放宽权限完成接线。
 - 不把凭据写入源码、manifest、页面参数、日志或包内技能。
 - 用户请求涉及外部服务、文件写入或界面交互时，用临时数据和可释放的 fixture 验证关键行为；不要以模板能构建代替功能验证。
 
@@ -91,4 +90,4 @@ node .pi-meme-devkit/cli.mjs pack . ../my-plugin.pim
 
 说明源码目录、`.pim` 路径、实际声明的入口和权限、通过的检查，以及尚未运行的功能验证。默认由用户在设置「插件 → 添加」上传 `.pim`；写入工作区和打包不会自动进入个人插件列表。
 
-安装、项目启停、会话选择、受限能力和可信 UI/Agent/Server 授权是不同步骤，按实际能力说明需要用户完成哪些操作。不自行安装插件，不替用户信任代码；旧版本任务继续持有原代次直到结束。
+安装、项目启停、会话选择、受限能力和可信 UI/Agent/Server 授权是不同步骤，按实际能力说明需要用户完成哪些操作。不自行安装插件，不替用户信任代码；普通更新时旧任务继续持有原代次，撤权、停用与卸载立即拒绝旧调用。

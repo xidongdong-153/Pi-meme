@@ -2,9 +2,9 @@
 description: 'Desktop 内置浏览器、网页批注和本机浏览数据的使用与实现'
 status: implemented
 paths:
-  - packages/browser
+  - packages/browser/**
   - packages/contracts/src/browser.ts
-  - apps/desktop/src/main/browser
+  - apps/desktop/src/main/browser/**
 ---
 
 # 内置浏览器

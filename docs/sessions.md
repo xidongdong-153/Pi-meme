@@ -1,11 +1,16 @@
 ---
-description: 'Pi 会话与 Worker 生命周期、输入队列、持续子代理、规划模式和计划文件'
+description: 'Pi 会话与 Worker 生命周期、思考强度与 Ultra、输入队列、持续子代理、Plan 与 Goal'
 status: implemented
 paths:
   - 'packages/pi-runtime/src/session-pool.ts'
   - 'packages/pi-runtime/src/sdk/session.ts'
   - 'packages/pi-runtime/src/agent-conversation.ts'
   - 'packages/pi-runtime/src/safe-session-fork.ts'
+  - 'packages/pi-runtime/src/session-thinking.ts'
+  - 'packages/contracts/src/pi.ts'
+  - 'packages/models/src/ui/model-picker-popover.tsx'
+  - 'packages/app-ui/src/app.tsx'
+  - 'packages/app-ui/src/session/side-chat-session.tsx'
   - 'packages/pi-runtime/src/extensions/plan-mode.ts'
   - 'packages/subagents/**'
   - 'packages/host/src/collaboration-bridge.ts'
@@ -75,7 +80,17 @@ stateDiagram-v2
 
 Worker 创建时固定技能资源快照与外部插件代次。资源变更发布新修订后，相关任务和未答交互结束才退役旧 Worker；新一轮读取新修订。纯 Agent 插件版本可共存，共享 Server 组切换需等待所属调用和租约释放，详见 [插件生命周期](plugins.md#释放与更新)。
 
-模型配置修改保留空闲检查、恢复状态捕获、写文件、重连和恢复顺序。失败保留会话身份、正文和已保存配置。打开历史会话或重连时，原模型不可用则使用默认模型；默认模型也不可用时选择其他可用模型。思考强度使用该模型的设置或全局默认值，并按模型支持的档位调整。没有可用模型时需要先配置模型。模型与命令缓存随重连失效。
+模型配置修改保留空闲检查、恢复状态捕获、写文件、重连和恢复顺序。失败保留会话身份、正文和已保存配置。打开历史会话或重连时，原模型不可用则使用默认模型；默认模型也不可用时选择其他可用模型。原生思考强度回退使用该模型的设置或全局默认值，并按模型能力调整；已选择的 Ultra 在回退模型支持推理时保留，否则降为关闭。没有可用模型时需要先配置模型。模型与命令缓存随重连失效。
+
+## 思考强度与 Ultra
+
+模型原生 `ThinkingLevel` 为 `off/minimal/low/medium/high/xhigh/max`，实际可用档位由模型能力决定。会话使用 `SessionThinkingLevel`，在原生档位之外增加 `ultra`；只有已知支持非关闭推理档位的模型才开放 Ultra。Ultra 发给 Pi SDK 和提供商前转换成该模型**最高可用原生档位**，不会把 `ultra` 当作 provider effort。例如最高支持 `xhigh` 的模型使用 `xhigh`，不支持 `max` 时不会强行发送 `max`。Max 仍是模型原生档位。
+
+Ultra 同时为根会话提供主动并行委派提示：有合适的独立工作且协作工具可用时，尽早分派、审阅并整合结果；简单或紧密耦合的任务仍可直接完成。它不改变权限、Plan 限制、子代理容量或一层深度上限，也不授权覆盖子代理默认模型与原生思考强度。子代理只继承原生档位，具体默认与覆盖规则见[持续子代理](#持续子代理)。
+
+主聊天和侧边聊天的模型选择器开放 Ultra；模型默认值、子代理默认值和定时任务配置仍只接受原生档位。复用模型选择器但未开放 Ultra 的入口，会将已有会话选择映射回原生档位显示。会话策略独立保存在当前 JSONL 分支的检查点中；恢复和分支回退读取该分支状态，派生子代理时剥离根会话的 Ultra 策略与对应提示。
+
+来源：[档位契约与映射](../packages/contracts/src/pi.ts)、[会话策略与委派提示](../packages/pi-runtime/src/session-thinking.ts)、[SDK 会话](../packages/pi-runtime/src/sdk/session.ts)、[模型选择器](../packages/models/src/ui/model-picker-popover.tsx) 和[安全分支](../packages/pi-runtime/src/safe-session-fork.ts)。
 
 ## 记忆与会话来源
 
@@ -187,7 +202,7 @@ Desktop 和 Web 将文字草稿、已选技能引用和队列模式保存到当�
 
 同一条反馈只通过等待结果或普通消息投递接收一次。已经开始普通投递的反馈不再复制到 `wait_agent.messages`，等待结果的 `notifiedBy` 记录发送方；正文随普通消息写入原会话。历史中的等待结果也参与消息去重。
 
-在“设置 → Agent → 子代理”配置默认模型和默认思考强度，选择后自动保存到当前 Host。两项独立设置，未配置时继承主会话派发任务时的值；用户明确指定的单次配置优先于默认值。`spawn_agent` 和 `followup_task` 的 `model`、`thinking_level` 均支持省略或传 `null`，两者都表示使用默认继承规则；接口要求填写所有字段时传 `null`，不要为满足 schema 擅自指定模型或档位。设置仅影响之后新建或续派的任务，运行中及已排队任务保留原配置；发送反馈不会切换模型。指定模型不可用时拒绝派发，不自动回退。只有主会话可以创建和续派一级子代理；旧多层记录保留读取、中断和清理能力，不能续派二级任务。
+在“设置 → Agent → 子代理”配置默认模型和默认思考强度，选择后自动保存到当前 Host。两项独立设置，未配置时继承主会话派发任务时的模型和实际原生思考档位，再按子模型能力调整；根会话选择 Ultra 时先转换为根模型的最高可用原生档位，不继承 Ultra 策略。用户明确指定的单次配置优先于默认值。`spawn_agent` 和 `followup_task` 的 `model`、`thinking_level` 均支持省略或传 `null`，两者都表示使用默认继承规则；接口要求填写所有字段时传 `null`，不要为满足 schema 擅自指定模型或档位。设置仅影响之后新建或续派的任务，运行中及已排队任务保留原配置；发送反馈不会切换模型。指定模型不可用时拒绝派发，不自动回退。只有主会话可以创建和续派一级子代理；旧多层记录保留读取、中断和清理能力，不能续派二级任务。
 
 子任务继承父级有效权限、工作区、任务模式、外部 Agent 选择和资源快照；权限不超过父级上限，不能更换目录取得新写入范围。排队、暂停后恢复和复用身份时，在实际启动及提交提示词前重新核对父级当前权限；受限子任务不加载外部 Agent 或 MCP。默认 `fork_turns=all` 从最新闭合历史取安全分支，父历史只作为模型背景，委派消息指定当前子任务；`none` 使用新上下文。分支与来源边界见 [safe-session-fork.ts](../packages/pi-runtime/src/safe-session-fork.ts) 和 [agent-conversation.ts](../packages/pi-runtime/src/agent-conversation.ts)。
 

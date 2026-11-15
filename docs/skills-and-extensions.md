@@ -74,7 +74,7 @@ description: 检查代码修改，列出可复现的问题和对应位置。
 
 Host 默认策略控制资源启停；当前项目可以覆盖启用状态和技能调用方式。项目设置写入 `config/workspaces/<cwd-hash>/resources.json`，不写项目 `.agents`。App 的项目策略控制当前项目的资源和 UI 可用性；实际 Agent 选择保存在会话 `configuration.agentPlugins`。新会话默认列表在 Host 的 `config/app.json`（原 `settings.json`）的 `defaultAgentPlugins`，初始为空；修改默认只影响后续会话。运行中拒绝修改会话选择，Host Server 生命周期仍由 App 插件全局启停控制。
 
-技能默认允许自动调用；“仅手动调用”保留显式选择入口，但不把技能加入模型自动选择列表。`disable-model-invocation: true` frontmatter 也可设置手动默认值。技能目录中的 `agents/openai.yaml` 支持 `interface.display_name`、`interface.short_description` 和 `policy.allow_implicit_invocation`；后者为 `false` 时默认仅手动，为 `true` 时不会覆盖 frontmatter 的手动限制，Host/项目显式策略优先。无效 YAML 或调用策略会显示诊断并默认仅手动；禁用的技能不进入有效快照。
+技能默认允许自动调用；“仅手动调用”保留显式选择入口，但不把技能加入模型自动选择列表。`disable-model-invocation: true` frontmatter 也可设置手动默认值。技能目录中的 `agents/openai.yaml` 支持 `interface.display_name`、`interface.short_description` 和 `policy.allow_implicit_invocation`；后者为 `false` 时默认仅手动，为 `true` 时不会解除 frontmatter 的手动限制。调用方式优先级为项目显式策略、Host 显式策略、上述技能默认值；YAML 不替代 `SKILL.md`，也不授予执行权限。YAML 解析失败或调用策略无效时显示诊断并默认仅手动；禁用的技能不进入有效快照。
 
 同名散装技能保留内置项优先，其次项目项，再其次 Host 项；停用内置技能后仍保留其名称，外部同名技能不会顶替，被覆盖项在清单中标记 `shadowedBy`。同一作用域存在多个启用的同名技能时，全部显示冲突诊断并退出有效快照；停用重复项可解除冲突。App 附带技能的名称带插件名前缀，例如 `@local/review-tools:review`。
 

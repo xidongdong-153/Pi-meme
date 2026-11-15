@@ -55,7 +55,7 @@ Desktop 与 Web 使用同一套界面。Host 是执行任务、保存配置和�
 
 新会话默认使用工作区写入权限，也可选择只读或完全权限。内置工具的受限模式限制业务文件写入，仍允许读取与联网；插件的可信入口与受限能力另行授权。执行范围和操作系统限制见[配置与安全](docs/configuration.md#权限与沙箱)。
 
-Windows 本机 Host 尚不支持受限权限、受限插件和 Agent 受管服务。运行本机 Agent 需自行选择完全权限；需要受限执行时连接 macOS/Linux Host，不会自动放宽权限。
+Windows x64 本机 Host 使用 PowerShell 运行命令和 Agent 受管服务。只读、工作区写入和受限插件依赖已安装所需系统更新的 Windows 11 原生 PSEC 沙箱；能力探测失败时明确报错，不自动放宽权限。系统要求见[Windows 安装说明](docs/getting-started.md#安装-windows-desktop)，工作区保护与本机监听端口限制见[Windows 隔离](docs/configuration.md#windows-隔离)。
 
 ## 从源码运行
 
@@ -91,7 +91,7 @@ Linux/WSL2 环境、自定义端口和源码构建见[快速开始](docs/getting
 | 想做什么                 | 从这里开始                                                                |
 | ------------------------ | ------------------------------------------------------------------------- |
 | 修改界面或内置功能       | [开发指南](docs/development.md)、[架构](docs/architecture.md)             |
-| 运行检查与相关测试       | [测试](docs/testing.md)                                                   |
+| 静态检查与真实路径验证   | [验证与测试基础设施](docs/testing.md)                                     |
 | 编写技能或 App 插件      | [技能与资源](docs/skills-and-extensions.md)、[App SDK 3](docs/plugins.md) |
 | 从其他应用控制项目与会话 | [HostApi](docs/host-api.md)                                               |
 | 构建安装包与发布版本     | [版本发布](docs/releasing.md)                                             |

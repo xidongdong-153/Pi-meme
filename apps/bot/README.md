@@ -28,9 +28,9 @@ pnpm dev:bot
 
 Web 开发入口是 `http://127.0.0.1:4311`。`start:bot` 启动源码服务；`dev:bot` 启动 Vite 并代理 `/api`，两者均不启动工作台 Host。4310 提供上一次 `build:bot` 生成的页面；修改 UI 时用 4311 热更新，或重新构建后在 4310 刷新。
 
-Web UI 在 [src/ui](src/ui) 维护 DS-Bot 布局、主题 token、业务状态与动效，Select、Button、Input、Textarea、Tooltip、DropdownMenu 按 `@pi-meme/ui/components/ui/<组件文件>` 具体路径复用，不导入 `app-ui` 或工作台业务状态。Tailwind 扫描本地 UI 与 `packages/ui/src`，生成共享组件需要的工具类。Bots Modal 保留自身遮罩与关闭/Portal 生命周期；多选 Check 保留原生复选框，组件库没有 Checkbox，不替换为 Switch。设置使用分类弹窗，聊天按固定私聊或群组 ID 保存草稿和阅读位置。动效使用 React View Transitions 与局部 CSS，兼容系统及 Bots 自身的减少动态效果设置；后台刷新不触发整页过渡。
+Web UI 在 [src/ui](src/ui) 维护布局、主题、业务状态与动效，基础控件复用 `@pi-meme/ui`，不导入工作台的 `app-ui` 或业务状态。组件接入、Modal 生命周期、草稿与阅读位置、减少动态效果等维护约定见 [Web UI](../../docs/bots.md#web-ui)。
 
-默认数据保存在**运行服务的操作系统用户**的 `~/.pi-meme-bot/`，可通过 `PI_BOT_DATA_DIR` 指定新目录。当前数据模型为 v4，启动要求同版本数据，旧版本会得到明确的版本提示。一个目录只允许一个服务进程写入，手工验收可通过 `createBotService({dataDirectory})` 注入隔离目录。备份时先停止服务，再复制整个目录，包含凭据、数据库及附件。
+默认数据保存在**运行服务的操作系统用户**的 `~/.pi-meme-bot/`，可通过 `PI_BOT_DATA_DIR` 指定新目录。当前数据模型为 v4，启动要求同版本数据，旧版本会得到明确的版本提示。一个目录只允许一个服务进程写入，手工检查可通过 `createBotService({dataDirectory})` 注入隔离目录。备份时先停止服务，再复制整个目录，包含凭据、数据库及附件。
 
 模型配置采用 service 级连接与凭据、模型引用和聚合 revision。`Bot.modelId:null` 跟随默认，Web 默认助理与 QQ 默认角色均可由 Bot 设置。当前任务使用冻结的有效模型，角色和模型修改在后续任务生效，显式撤销密钥会阻断后续模型调用。
 
@@ -40,6 +40,6 @@ Web UI 在 [src/ui](src/ui) 维护 DS-Bot 布局、主题 token、业务状态�
 
 `Bot.conversationId` 指向主对话，`POST /api/v1/bots/:id/conversation` 获取该记录，并发调用复用同一 ID。主对话通过 Bot 管理，群聊通过 `/conversations` 创建。完整部署、环境变量、数据恢复、API 契约和能力限制见 [Bots 文档](../../docs/bots.md)。入口源码为 [server/main.ts](src/server/main.ts)，业务类型见 [shared/types.ts](src/shared/types.ts)。
 
-模型配置统一使用带聚合 revision 的 `services` 和 `models`，服务密钥在 `services` 中写入。图片生成入口为 `/generations`。
+图片生成入口为 `/api/v1/generations`。SSE 的初始游标错误和流内 `resync` 分别处理，恢复步骤见[事件与重新同步](../../docs/bots.md#事件与重新同步)。
 
-采用的 `pi-durable`、`pi-ai`、`pi-schema` 和 `chord` 锁定为 `1.5.0`，升级前应独立备份并核对恢复行为。验收使用 `pnpm start:bot` 的本机环境，由独立 Hacker 记录真实对话、配置结果与外部服务回执。当前改造的验收范围与早期版本记录分别列在 [Bots 文档](../../docs/bots.md#对话配置改造验收)。
+`pi-durable`、`pi-ai`、`pi-schema` 和 `chord` 的精确依赖版本以 [package.json](package.json) 为准，升级前先备份并核对恢复行为。真实模型、生图账单、QQ、多台远程 Host 和服务器部署的未验范围见[实现位置与验收边界](../../docs/bots.md#实现位置与验收边界)。

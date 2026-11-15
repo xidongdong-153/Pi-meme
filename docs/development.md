@@ -40,7 +40,7 @@ paths:
 | `docs`     | 只修改文档、注释或 Agent 规则  |
 | `refactor` | 重构实现，不新增功能或修复错误 |
 | `perf`     | 性能优化                       |
-| `test`     | 新增或调整测试                 |
+| `test`     | 调整测试基础设施               |
 | `style`    | 只调整代码格式，不改变行为     |
 | `build`    | 构建、打包或依赖调整           |
 | `ci`       | CI workflow 与相关配置         |
@@ -58,7 +58,7 @@ chore(release): 发布 0.1.0
 
 正文和脚注按需填写，与上一部分之间留一个空行。破坏性变更必须在冒号前加 `!`，或使用大写脚注 `BREAKING CHANGE: <说明>`；说明不兼容内容，涉及迁移时写清迁移方式。回退提交使用 `revert`，正文记录被回退的 commit 和原因。合并提交也需填写符合规范的标题，不直接沿用 Git 默认标题。
 
-每次提交只包含同一目的的改动；独立修改拆分提交，同一功能所需的代码、测试和文档可一起提交。提交前按本文的[验证入口](#代码约定与验证入口)完成对应检查，并通过 `git diff --cached` 核对暂存内容，避免混入已有无关修改。Agent 执行 `git commit`、`git push`、`git merge` 前须展示改动摘要并获得用户明确确认；提交确认同时展示完整的拟用提交信息。
+每次提交只包含同一目的的改动；独立修改拆分提交，同一功能所需的代码和文档可一起提交。提交前按本文的[验证入口](#代码约定与验证入口)完成对应检查，并通过 `git diff --cached` 核对暂存内容，避免混入已有无关修改。Agent 执行 `git commit`、`git push`、`git merge` 前须展示改动摘要并获得用户明确确认；提交确认同时展示完整的拟用提交信息。
 
 ## 修改位置
 
@@ -82,7 +82,7 @@ chore(release): 发布 0.1.0
 
 文件目录和搜索结果使用 [FileIcon](../packages/ui/src/components/file-icon.tsx)，内置 [Catppuccin vscode-icons v1.26.0](https://github.com/catppuccin/vscode-icons/tree/b6915da9f6889b683a110aa747de96c2820a537d) 的 SVG 图标与官方名称映射。资源在 `packages/assets/files/file-icons/`，运行时不请求外网；明暗模式分别使用 Latte 和 Mocha 配色。先匹配文件名，再匹配最长扩展名；目录按名称匹配并区分展开状态，未知类型使用默认图标。更新时修改 [sync-file-icons.mts](../scripts/sync-file-icons.mts) 中的固定提交，再运行 `pnpm exec tsx scripts/sync-file-icons.mts`。MIT 许可保存在同目录，并由发布脚本收录。
 
-聊天消息和输入区共用 [global.css](../packages/app-ui/src/global.css) 的 `.chat-content-column`，按聊天面板宽度居中，最大宽度为 `48rem`。Markdown 代码块根据围栏上的语言标记交给 Shiki 高亮，支持 `ts`、`js`、`c++`、`c#`、`shell` 等别名；未标记或不支持的语言保留原文。高亮随应用明暗模式切换；代码块默认展开，点击标题栏可折叠，折叠后仍可复制完整代码。代码正文比聊天正文字号小 `1px`，最大高度为 `320px`，超出后在块内滚动；长行和宽表格在各自容器内横向滚动。入口在 [markdown-components.tsx](../packages/chat/src/ui/content/markdown-components.tsx)、[code-block.tsx](../packages/chat/src/ui/content/code-block.tsx) 和 [use-highlighter.ts](../packages/chat/src/ui/content/use-highlighter.ts)。
+聊天消息和输入区共用 [global.css](../packages/app-ui/src/global.css) 的 `.chat-content-column`，按聊天面板宽度居中，最大宽度为 `48rem`。Markdown 代码块根据围栏上的语言标记交给 Shiki 高亮，支持 `ts`、`js`、`c++`、`c#`、`shell` 等别名；未标记或不支持的语言保留原文。高亮随应用明暗模式切换；代码块默认展开，点击标题栏可折叠，折叠后仍可复制完整代码。代码正文比聊天正文字号小 `1px`，最大高度为 `320px`，超出后在块内滚动；长行和宽表格在各自容器内横向滚动。入口在 [markdown-components.tsx](../packages/chat/src/ui/content/markdown-components.tsx)、[code-block.tsx](../packages/chat/src/ui/content/code-block.tsx) 和 [use-highlighter.ts](../packages/ui/src/lib/use-highlighter.ts)。
 
 前端导航、Tab、面板和异步加载遵循 [UI 体验与动效](ui-experience.md)，复用切换参数、等待反馈和减少动态效果规则。
 
@@ -92,7 +92,7 @@ chore(release): 发布 0.1.0
 
 [Prettier](../prettier.config.js)、[ESLint](../eslint.config.mjs) 与 [tsconfig](../tsconfig.json) 保存格式、Lint 和类型配置。
 
-- 日常修改：按[测试](testing.md#日常验证与新增测试)依次执行全仓类型检查、变更文件 Lint/Format，再选择必要的相关用例。
+- 日常修改：按[日常验证](testing.md#日常验证)执行适用的静态检查，再沿用户真实操作路径检查行为；不新增或维护测试文件，检查结果不替代真实行为证据。
 - 分发与验收：按[版本发布](releasing.md)构建 Host 或 Desktop 包、验证产物与自动发布版本。
 
 Desktop 与 Server 直接构建内置模块和[静态 Worker](../packages/host/src/session-worker.ts)。Desktop 的 Pi SDK 与原生运行时复制见 [copy-pi-runtime.mjs](../scripts/copy-pi-runtime.mjs)，PTY 准备见 [prepare-node-pty.mjs](../scripts/prepare-node-pty.mjs)。构建目录 `dist/`、`.vite/`、`out/` 不提交。

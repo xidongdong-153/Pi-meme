@@ -17,7 +17,7 @@ paths:
 
 # 版本发布
 
-本文说明当前发布配置，不表示远程 workflow、Linux 或从 GitHub 下载后的首次打开已经通过本次验收。用户安装步骤见[快速开始](getting-started.md#下载使用)。
+本文说明当前发布配置与待执行的人工验收路径，不表示本轮已运行远程 workflow 或完成任何平台、发行包与首次打开验收。用户安装步骤见[快速开始](getting-started.md#下载使用)。
 
 ## 平台与附件
 
@@ -144,7 +144,14 @@ node --import tsx scripts/release.mts desktop
 
 Forge 在 Windows 构建前编译 `packages/windows-native/native`，复制原生程序到 `resources/runtime/bin/pi-meme-windows.exe`，依赖许可写入 `resources/runtime/WINDOWS_NATIVE_LICENSES.txt`；发布校验同时检查原生程序的 x64 PE 头。
 
-Windows 本机受限权限与受限插件尚不可用。发布前需人工检查首次打开、文件选择、Git、PowerShell、终端、本机完全权限会话、项目服务、编辑器打开、系统字体与 SSH 连接。
+Windows x64 已接入本机受限权限、受限插件和 Agent 受管服务。受限执行依赖已更新的 Windows 11 原生 PSEC 能力，具体系统要求见[Windows 安装说明](getting-started.md#安装-windows-desktop)，权限与路径边界以[Windows 隔离](configuration.md#windows-隔离)为准；原生程序存在或构建成功不能代替能力探测与运行验收。
+
+发布前需在真实 Windows 机器、隔离数据目录和临时项目中人工检查：
+
+- 完成首次打开、文件选择、Git、PowerShell、终端、编辑器打开、系统字体与 SSH 连接；核对完全权限会话的基本操作。
+- 分别运行只读与工作区写入会话，检查允许的读写、项目外写入拒绝、共享硬链接及应用数据目录保护；在不具备所需 PSEC 能力的系统上核对明确报错且不自动放宽权限。
+- 以明确授权的受限插件检查工作区读写、原始网络与派生进程拒绝，以及取消、关闭和撤权后的进程清理。受限会话不加载插件 Agent 入口，使用完全权限会话检查受限 Agent 插件时，仍需核对其独立沙箱边界。
+- 通过 Agent 启动 PowerShell 项目服务，查看日志并停止；检查取消和超时后的进程树清理。需要本机监听端口的开发服务使用完全权限，受限模式按上述 Windows 网络边界拒绝入站和本机服务访问。
 
 ### 汇总
 

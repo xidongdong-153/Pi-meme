@@ -9,9 +9,9 @@ paths:
 
 # 独立 Bots
 
-Bots 是独立部署的个人助理服务与 Web，内核为 Pi Durable。主界面参考 `~/Code/DS-Bot`，采用左侧 Bot/群组列表与右侧聊天，每个 Bot 对应 QQ 与 Web 共用的主对话。首次连通模型后，用户通过对话管理 Bot、模型、Pi meme、QQ 和应用设置。左下头像菜单提供手动设置入口。[应用入口](../apps/bot/README.md) · [改造验收](#对话配置改造验收)
+Bots 是独立部署的个人助理服务与 Web，内核为 Pi Durable。主界面采用左侧 Bot/群组列表与右侧聊天，每个 Bot 对应 QQ 与 Web 共用的主对话。首次连通模型后，用户通过对话管理 Bot、模型、Pi meme、QQ 和应用设置。左下头像菜单提供手动设置入口。[应用入口](../apps/bot/README.md)
 
-本页描述当前源码与配置。真实模型聊天、图片生成与账单、QQ 收发与主动消息权限、多台 Pi meme 委派及远程部署，按对应账号和环境中的实际行为验收。当前改造与早期版本的验收记录分别列在文末。
+本页描述当前源码与配置，外部集成的未验范围见[实现位置与验收边界](#实现位置与验收边界)。
 
 ## 启动与部署
 
@@ -23,7 +23,7 @@ pnpm build:bot
 pnpm serve:bot
 ```
 
-默认打开 `http://127.0.0.1:4310`。构建生成 `apps/bot/dist/web` 和 `apps/bot/dist/server`，Node 服务提供同源静态页面和 API。当前部署方式保留仓库工作区、依赖和两个构建目录；没有新增 Bots 独立下载包或官方容器镜像。
+启动后打开 `http://127.0.0.1:4310`。构建生成 `apps/bot/dist/web` 和 `apps/bot/dist/server`，Node 服务提供同源静态页面和 API。当前部署方式保留仓库工作区、依赖和两个构建目录；没有新增 Bots 独立下载包或官方容器镜像。
 
 开发时，在一个终端运行 `pnpm start:bot` 启动源码服务，在另一个终端运行 `pnpm dev:bot`，打开 `http://127.0.0.1:4311`。Vite 将 `/api` 代理至源码服务。`start:bot` 不监视服务端源码变化，修改服务端后需要重启；dev 模式仍在 4310 提供上一次构建的 Web，修改 UI 后应使用 4311 热更新或重新构建再刷新 4310。开发和构建后的服务使用同一用户的 Bots 数据目录，不能同时启动两个写入进程。
 
@@ -55,7 +55,9 @@ PI_BOT_ORIGIN=https://bots.example.com pnpm serve:bot
 
 ## 数据与恢复
 
-默认根目录由 Node 的 `os.homedir()` 解析，为运行服务用户的 `~/.pi-meme-bot/`。手工验收可通过 `createBotService({dataDirectory})` 注入隔离目录，每个目录仍由一个服务实例持有写入锁。工作台 `~/.pi-meme`、开发 Host 和 Pi CLI 各自维护其配置与会话。
+默认根目录由 Node 的 `os.homedir()` 解析，为运行服务用户的 `~/.pi-meme-bot/`。手工检查可通过 `createBotService({dataDirectory})` 注入隔离目录，每个目录仍由一个服务实例持有写入锁。工作台 `~/.pi-meme`、开发 Host 和 Pi CLI 各自维护其配置与会话。
+
+多个 Bots 实例需要分别指定数据目录。浏览器 Cookie 不按端口隔离，同一主机名的实例共用 `pi_bot_session` 名称时会互相覆盖登录；并行检查时还需使用独立浏览器配置或不同主机名，后者应分别配置对应的 `PI_BOT_ORIGIN`。Cookie 配置见 [auth.ts](../apps/bot/src/server/auth.ts)。
 
 | 位置                                   | 内容                                                         |
 | -------------------------------------- | ------------------------------------------------------------ |
@@ -75,7 +77,7 @@ PI_BOT_ORIGIN=https://bots.example.com pnpm serve:bot
 4. 不携带旧进程的运行锁。确认旧进程确已结束后再由新服务取得所有权；不要通过删锁让两个进程并行运行。
 5. 使用兼容版本启动，检查角色、历史、任务、附件与外部回执。schema 版本不兼容时服务拒绝启动，不静默清空数据。
 
-Bot 业务状态与模型上下文由同一个 durable SQLite 保存，二进制附件与凭据在同一根目录分区管理。`@earendil-works/pi-durable`、`pi-ai`、`pi-schema`、`chord` 固定为 `1.5.2`；durable 上游声明实验性，升级前核对任务、文档版本与恢复行为。它不会恢复另一台 Host 的 Pi 工具循环，也不能消除 QQ 或图片接口的外部结果不确定性。
+Bot 业务状态与模型上下文由同一个 durable SQLite 保存，二进制附件与凭据在同一根目录分区管理。`@earendil-works/pi-durable`、`pi-ai`、`pi-schema` 和 `chord` 均使用精确版本，以 [package.json](../apps/bot/package.json) 为准。Durable 上游声明实验性，升级前先备份，并核对任务、文档版本与恢复行为。它不会恢复另一台 Host 的 Pi 工具循环，也不能消除 QQ 或图片接口的外部结果不确定性。
 
 ## 配置与日常入口
 
@@ -109,7 +111,9 @@ Doc 与业务 schema 均为 v4，启动要求同版本数据。旧版本数据�
 
 ### 对话配置工具
 
-`read_configuration` 返回可管理配置与稳定 ID，凭据以是否配置的状态展示。配置工具通过进程内请求复用 Web API 的字段校验、领域修改和幂等回执，发起任务身份在服务端上下文中传递。修改调用按真实 Durable tool call ID 保存参数摘要和结果，恢复时沿用原版本及动态默认值。
+`read_configuration` 返回可管理配置与稳定 ID，凭据以是否配置的状态展示。配置工具通过进程内请求复用 Web API 的字段校验、领域修改和幂等回执，发起任务身份在服务端上下文中传递。修改调用按真实 Durable tool call ID 保存参数摘要和结果；首次调用时冻结目标版本、模型和动态默认值，恢复时复用该上下文，避免多步骤保存、检查或激活已成功后重放产生 revision 漂移。
+
+维护内部配置请求时，须在 `bodyLimit` 等可能替换 Request 的中间件之前，将进程内 Request 的任务身份保存到 Hono Context；不能依赖客户端请求头传入任务身份。实现见 [app.ts](../apps/bot/src/server/app.ts)、[configuration-access.ts](../apps/bot/src/server/configuration-access.ts) 和 [configuration-tools.ts](../apps/bot/src/server/configuration-tools.ts)。
 
 | 工具                                               | 管理内容                                           |
 | -------------------------------------------------- | -------------------------------------------------- |
@@ -295,7 +299,14 @@ curl 'http://127.0.0.1:4310/api/v1/conversations/<conversationId>/messages' \
 
 `live` 事件来自 Durable 公开 watch/LiveDoc，载荷为 `TaskLive[]`，每项带 `taskId`、`conversationId`、`botId`、`runId`、`submissionIds`、`generation`、`version`、真实 `text` 和状态。`conversationId` 可筛选草稿。`generation` 跨运行恢复递增，`version` 在该代内递增，临时草稿使用这两个字段替换合并。`submissionIds` 标识当前正在处理的 Durable 输入，Web 据此展示补充续轮的草稿。正式回答按 assistant entry 身份保存，停止或失败的真实部分正文保存为 `partialResult` 并标明未完成状态。
 
-游标过期、epoch 不匹配或越界返回 409 `resync-required`，重读快照后重新订阅。消息分页 cursor 绑定会话与数据 epoch，失效返回 `stale-cursor`。事件用于触发重新读取正式资源，重复事件按 ID 去重；断线和重连不会自动再次发送原消息。token 或 Cookie 撤销后，后续请求与已打开 SSE 都重新校验授权。
+重新同步分两种情况：
+
+- 建立订阅前，游标过期、epoch 不匹配或越界时返回 HTTP 409 `resync-required`，不建立 SSE 流。
+- 流已建立后，若消费游标落后于保留窗口，服务发送 `resync` 事件，载荷为 `{cursor,resyncRequired:true}`，随后关闭流。此时 HTTP 响应已是 200，不会再返回 409。
+
+两种情况都须重新读取 `/snapshot`，用新快照替换正式资源及 `live` 草稿，再从快照的 `cursor` 重新订阅；不能只用 `resync` 载荷中的 cursor 跳过缺失的资源更新。`Last-Event-ID` 存在时优先于 `after`，新订阅须使用更新后的游标。内置 Web 在收到 `resync` 时刷新快照，在断流后关闭旧 EventSource，刷新后重新连接，见 [app.tsx](../apps/bot/src/ui/app.tsx)。
+
+消息分页 cursor 绑定会话与数据 epoch，失效返回 `stale-cursor`。事件用于触发重新读取正式资源，重复事件按 ID 去重；断线和重连不会自动再次发送原消息。token 或 Cookie 撤销后，后续请求与已打开 SSE 都重新校验授权；流内发送 `unauthenticated` 后关闭，客户端应结束重连并重新认证。
 
 ## Web UI
 
@@ -317,7 +328,7 @@ Bots 的 Modal 保留自身焦点、遮罩与退场/Portal 生命周期，不直
 | [server/store.ts](../apps/bot/src/server/store.ts)、[server/runtime.ts](../apps/bot/src/server/runtime.ts)                                                       | 独立根目录、单 owner durable 状态与模型/工具任务 |
 | [shared/types.ts](../apps/bot/src/shared/types.ts)、[server/contracts.ts](../apps/bot/src/server/contracts.ts)                                                   | 应用内类型及服务适配接口                         |
 | [src/client](../apps/bot/src/client)、[src/ui](../apps/bot/src/ui)                                                                                               | 同源 API、事件重连与独立 React 页面              |
-| [server/hosts.ts](../apps/bot/src/server/hosts.ts)、[server/qq.ts](../apps/bot/src/server/qq.ts)                                                                 | HostApi v2 与 QQ 官方适配                        |
+| [server/hosts.ts](../apps/bot/src/server/hosts.ts)、[server/qq.ts](../apps/bot/src/server/qq.ts)                                                                 | HostApi 与 QQ 官方适配                           |
 | [server/configuration-tools.ts](../apps/bot/src/server/configuration-tools.ts)、[server/configuration-access.ts](../apps/bot/src/server/configuration-access.ts) | 对话配置工具、任务身份与持久调用回执             |
 | [server/capabilities.ts](../apps/bot/src/server/capabilities.ts)                                                                                                 | 计划、生图和公开网页入口                         |
 | [server/model-settings.ts](../apps/bot/src/server/model-settings.ts)、[server/model-check.ts](../apps/bot/src/server/model-check.ts)                             | 服务/模型聚合配置、实际验证与激活                |
@@ -326,63 +337,4 @@ Bots 的 Modal 保留自身焦点、遮罩与退场/Portal 生命周期，不直
 
 页面、代码和类型检查均不能替代用户路径。验收需记录 **oracle 是哪条真实入口/行为、Hacker 是谁**，并区分公开 HTTP 读取、真实模型、真实图片账单、QQ、远端 Host 与服务器部署。没有对应外部账号或真实回执的部分应标“未验”，不能用假模型或模拟渠道宣称集成成功。
 
-## 对话配置改造验收
-
-2026-11-10，本次改造由根代理实现，独立 Hacker 为 `/root/hacker`。用户指定 `pnpm start:bot` 与本机环境作为真实验收入口。
-
-| Oracle 真路径                                      | 实际观察                                                                                                                           |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| 本机仓库运行 `pnpm start:bot` → `/api/health`      | 使用 `/Users/wuwanzhu/.pi-meme-bot`，`http://127.0.0.1:4310` 就绪，返回 `ready:true`                                               |
-| 隔离 Bots HTTP 登录 → 保存闭端口模型 → 检查 → 激活 | 登录、保存和检查均返回 200，模型为 `verification.failed`，`initialized:false`、默认模型为 null，强制激活返回 409，响应隐藏占位密钥 |
-| 隔离 Bots API → 伪造配置任务请求头                 | `X-Configuration-Task-Id` 与 `X-Bot-Task-Id` 均无法取得内部身份，返回 401                                                          |
-
-Hacker 构造了真实 Hono `bodyLimit` 反例。无 Content-Length 的内部请求经过中间件后 Request 身份改变，原 WeakMap 记录失配，实际返回 `401` 与 `internalTask:null`。实现已改为在最前置中间件将身份保存到 Hono Context。Hacker 还指出模型检查或默认模型切换成功后、外层回执保存前中断会导致重放 revision 漂移，现已冻结初始模型与版本，各步骤沿原回执继续。
-
-本次新版浏览器交互、真实模型对话配置、Pi meme 全项目读取与委派、QQ 官方收发和确认、自删与当前会话归档、多步骤中断恢复均为 **未验**。本机服务已启动，真实对话验收尚需可用网页登录。原验收浏览器空间已失效，浏览器 skill 要求用户明确授权后才能重新创建或接管空间。早期版本的成功记录归入下一节。
-
-静态检查依次完成全仓 `pnpm type-check`、35 个变更 TypeScript 文件的 ESLint、38 个适用文件的 Prettier check，均通过。`pnpm build:bot` 已生成本轮 Web 与服务端构建，供 `pnpm start:bot` 展示最新页面。功能验收状态按上表及未验范围记录。
-
-最终重启时，终端在原 `pnpm start:bot` 退出后额外执行了依赖同步，输出移除 81 个包、下载 0、添加 0。随后重新执行上述静态检查与构建，均通过。Hacker 在本机服务核对首页引用 `/assets/index-BBcDCxqq.js`，该资源返回 200，4310 服务保持运行。
-
-## 早期版本换手验收
-
-以下为本次对话配置改造之前的历史记录，其中的逐 Bot 与逐项目授权描述对应当时的实现。
-
-2026-11-10，Hacker 为独立非作者代理 `/root/hacker`，使用 GPT-6.1 Sol · AgentRouter Linux、max。用户指定的 GPT-6 Sol 路由在本次工具中不可用，因此采用同路由的可用版本。实现由根代理完成，源码 Hack、浏览器和 HTTP 验收由 Hacker 执行。
-
-### 隔离环境
-
-环境为 macOS、Node.js 24.14.0、pnpm 10.29.1、Durable 1.5.0。Hacker 使用 ego-browser TaskSpace 25、两个隔离数据目录及 Vite/真实 Bots API，旧数据从 Durable schema v1 正常写入后升级。闭端口 `127.0.0.1:9` 和非敏感占位 key 用于观察连接失败，真实模型成功路径仍待外部环境。回环同名 Cookie 干扰后，验收切至独立 `*.pi-meme-hack.localhost` 域名，定时路径在专属域名完成。
-
-| Oracle 真路径                                      | 已观察的行为                                                                                                                                                                                                                       |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 空配置 Web → 密码 → 自定义模型 → 验证并开始 → 刷新 | 连接失败显示“模型验证请求失败或超时”，候选 ID/地址保存，`verification.failed`，`initialized:false`，两个默认 ID 均为 null。服务显示 `hasCredential:true`，响应隐藏凭据及引用。                                                     |
-| 真实 v1 SQLite → v2 服务启动 → 登录查看旧私聊      | 两个同地址旧模型保留独立 service 和原模型 ID，Bot 显式绑定及固定私聊 ID 保留，旧用户消息可见。旧模型为 unverified，Web 禁止发送，直接消息 API 返回 `409 model-unverified`。首次迁移的 strict JSON undefined 启动失败已修复并复核。 |
-| 消息 → 记住这条 → 编辑保存 → 取消修改 → 撤销       | 私聊默认 Bot 范围，保存正确 sourceMessageId。取消修改时拒绝确认会保留内容，撤销后 GET memories 返回空列表。                                                                                                                        |
-| 标题详情 → 编辑 Bot → 模型设置 → 切换分类 → 返回   | 修复旧模型存在时缺少模型设置入口的问题。焦点定位原模型验证按钮，未保存名称、职责、聊天草稿和 PNG 预览保留，始终只有一个 dialog。模型与记忆草稿在切换分类后关闭设置仍要求确认。                                                     |
-| 新 Bot → 创建群                                    | Bot 只填名称和职责即可创建，返回 `modelId:null`、解析模型及固定私聊。群只选成员可获得默认名称、协调者和本群协作授权，成员 Bot 的 capabilities/collaboratorIds 返回空数组。                                                         |
-| Host 项目授权 PATCH → 移除 → 幂等重放              | 重复项目授权保存为一项，移除后 GET 返回空授权。越界项目 403，多余字段和 501 项输入 400，不存在 Host 404。同键同参返回原回执，当前资源仍保持较新修订，同键异参 409。                                                                |
-| 选择真实 PNG → 预览 → 非法 multipart → 跨会话发送  | PNG 上传并解码预览成功。SVG、伪造 PNG、非 UTF-8 文本、缺 file 被拒绝，20 MiB+1 返回 413，跨会话附件返回 403，不存在附件返回 404，错误均含 code/requestId。                                                                         |
-| 聊天定时入口 → 预览 → 保存 → 暂停                  | 当前私聊、Bot、时区与 Web 通知自动带入。预览及存储执行时刻一致，Bot capabilities 为空仍可授权具体规则，暂停后 revision 推进、executionGrant 轮换、nextRunAt 清空且没有任务被接纳。                                                 |
-| 320/390/768/1440 视口 → 深色 → 键盘 → 减少动效     | 长名称和窄屏表单没有横向溢出，详情和设置控件可达。Enter/Tab/Shift+Tab/Escape 的打开、焦点约束和恢复符合当前入口，系统减少动效时动画为 0s，跨视口草稿保留。                                                                         |
-
-本轮依次完成全仓 type-check、35 个变更源码的 ESLint 和 41 个适用文件的 Prettier check，全部通过。截图保存在本机 `/private/tmp/pi-meme-bots-hack-legacy.4b5yyo`，隔离 API/Vite 和验收页面已关闭。
-
-### 用户授权的真实本机环境
-
-同日用户要求通过 `pnpm start:bot` 复验，并授权使用本机数据和提供的 Host 凭据。Hacker 在 ego-browser TaskSpace 27 操作 `http://127.0.0.1:4310`，数据目录为 `/Users/wuwanzhu/.pi-meme-bot`，连接用户正在运行的 `http://localhost:3185`。UI 修复后执行 `pnpm build:bot` 并刷新原页面，服务端修复通过原启动命令重启加载。
-
-| Oracle 真路径                                        | 已观察的行为                                                                                                                                                                                             |
-| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Host 设置 → 检查 → 读取项目 → 仅选择当前项目         | 真实认证、Host 身份和能力请求成功，读取到 20 个项目。发现 UI 使用 id 导致全选和保存错误，改用 AppProject.projectId 后仅授权“Pi meme本地”，保存成功。                                                     |
-| Host 保存 → 重新打开 → 读取 → 再保存                 | 发现连接观测推进 revision 导致表单报“配置已修改，请重新读取”。修复并重启后，读取项目前后均为 revision 10，表单保存成功并推进至 11。连接观测使用 checkedAt，显式检查重新请求 Host 能力接口。              |
-| 配置并发冲突 → 两次界面检查                          | 正常 PATCH 从 revision 11 推进至 12，新幂等键使用旧 revision 11 返回 409 revision-conflict。两次检查均 online、checkedAt 更新、revision 稳定为 12。                                                      |
-| 新角色固定私聊 → 实际模型回答                        | 项目助理使用 Bots 默认 magpie / LongCat-2.5 返回进度整理职责说明，任务 completed，最终正文只显示一次，input 2149、output 163、cost null。                                                                |
-| 连接页委派 → 当前项目 AGENTS.md → 聊天结果与正式回执 | 代码审查员的任务 `478ceb97-8d62-40ec-9902-36b9b2210da3` 与远端 operation `252f016d-0ee7-4ff2-9324-b7931c3381af` 均 completed。正式工具消息包含 AGENTS.md 读取结果，Bots 正文显示约束摘要。               |
-| 创建与清理 → 主界面刷新                              | 新建项目助理、需求分析师、开发工程师、代码审查员，均继承默认模型并启用。小咪继续作为默认助理，whzy/simon 根据原角色扮演职责识别为测试 Bot 并删除。“喜东东的群”归档，“123”此前已归档，主列表为 5 个 Bot。 |
-
-项目助理和代码审查员具有当前 pi-meme 项目的一项精确 hostGrant，hostIds 为空。小咪原有的该 Host 授权继续生效，三者的有效项目范围均受连接中唯一的 pi-meme 项目限制。Host 委派新会话的实际配置为 workspace-write/default、agentPlugins 为空，使用 Host 自身默认的 Gemini 3.8 Flash、thinking high。Hacker 从正式会话核对了本次只读工具行为及最终输出，权限层为 workspace-write。重启后原文字任务、Host 委派与原 operation 均返回 200/completed。本机验收结束时，4310 服务继续供用户使用。
-
-本机复验修复后，全仓 type-check、35 个变更源码的 ESLint、41 个适用文件的 Prettier check 和 Bots 构建通过。原启动终端关闭后出现额外 pnpm 依赖同步，输出下载 0、添加 0、移除 81，已向用户披露，同步后重新执行上述检查与构建通过。
-
-成功模型激活、图片对话与连续追问、逐字流式及断线后的部分正文、运行轮补充/停止、持久问题与授权恢复、跨 60 条摘要、群图片协作与成员历史隔离、定时执行及撤销接纳竞态、运行中模型凭据撤销、Host 运行中撤权、多台远程 Host、QQ、生图结果及账单仍为 **未验**。后续验收继续使用对应真实环境并换手。
+真实模型开机与对话配置、图片输入与连续追问、生图结果及账单、QQ 官方收发与确认、多台远程 Host 委派和服务器部署仍保留 **未验** 边界。浏览器交互、运行轮补充与停止、部分正文恢复、持久交互、多步骤配置恢复、自删与归档、历史摘要与群成员隔离、定时接纳与撤销、运行中凭据撤销也不能从历史版本记录推断当前实现已验。

@@ -90,7 +90,7 @@ Gatekeeper 确认只处理应用启动，不授予项目目录访问权限。正
 
 ### 检查项目命令
 
-Desktop 新建本机 Host 前会恢复用户登录 Shell 的 PATH；会话命令、MCP 和项目终端继承该环境。它帮助定位已安装的工具，不会自动安装 pnpm、Python 等项目依赖。以 pnpm 为例，可以让 Agent 在项目目录执行：
+macOS Desktop 新建本机 Host 前会恢复用户登录 Shell 的 PATH；会话命令、MCP 和项目终端继承该环境。它帮助定位已安装的工具，不会自动安装 pnpm、Python 等项目依赖。以 pnpm 为例，可以让 Agent 在项目目录执行：
 
 ```bash
 command -v pnpm

@@ -7,6 +7,12 @@ paths:
   - 'packages/models/src/server/model-service.ts'
   - 'packages/contracts/src/image-generation.ts'
   - 'packages/contracts/src/image-library.ts'
+  - 'packages/contracts/src/git-review.ts'
+  - 'packages/contracts/src/git-availability.ts'
+  - 'packages/contracts/src/turn-changes.ts'
+  - 'packages/host/src/transport-app.ts'
+  - 'packages/host/src/image-uploads.ts'
+  - 'packages/client/src/host-client.ts'
   - 'packages/contracts/src/goal.ts'
   - 'packages/contracts/src/plugin-ui-data.ts'
   - 'packages/contracts/src/plugin-ui-message.ts'
@@ -33,26 +39,27 @@ paths:
 
 读取已有会话时使用现有运行态或保存历史，不调用会话恢复、同步目录或 Worker 初始化。无运行时的会话摘要保留冷态；读历史的前台索引仅在内存建立，不持久化索引或执行资源快照。Agent 当前临时执行会话按 Host 绑定的 reader 授权，其他窗口临时会话仍拒绝。`attention`、队列、交互和协作只读不确认、不消费。目录与会话绑定的刷新属于 Host 启动或已有生命周期，不由读取入口补写。
 
-| 接口组            | 已实现操作                                                                                                                                                                                                                      |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `capabilities()`  | Host 身份、功能及可选文件操作能力                                                                                                                                                                                               |
-| `models`          | `list`，查询当前 Host 可用模型，仅读取                                                                                                                                                                                          |
-| `imageGeneration` | `getConfig`、`saveModel`、`deleteModel`、`setDefault`、`test`，图片模型配置与显式生图测试                                                                                                                                       |
-| `plugins`         | `getDefaultAgentPlugins`、`setDefaultAgentPlugins`                                                                                                                                                                              |
-| `projects`        | `list`、`get`、`register`、`create`、`rename`、`setPinned`、`deletePreview`、`delete`                                                                                                                                           |
-| `sessions`        | `create`、`list`、`get`、`rename`、`setPinned`、`delete`、`attention`、`markRead`、`snapshot`、`history`、`messages`、`message`、`configure`、`submit`、`stop`、`pause`、`resume`、`receipt`、`submissions`、`cancelSubmission` |
-| `files`           | `list`、`read`、`preview`、`search`、`write`                                                                                                                                                                                    |
-| `terminal`        | `open`、`attach`、`input`、`resize`、`close`                                                                                                                                                                                    |
-| `git`             | `environment`、`snapshot`、`diff`，只读                                                                                                                                                                                         |
-| `interaction`     | `respond`，按根会话或子任务来源回答                                                                                                                                                                                             |
-| `agents`          | `list`、`get`、`stop`                                                                                                                                                                                                           |
-| `goals`           | `get`、`start`、`edit`、`pause`、`resume`、`clear`                                                                                                                                                                              |
-| `schedules`       | `list`、`get`、`create`、`update`、`pause`、`resume`、`delete`、`runNow`、`stopRun`、`runs`、`markRead`、`resetSession`                                                                                                         |
-| `activities`      | `list`、`logs`、`stop`，查看和停止 Agent 启动的项目服务                                                                                                                                                                         |
-| `plans`           | `list`，读取已保存计划                                                                                                                                                                                                          |
-| `events`          | `read`、`subscribe`                                                                                                                                                                                                             |
+| 接口组            | 已实现操作                                                                                                                                                                                                                                                  |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capabilities()`  | Host 身份、功能及可选文件操作能力                                                                                                                                                                                                                           |
+| `models`          | `list`，查询当前 Host 可用模型，仅读取                                                                                                                                                                                                                      |
+| `imageLibrary`    | `list`、`get`、`read`、`import`、`rename`、`remove`；二进制传输客户端另提供可选 `upload`                                                                                                                                                                    |
+| `imageGeneration` | `getConfig`、`saveModel`、`deleteModel`、`setDefault`、`test`，图片模型配置与显式生图测试                                                                                                                                                                   |
+| `plugins`         | `getDefaultAgentPlugins`、`setDefaultAgentPlugins`                                                                                                                                                                                                          |
+| `projects`        | `list`、`get`、`register`、`create`、`rename`、`setPinned`、`deletePreview`、`delete`                                                                                                                                                                       |
+| `sessions`        | `create`、`list`、`get`、`rename`、`setPinned`、`delete`、`attention`、`markRead`、`snapshot`、`history`、`messages`、`message`、`configure`、`submit`、`stop`、`stopTask`、`continueTask`、`pause`、`resume`、`receipt`、`submissions`、`cancelSubmission` |
+| `files`           | `list`、`read`、`preview`、`search`、`write`                                                                                                                                                                                                                |
+| `terminal`        | `open`、`attach`、`input`、`resize`、`close`                                                                                                                                                                                                                |
+| `git`             | `availability`（可选）、`environment`、`snapshot`、`diff`、`review`、`reviewFile`、`reviewOptions`、`turnChangeSummaries`、`turnFile` 只读；`undoTurn` 写入                                                                                                 |
+| `interaction`     | `respond`，按根会话或子任务来源回答                                                                                                                                                                                                                         |
+| `agents`          | `list`、`get`、`stop`                                                                                                                                                                                                                                       |
+| `goals`           | `get`、`start`、`edit`、`pause`、`resume`、`clear`                                                                                                                                                                                                          |
+| `schedules`       | `list`、`get`、`create`、`update`、`pause`、`resume`、`delete`、`runNow`、`stopRun`、`runs`、`markRead`、`resetSession`                                                                                                                                     |
+| `activities`      | `list`、`logs`、`stop`，查看和停止 Agent 启动的项目服务                                                                                                                                                                                                     |
+| `plans`           | `list`，读取已保存计划                                                                                                                                                                                                                                      |
+| `events`          | `read`、`subscribe`                                                                                                                                                                                                                                         |
 
-完整参数与返回类型以 [HostApi](../packages/contracts/src/app-host.ts) 为准。`sessions.history` 使用 `offset/limit`，默认 100 条、最大 500 条，返回 `totalMessages/nextOffset`。`sessions.configure` 可设置模型、思考等级、访问权限、任务模式和 `agentPlugins`；运行中拒绝变更配置。实际改变访问权限或任务模式时，须与模型、思考强度和插件选择分开提交；权限与任务模式可以一起提交。携带未变化的字段不受此限制。权限切换还会检查等待、排队中的子任务和更高权限后台服务，失败保留原权限与模式。
+完整参数与返回类型以 [HostApi](../packages/contracts/src/app-host.ts) 为准。`sessions.history` 使用 `offset/limit`，默认 100 条、最大 500 条，返回 `totalMessages/nextOffset`。`sessions.configure` 可设置模型、会话思考档位、访问权限、任务模式和 `agentPlugins`；Ultra 与原生档位的关系见[思考强度与 Ultra](sessions.md#思考强度与-ultra)；运行中拒绝变更配置。实际改变访问权限或任务模式时，须与模型、思考强度和插件选择分开提交；权限与任务模式可以一起提交。携带未变化的字段不受此限制。权限切换还会检查等待、排队中的子任务和更高权限后台服务，失败保留原权限与模式。
 
 `capabilities().features` 包含 `goals` 时，可以按 `SessionRef` 调用目标接口。`goals.start(ref, { objective, images?, skills?, sourceMessageTimestamp? }, options)` 返回 `{ goal, receipt }`；指定来源时间戳时由 Host 核对当前分支并引用原消息，正文与图片以原生记录为准。已有目标的编辑、暂停、恢复、清除需要 `goalId` 和 `revision`，旧修订会被拒绝。`edit` 只接受新正文且要求执行已停止，保留累计用量和耗时；创建和恢复均以普通模式执行，进入 Plan 会先暂停活跃目标。
 
@@ -138,6 +145,17 @@ SDK 3 的消息数据通过 HostApi 提供。公共类型见 [plugin-ui-data.ts]
 - cursor 绑定 session、由 leaf 与消息 sourceEntry 计算的 branch revision，以及下一页 offset；分支或 context edit 改变后返回 `stale-cursor`，调用方应重新读取，不能拼接不同分支。
 
 旧 `sessions.history` 的 offset 接口继续用于既有历史功能。这里改善公共数据契约与 UI 的按需读取，不承诺 JSONL 随机 IO；Host 仍可能读取原生文件并构建分支投影。插件消息动作不提供通用历史修改、删除或工具重跑接口。
+
+## Git 查看与轮次撤销
+
+`capabilities().features` 中的 `git` 表示支持 Git 接口组，其中包含读取和写入；可选 `availability(ref)` 另以 `git-availability` 协商。参数与返回类型见 [Git review](../packages/contracts/src/git-review.ts)、[可用性摘要](../packages/contracts/src/git-availability.ts) 和[轮次变更](../packages/contracts/src/turn-changes.ts)。
+
+- `environment(root)`、`snapshot(root)`、`diff(root, {path,staged?,kind?})` 读取显式 `WorkspaceRef` 的仓库环境、工作区状态和文件差异。
+- `review(root, {scope,ref?})` 与 `reviewFile(root, {query,path})` 读取指定范围的变更列表和文件内容。`scope` 为 `uncommitted`、`unstaged`、`staged`、`commit` 或 `branch`；`reviewOptions(root, {search?,offset?})` 提供本地分支和提交候选，不 fetch。
+- `turnChangeSummaries(session, entryIds)` 与 `turnFile(session, entryId, path)` 读取保存的轮次快照，`entryId` 为原生用户消息 ID，摘要一次最多 200 个 ID。非 Git 目录也可有轮次记录；已撤销轮次仍可读取历史差异。
+- `undoTurn(session, entryId, options)` 使用幂等键恢复该轮记录的文件。Host 拒绝只读会话，工作区修改权限只允许工作目录内路径；还需会话、子任务和相关后台服务满足空闲检查。文件冲突会拒绝撤销，成功不改 Git 暂存区。记录范围与冲突条件见[本轮文件变更](sessions.md#本轮文件变更)。
+
+这些是已认证管理客户端的正式接口；Agent 的 `system_write` 另有普通任务和完全权限要求，不能用该工具门槛替代 `git.undoTurn` 自身的权限规则。内置读取映射见 [Agent 读取覆盖](agent-read-coverage.md)。
 
 ## HTTP 与认证
 
@@ -284,11 +302,35 @@ try {
 
 ## 图像库
 
-`capabilities().features` 包含 `image-library` 时提供 `imageLibrary`，类型见 [image-library.ts](../packages/contracts/src/image-library.ts)。
+`capabilities().features` 包含 `image-library` 时提供 `imageLibrary`；`image-library-upload` 表示支持上传来源、联合条目协议与来源筛选。类型见 [image-library.ts](../packages/contracts/src/image-library.ts)，用户入口见[配置与安全](configuration.md#资料空间)，保存位置见[数据目录与存储](storage.md)。
 
-- `list({ projectId?, query?, cursor?, limit? })` 返回作品元数据、项目筛选项和历史补录状态。默认每页 40 项，最多 100 项；`projectId: 'standalone'` 筛选独立聊天，省略则查询全部项目。`query` 匹配名称和提示词，游标只用于相同筛选条件。
-- `read(id)` 按作品 ID 返回 PNG 的 `dataUrl` 和字节数，不依赖来源会话。Host 校验原图位于附件目录且不经过符号链接，最大 8 MiB。
-- `rename(id, name, options)` 修改展示名，名称为 1～120 个字符。
-- `remove(id, options)` 持久保存移除标记，不删除附件。修改操作使用现有 `MutationOptions` 幂等键。
+生成条目为 `origin: 'generated'`，保留 PNG、提示词、模型、生成/编辑方式和来源会话，可带项目及 `sourceStatus: 'detached'`。上传条目为 `origin: 'uploaded'`，支持 PNG、JPEG、WebP，不携带生成提示词、模型或来源会话。两者共享 ID、Host、名称、时间、尺寸和真实 `mimeType`。
 
-作品收录、重命名、移除和历史补录结束发送 `image-library` 实时事件。客户端收到事件后重新读取列表，连接恢复时同样重读；事件不包含图片数据。旧版本 Host 不具备此 capability，客户端不应调用该接口组。
+| 操作                            | 参数与行为                                                                                                           |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `list(input?)`                  | `input = {origin?,projectId?,query?,cursor?,limit?}`；返回 `items/projects/scan/nextCursor`，默认 40 项、最多 100 项 |
+| `get(id)`                       | 读取未移除条目的元数据，不读取图片正文                                                                               |
+| `read(id)`                      | 返回 `{dataUrl,size}`，保留真实 MIME；原图须位于该 Host 附件目录、无符号链接且最多 8 MiB，不依赖来源会话仍存在       |
+| `import({path,name?}, options)` | 将该 Host 附件目录内已有的真实图片登记为上传素材，不复制文件；不接受任意工作区路径、URL 或客户端本机路径             |
+| `upload(input)`                 | 可选的客户端二进制传输，返回上传条目；参数见下文，不走 JSON RPC                                                      |
+| `rename(id, name, options)`     | 保存 1～120 字符的单行展示名                                                                                         |
+| `remove(id, options)`           | 持久保存移除标记，保留原始附件与聊天；不进入回收站                                                                   |
+
+`origin` 可为 `all`、`generated`、`uploaded`，**省略时只返回生成图**，保留旧客户端语义。来源筛选先于分页；`projectId: 'standalone'` 只匹配无项目的生成图，其他项目 ID 也只匹配生成条目，上传素材不属于项目。`query` 匹配名称及生成图的提示词。改变来源、项目或查询时重新开始分页。`import/rename/remove` 使用 `MutationOptions` 幂等键。
+
+### 二进制上传与兼容
+
+浏览器客户端在支持 `image-library-upload` 且存在 `imageLibrary.upload` 时调用 `upload({name,data,idempotencyKey,signal?,onProgress?})`，`data` 为 `Blob`，进度回调接收 `(loaded,total)` 字节数。Node 客户端与直接 Server HostApi 不自动注入上传传输；调用方可实现下列已认证 HTTP 请求：
+
+```http
+POST /api/images/upload?hostId=example-host&clientId=example-client&name=example.jpg&idempotencyKey=upload-42
+Content-Type: application/octet-stream
+
+<原始图片字节>
+```
+
+查询参数通过 URL 编码传递；`hostId` 必须匹配接收 Host，`clientId` 和 `idempotencyKey` 为 1～128 字符，幂等键不接受控制字符。请求沿用 Host 的认证与来源检查，不是 multipart、base64 或 JSON。图片须为非空 PNG、JPEG 或 WebP，原始字节最多 8 MiB；Host 按实际内容校验 MIME 与尺寸，不信任扩展名。成功返回 `{hostId,result: ImageLibraryItem}`。同一客户端重试同一上传保留原键；同键不同图片内容或名称会被拒绝。实现见 [HTTP 路由](../packages/host/src/transport-app.ts)、[上传入库](../packages/host/src/image-uploads.ts) 和[客户端传输](../packages/client/src/host-client.ts)。
+
+缺少 `image-library` 时不调用该组；仅有 `image-library`、缺少 `image-library-upload` 时只使用旧生成图库，不发送 `origin`、`get/import/upload` 等新增协议。旧条目可能没有 `origin/mimeType`，兼容读取按生成 PNG 处理；上传页须提示升级，不把不支持当成空图库。Agent 导入另走 [Host 内置工具](host-system-tools.md#图像素材)的权限校验。
+
+收录、重命名、移除和历史补录结束发送 `image-library` 实时事件。客户端收到事件或重连后重新读取列表；事件不包含图片数据。

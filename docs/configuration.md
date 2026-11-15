@@ -1,5 +1,5 @@
 ---
-description: '模型与 MCP 配置、指令、凭据、快捷键和内置工具与插件的权限边界'
+description: '模型与 MCP 配置、图片与资料空间、指令、凭据、快捷键和权限边界'
 status: implemented
 paths:
   - 'packages/host/src/data-root.ts'
@@ -24,10 +24,17 @@ paths:
   - 'packages/memory/src/server/state.ts'
   - 'packages/models/**'
   - 'packages/image-generation/**'
+  - 'packages/app-ui/src/materials/**'
+  - 'packages/app-ui/src/images/**'
+  - 'packages/contracts/src/image-library.ts'
   - 'packages/mcp/**'
   - 'packages/permissions/**'
   - 'packages/sandbox-macos/**'
   - 'packages/sandbox-linux/**'
+  - 'packages/sandbox-windows/**'
+  - 'packages/windows-native/**'
+  - 'packages/pi-runtime/src/sdk/windows-sandbox.ts'
+  - 'packages/host/src/sandbox-platform.ts'
   - 'packages/contracts/src/agent-access.ts'
 ---
 
@@ -49,11 +56,11 @@ paths:
 
 同一页可以登录 Pi 自带目录里的服务商，不把这些服务商写进 `models.json`。API Key 和订阅账号都调用 `ModelRuntime.login`，退出调用 `logout`，凭据进入上面的凭据存储。登录或退出后重连 Pi，模型选择器才会出现新的可用模型。会话正在运行时凭据仍会保存，重连失败时页面会提示稍后再点“重新连接”。OpenAI 等登录用的设备标识写在 `config/agent/device-id`（原 `pi/device-id`）。这里不读取本机环境变量，也不执行 `!command`。实现见 [builtin-auth.ts](../packages/models/src/server/builtin-auth.ts)。
 
-默认模型和思考强度默认值写入 `config/agent/settings.json` 的 `defaultProvider`、`defaultModel`、`defaultThinkingLevel`。思考强度为 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` 之一；未设置时 Pi 使用 `medium`。同一文件里的 `modelThinkingLevels` 可按 `provider/modelId` 覆盖该模型的启动强度。二者都不改变已经打开的会话。
+默认模型和原生思考强度写入 `config/agent/settings.json` 的 `defaultProvider`、`defaultModel`、`defaultThinkingLevel`。原生档位为 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；未设置时 Pi 使用 `medium`。同一文件里的 `modelThinkingLevels` 可按 `provider/modelId` 覆盖该模型的启动强度。这些默认值不改变已经打开的会话。对话选择器额外提供的 [Ultra 会话策略](sessions.md#思考强度与-ultra)不属于模型能力或默认原生档位。
 
 自定义模型可以逐项勾选思考强度。未提供档位映射时，配置表单默认全选；保存后使用 Pi 的 `thinkingLevelMap` 声明能力，取消勾选的档位写为 `null`。关闭“支持思考”后，会话只提供 `off`。已有映射保留；高级模型参数可填写每档对应的接口参数值。OpenAI 兼容协议的 `xhigh`、`max` 默认同名映射；Google 协议默认映射到 `high`，可按服务文档调整。接口返回 `reasoning` 和 `thinkingLevelMap` 时，模型发现会保留这些字段；仅返回模型 ID 时不推断上游能力。
 
-会话和模型选择器使用 Pi SDK 返回的模型可用档位，切换模型、恢复会话或设置不支持的强度时，显示 SDK 调整后的有效档位。未经配置表单保存的旧模型仍遵循 SDK 默认能力：`reasoning: true` 且没有映射时最高为 `high`。全局默认强度保留用户偏好，各会话按所选模型调整。
+原生思考强度选择使用 Pi SDK 返回的模型可用档位；切换模型、恢复会话或设置不支持的强度时，按模型能力调整。未经配置表单保存的旧模型仍遵循 SDK 默认能力：`reasoning: true` 且没有映射时最高为 `high`。全局默认强度保留用户偏好，各会话按所选模型调整。
 
 模型配置的主要限制：
 
@@ -128,13 +135,17 @@ HTTP 接入使用 `POST /api/auth` 登录后返回的 Cookie，向 `POST /api/rp
 
 请求最多等待五分钟。失败不自动重试或切换模型，取消只停止本地等待，外部服务可能继续处理或计费。兼容服务须支持配置的参数，不支持时返回错误，不会自动删除参数后重试。
 
-## 图像库
+## 资料空间
 
-侧栏「图像」汇总已连接 Host 的普通会话作品。可按 Host、项目筛选，搜索名称或提示词，预览原图、下载、重命名和打开来源会话。图片按生成时间倒序排列，编辑结果独立保存。
+侧栏「资料空间」汇总已连接 Host 的生成图和上传图片。「全部」展示两种来源，「图像」可在「你的作品」和「已上传」之间切换。可按 Host 筛选，生成图另可按项目筛选；搜索匹配名称和生成提示词，详情支持预览、下载、重命名与继续创作。生成图保留来源会话，上传图属于目标 Host 的全局资料。
 
-首次打开时后台补录已有会话中成功的 `image_gen` 结果，包括历史分支；原图缺失或损坏时显示跳过数量。临时会话、设置页模型测试、上传附件和项目目录中的其他图片不收录。页面不提供直接创建图片的入口。
+从「创建 → 创建图像」选择已连接 Host，应用打开新聊天并准备创作草稿，发送后才调用模型；图像分类页也有「创建图像」按钮。从「创建 → 上传图片」选择文件，或将图片拖入资料空间，可上传 PNG、JPEG、WebP，单张不超过 8 MiB。上传前选择目标 Host，页面逐张显示进度、取消和失败重试；旧 Host 不支持上传时显示升级提示。
 
-删除来源会话不删除已收录图片。「从图像中移除」只隐藏图像库记录，保留原文件与聊天引用，历史补录不会恢复已移除作品。重命名只修改图像库名称。远程 Host 离线时，页面提示结果不完整；预览与下载需要连接所属 Host。
+首次读取时后台补录普通会话中成功的 `image_gen` 结果，包括历史分支；原图缺失或损坏时显示跳过数量。临时会话、设置页模型测试、普通聊天附件和项目中的其他图片不会自动收录；通过资料空间上传的图片独立入库。
+
+删除来源会话不删除已收录图片，生成图转为「独立素材」，保留项目归属并取消来源跳转。「从资料空间移除」只隐藏索引记录，保留原文件与聊天引用，历史补录不会恢复已移除作品。重命名只修改展示名。远程 Host 离线时结果可能不完整；预览和下载需要连接所属 Host。
+
+界面与创建菜单见 [materials-page.tsx](../packages/app-ui/src/materials/materials-page.tsx) 和 [material-registry.tsx](../packages/app-ui/src/materials/material-registry.tsx)。接口、能力协商和分页见 [HostApi 图像库](host-api.md#图像库)，索引升级与文件生命周期见[资料空间图片](storage.md#资料空间图片)。
 
 ## MCP 配置与授权
 

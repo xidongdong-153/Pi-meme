@@ -233,4 +233,4 @@ Desktop 使用内存浏览器会话；正式界面由随包资源提供，不依
 
 Windows 浏览器访问 WSL 时，先检查 WSL 内服务，再检查 localhost 转发、端口和防火墙，不放宽认证。平台验收需分别确认本机登录、Cookie、RPC、事件 WebSocket、插件资源与 Vite 热更新；参考[WSL 网络说明](https://learn.microsoft.com/en-us/windows/wsl/networking#accessing-linux-networking-apps-from-windows-localhost)。
 
-源码选测与平台条件见[测试](testing.md)，从独立包启动的验证步骤见[Host 产物验收](releasing.md#host)。
+静态检查与真实路径验证见[日常验证](testing.md#日常验证)，从独立包启动的检查步骤见[Host 产物验收](releasing.md#host)。
