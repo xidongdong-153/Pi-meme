@@ -1,5 +1,6 @@
 import { access, constants, readFile } from 'node:fs/promises'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { build } from 'esbuild'
@@ -21,7 +22,12 @@ export async function doctor() {
   if (major < 22 || (major === 22 && minor < 19)) throw new Error('构建插件需要 Node.js >=22.19.0')
   if (info.sdkVersion !== 3 || info.platform !== process.platform || info.arch !== process.arch)
     throw new Error(`工具包不匹配：需要 SDK 3、${process.platform}/${process.arch}，请使用当前 Host 随附的工具包`)
-  const binary = path.join(tools, 'node_modules/@esbuild', `${info.platform}-${info.arch}`, 'bin/esbuild')
+  const binary = path.join(
+    tools,
+    'node_modules/@esbuild',
+    `${info.platform}-${info.arch}`,
+    info.platform === 'win32' ? 'esbuild.exe' : 'bin/esbuild',
+  )
   await access(binary, constants.X_OK)
   for (const file of [
     'cli.mjs',
@@ -31,7 +37,8 @@ export async function doctor() {
     'node_modules/@pi-meme/plugin-sdk/src/ui.d.ts',
   ])
     await access(path.join(tools, file))
-  const esbuild = (await import(path.join(tools, 'node_modules/esbuild/lib/main.js'))) as typeof import('esbuild')
+  const esbuildModule = pathToFileURL(path.join(tools, 'node_modules/esbuild/lib/main.js')).href
+  const esbuild = (await import(esbuildModule)) as typeof import('esbuild')
   await esbuild.transform('const value: number = 1', { loader: 'ts' })
   return { sdkVersion: info.sdkVersion, node: process.versions.node, platform: info.platform, arch: info.arch }
 }
