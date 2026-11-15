@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { hostRuntimeProtocolVersion, type LocalHostStatus } from '@pi-meme/contracts/host-runtime'
+import type { LocalHostStatus } from '@pi-meme/contracts/host-runtime'
 
 export function errorCode(cause: unknown): string | undefined {
   if (!cause || typeof cause !== 'object') return undefined
@@ -44,10 +44,9 @@ export async function readLocalHostStatus(url: string): Promise<LocalHostStatus 
     !response.ok ||
     !value ||
     typeof value !== 'object' ||
+    Array.isArray(value) ||
     !('product' in value) ||
     value.product !== 'pi-meme' ||
-    !('runtimeProtocolVersion' in value) ||
-    value.runtimeProtocolVersion !== hostRuntimeProtocolVersion ||
     !('hostId' in value) ||
     typeof value.hostId !== 'string' ||
     !value.hostId ||
@@ -63,7 +62,13 @@ export async function readLocalHostStatus(url: string): Promise<LocalHostStatus 
     throw Object.assign(new Error('此端口不是兼容的 pi-meme 服务，请停止占用程序或指定其他 PI_MEME_PORT'), {
       code: 'EHOSTPORT',
     })
-  return value as LocalHostStatus
+  return {
+    product: value.product,
+    hostId: value.hostId,
+    instanceId: value.instanceId,
+    dataRoot: value.dataRoot,
+    owner: value.owner,
+  }
 }
 
 export async function waitForLocalHost(url: string, options: { hostId?: string; timeoutMs?: number } = {}) {

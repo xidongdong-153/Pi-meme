@@ -52,7 +52,7 @@ PI_MEME_TOKEN=replace-with-your-access-token \
 
 远端需可运行 Python 3，探测脚本从 SSH 标准输入执行，不写远端文件。先检查 `~/.local/state/pi-meme/ssh-host` 的运行描述端口，再检查默认 `127.0.0.1:3185`；不扫描其他端口、进程、NVM 或 systemd。自定义端口没有运行描述时不能自动发现。
 
-已有 Host 的运行协议、身份和真实数据目录必须匹配远端 `~/.pi-meme`。入口从该目录 `credentials/auth.json` 的 `host:token` 读取令牌，建立隧道后校验 `token-required`、`sshTunnelAuthV1` 与 Host 身份。复用不要求发行版本同号，不区分 systemd、源码或独立包启动；不检查 Node、Git、bash、tar 或 bubblewrap，不下载包，不调用 `ssh-bootstrap`，也不停止或重启服务。
+已有 Host 的状态字段必须有效，身份和真实数据目录必须匹配远端 `~/.pi-meme`。入口从该目录 `credentials/auth.json` 的 `host:token` 读取令牌，建立隧道后校验 `token-required`、`sshTunnelAuth` 与 Host 身份。复用不要求发行版本同号，不区分 systemd、源码或独立包启动；不检查 Node、Git、bash、tar 或 bubblewrap，不下载包，不调用 `ssh-bootstrap`，也不停止或重启服务。
 
 Python 3 缺失、运行描述损坏、权限或身份错误、认证失败均明确报错，不转安装。未找到端点但 `~/.pi-meme/host.lock` 目录 mtime 距当前不超过 30 秒时，也会报错保护正在启动的 Host，不删除锁。
 

@@ -346,7 +346,7 @@ export function createSshHostPreparer(options: Options = {}): SshHostPreparer {
       ssh,
       connection.target,
       `exec ${node} ${entry}`,
-      { text: JSON.stringify({ protocolVersion: 1 }) },
+      { text: JSON.stringify({}) },
       signal,
     )
     let value: unknown
@@ -356,7 +356,6 @@ export function createSshHostPreparer(options: Options = {}): SshHostPreparer {
       throw new SshError('host-response', '远程服务准备响应无效')
     }
     const result = value as {
-      protocolVersion?: unknown
       port?: unknown
       hostId?: unknown
       token?: unknown
@@ -364,7 +363,8 @@ export function createSshHostPreparer(options: Options = {}): SshHostPreparer {
     }
     if (
       !result ||
-      result.protocolVersion !== 1 ||
+      typeof result !== 'object' ||
+      Array.isArray(result) ||
       result.version !== version ||
       typeof result.port !== 'number' ||
       !Number.isInteger(result.port) ||

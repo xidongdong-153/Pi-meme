@@ -85,7 +85,7 @@ Web (Vite) ──────────┘                                    
 
 内置模块由 `packages/host/src/builtin-modules.ts` 静态装配（聊天、工作区、历史、模型、设置、资源、交互、子代理、MCP、codemode、权限、当前平台沙箱、用量、git）。内置初始化失败会中止 Host。外部 App 插件由用户安装，走独立启停；恢复失败只隔离相关依赖组。插件源码在 `plugins/`，SDK 在 `packages/plugin-sdk`、`plugin-runtime`、`plugin-devkit`。外部插件使用 SDK 3，Agent/Server 入口分 `trusted` 与 `restricted`，不保留 SDK 2 执行路径。插件可新增自己的活动栏入口、次级菜单和中央业务页，但不能替换内置导航或聊天；工具面板仍只允许 `right`。
 
-同一个 Host 是其数据目录的唯一写入者。会话 Worker 按执行会话独立创建，持有固定资源快照和插件代次；JSONL 由 Pi SDK 保存。正式 HostApi v2 用稳定 `ProjectRef` / `SessionRef` 操作显式目标，不读写界面选择。App 内部 `/api/rpc` 继续服务内置界面。`PlatformAdapter`（`packages/contracts`）承载本机文件选择、Finder/编辑器等平台操作；Electron preload 只连接平台 channel。远程路径不要交给本机文件选择器。
+同一个 Host 是其数据目录的唯一写入者。会话 Worker 按执行会话独立创建，持有固定资源快照和插件代次；JSONL 由 Pi SDK 保存。正式 HostApi 用稳定 `ProjectRef` / `SessionRef` 操作显式目标，不读写界面选择。App 内部 `/api/rpc` 继续服务内置界面。`PlatformAdapter`（`packages/contracts`）承载本机文件选择、Finder/编辑器等平台操作；Electron preload 只连接平台 channel。远程路径不要交给本机文件选择器。
 
 ## 改代码时容易踩的约定
 

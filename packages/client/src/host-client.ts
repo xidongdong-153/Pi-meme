@@ -622,7 +622,6 @@ export class HostClient {
     await this.authenticate()
     this.assertAvailable(epoch)
     const body = JSON.stringify({
-      apiVersion: 2,
       hostId: this.connectedHostId,
       clientId: this.clientId,
       connectionId: this.connectionId,
@@ -1268,7 +1267,7 @@ export class HostClient {
     this.systemIdentity = identity
     const visualizationNames = new Set(visualizationClientOperationDefinitions.map((definition) => definition.name))
     const operations = this.systemOperations.filter(
-      (name) => !visualizationNames.has(name) || capabilities.features.includes('visualize-runtime-v2'),
+      (name) => !visualizationNames.has(name) || capabilities.features.includes('visualize-runtime'),
     )
     const registration: SystemClientRegistration = { ...identity, operations }
     try {

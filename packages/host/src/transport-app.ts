@@ -12,7 +12,7 @@ import type { HostRpcRequest } from '@pi-meme/contracts/host'
 import type { SshConnectionInput } from '@pi-meme/contracts/ssh-connections'
 import { discoverSshCandidates } from './ssh-config'
 import { sshUnavailableReason } from './ssh-tunnels'
-import { hostRuntimeProtocolVersion, type LocalHostStatus } from '@pi-meme/contracts/host-runtime'
+import type { LocalHostStatus } from '@pi-meme/contracts/host-runtime'
 import type { createHost } from './service'
 import type { RemoteServices } from './remote-services'
 import type { createTransportAuth } from './transport-auth'
@@ -415,7 +415,6 @@ export function createTransportApp(services: TransportServices) {
       if (!auth.localRequest(request)) return reply(403, { error: '服务状态只允许本机来源读取' })
       const status: LocalHostStatus = {
         product: 'pi-meme',
-        runtimeProtocolVersion: hostRuntimeProtocolVersion,
         hostId: host.hostId,
         instanceId: host.instanceId,
         dataRoot: await realpath(host.root),
@@ -450,7 +449,7 @@ export function createTransportApp(services: TransportServices) {
         : {
             hostId: host.hostId,
             authMode: auth.authMode,
-            capabilities: { sshTunnelAuthV1: true },
+            capabilities: { sshTunnelAuth: true },
           },
       result.cookie ? { 'Set-Cookie': result.cookie } : undefined,
     )

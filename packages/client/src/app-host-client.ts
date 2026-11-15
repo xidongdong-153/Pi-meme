@@ -13,7 +13,6 @@ export function createAppHostClient(transport: AppHostTransport): HostApi {
     return transport.call<T>(method, args.slice(0, length), idempotencyKey)
   }
   return {
-    apiVersion: 2,
     models: { list: () => call('models.list', []) },
     memory: {
       status: () => call('memory.status', []),

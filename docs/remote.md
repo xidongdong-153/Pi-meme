@@ -32,7 +32,7 @@ paths:
 
 # 独立 Host 与 Remote
 
-工作区文件、模型、MCP、插件与 Pi 会话存放在执行它们的 Host 机器。Desktop 和 Web 共用界面与协议，浏览器不执行 Host 上的文件工具。架构见 [进程与调用](architecture.md#进程与调用)，正式控制接口见 [HostApi v2](host-api.md)。
+工作区文件、模型、MCP、插件与 Pi 会话存放在执行它们的 Host 机器。Desktop 和 Web 共用界面与协议，浏览器不执行 Host 上的文件工具。架构见 [进程与调用](architecture.md#进程与调用)，正式控制接口见 [HostApi](host-api.md)。
 
 远程设置支持 HTTPS 直连和 SSH 隧道；SSH 仍传输已有 HTTP/WebSocket 协议，不提供远程桌面或终端。下文 SSH 说明对应当前源码实现，不代表已完成真实 SSH、WSL/Tailscale 或发布包联通验收。
 
@@ -40,7 +40,7 @@ paths:
 
 下载包、源码开发、构建后的 Server 与[Linux/WSL2 环境](getting-started.md#linux-与-wsl-环境)统一见[快速开始](getting-started.md)。同目录、同端口的 Desktop/Server 会[复用 Host](getting-started.md#desktop-与-server-共享-host)；创建方负责停机，修改创建参数前先停止管理方。
 
-本机共享入口通过 `GET /api/status` 校验产品、运行协议、Host 身份和真实目录。状态仅允许本机来源读取，不返回凭据。实现见 [local-host.ts](../packages/host/src/local-host.ts) 与[运行契约](../packages/contracts/src/host-runtime.ts)。
+本机共享入口通过 `GET /api/status` 校验产品、状态字段、Host 身份和真实目录。状态仅允许本机来源读取，不返回凭据。实现见 [local-host.ts](../packages/host/src/local-host.ts) 与[运行契约](../packages/contracts/src/host-runtime.ts)。
 
 ## 部署 HTTPS 远程 Host
 
@@ -80,11 +80,11 @@ SSH 由入口 Node Host 发起，读取该用户的 SSH 配置、agent 和 `know
 
 SSH 配置预检通过后，入口经 SSH 标准输入发送固定 Python 3 脚本，脚本不写远端文件。先检查 `~/.local/state/pi-meme/ssh-host` 中运行描述记录的端口，再检查默认 `127.0.0.1:3185`，不扫描其他端口、进程、NVM 或 systemd。自定义端口的 Host 没有运行描述时不能自动发现。
 
-探测通过 `/api/status` 校验产品、运行协议、Host/实例身份，以及是否使用远端 `~/.pi-meme` 的真实数据目录；匹配后从该目录的 `credentials/auth.json` 读取 `host:token`。随后建立既有 SSH 隧道并认证，要求 Host 使用 `token-required` 且提供 `sshTunnelAuthV1` 能力，并核对已保存的 Host 身份。令牌只经受保护的 SSH 通道和入口凭据存储传递，不返回界面。
+探测通过 `/api/status` 校验产品、状态字段、Host/实例身份，以及是否使用远端 `~/.pi-meme` 的真实数据目录；匹配后从该目录的 `credentials/auth.json` 读取 `host:token`。随后建立既有 SSH 隧道并认证，要求 Host 使用 `token-required` 且提供 `sshTunnelAuth` 能力，并核对已保存的 Host 身份。令牌只经受保护的 SSH 通道和入口凭据存储传递，不返回界面。
 
 复用不要求两端发行版本同号，不区分 Host 由 systemd、源码入口还是独立包启动；不下载发行包，不调用 `ssh-bootstrap`，不检查 Node、Git、bash、tar 或 bubblewrap 等安装依赖，也不停止或重启已有服务。源码开发入口没有发行版本时仍可连接符合上述条件的已有 Host。
 
-Python 3 缺失、运行描述损坏、目录或凭据权限错误、协议或身份不匹配、隧道认证失败都会明确失败，不转入安装。未找到端点但 `~/.pi-meme/host.lock` 目录的 mtime 距当前不超过 30 秒时，同样保守报错，避免在 Host 启动期间创建第二个实例；探测不会删除锁。只有明确未发现运行中的 Host 才进入下面的安装流程。
+Python 3 缺失、运行描述损坏、目录或凭据权限错误、状态字段或身份不匹配、隧道认证失败都会明确失败，不转入安装。未找到端点但 `~/.pi-meme/host.lock` 目录的 mtime 距当前不超过 30 秒时，同样保守报错，避免在 Host 启动期间创建第二个实例；探测不会删除锁。只有明确未发现运行中的 Host 才进入下面的安装流程。
 
 ### 安装与生命周期
 
@@ -208,7 +208,7 @@ Desktop 使用内存浏览器会话；正式界面由随包资源提供，不依
 
 短暂断线自动重连并补读快照，客户端缓冲快照读取期间的事件，过滤旧序号与代次；不重放 prompt。Host 重启使内存 Cookie 失效，本机客户端重新认证，代理用已保存令牌恢复上游认证。代理只对明确 401 的未执行请求续期并重试一次，保留原 requestId；网络失败不重发消息。
 
-直接访问远程地址的浏览器使用该地址自己的登录页。已登记令牌失效时在远程页重新配置服务。正式 API 的幂等回执与事件补读有独立规则，见 [HostApi v2](host-api.md)。
+直接访问远程地址的浏览器使用该地址自己的登录页。已登记令牌失效时在远程页重新配置服务。正式 API 的幂等回执与事件补读有独立规则，见 [HostApi](host-api.md)。
 
 ## 排错与验证
 
@@ -223,7 +223,7 @@ Desktop 使用内存浏览器会话；正式界面由随包资源提供，不依
 | 页面能打开，WebSocket 失败                | 查看升级 HTTP 状态、Origin、Cookie、clientId 及代理是否支持 WebSocket                              |
 | 远程身份变化                              | 核对所连 Host 数据目录与持久 host-id，重新确认连接目标                                             |
 | 受限任务无法启动                          | 查看 `restrictedAccessReason`；安装平台依赖后重启 Host，不切换权限绕过                             |
-| SSH 提示 Host 身份、协议或认证错误        | 核对远端 `~/.pi-meme`、Host 身份、`token-required` 与 `sshTunnelAuthV1`；不会停止原服务或转入安装  |
+| SSH 提示 Host 身份、状态或认证错误        | 核对远端 `~/.pi-meme`、Host 身份、`token-required` 与 `sshTunnelAuth`；不会停止原服务或转入安装    |
 | SSH 指纹或身份验证失败                    | 在入口 Host 的终端核实 `known_hosts`、密钥与 agent；应用不会弹出口令输入或自动接受指纹             |
 | SSH 预检报告额外转发                      | 为该连接使用不含 `LocalForward`、`RemoteForward`、`DynamicForward` 的 SSH 别名                     |
 | SSH 已有 Host 探测失败                    | 检查远端 Python 3、运行描述与凭据权限；新鲜 `host.lock` 无端点时等待原 Host 就绪后重试，不删除锁   |

@@ -105,7 +105,7 @@ Worker 创建时固定资源快照，子代理继承父快照。安装、编辑�
 
 ## Host 接口
 
-类型见 [resources.ts](../packages/contracts/src/resources.ts)，客户端见 [resource-client.ts](../packages/client/src/resource-client.ts)，处理函数见 [entry.ts](../packages/resources/src/server/entry.ts)。以下为内置界面的 `/api/rpc` 方法，不是正式 HostApi v2 的方法；外部 App 对系统目标的操作使用 [HostApi](host-api.md)。
+类型见 [resources.ts](../packages/contracts/src/resources.ts)，客户端见 [resource-client.ts](../packages/client/src/resource-client.ts)，处理函数见 [entry.ts](../packages/resources/src/server/entry.ts)。以下为内置界面的 `/api/rpc` 方法，不是正式 HostApi 的方法；外部 App 对系统目标的操作使用 [HostApi](host-api.md)。
 
 | 方法                   | 参数                                 | 结果                                          |
 | ---------------------- | ------------------------------------ | --------------------------------------------- |

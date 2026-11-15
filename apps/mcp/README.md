@@ -214,4 +214,4 @@ HTTP 客户端连接 `/mcp`，设置 `Authorization: Bearer <MCP令牌>`。服�
 - [main.ts](src/main.ts)：HTTP/stdio CLI 与退出。
 - [plugin-manifest.ts](src/plugin-manifest.ts)：无凭据 Rakazo 连接器生成。
 
-HostApi 契约见仓库 [HostApi v2](../../docs/host-api.md)。本目录不是 Pi meme 自身的 `.pim` App 插件，不依赖工作台安装或 UI 集成。
+HostApi 契约见仓库 [HostApi](../../docs/host-api.md)。本目录不是 Pi meme 自身的 `.pim` App 插件，不依赖工作台安装或 UI 集成。

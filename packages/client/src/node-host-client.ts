@@ -88,7 +88,7 @@ export async function createNodeHostClient(options: NodeHostClientOptions): Prom
   }
   const api = createAppHostClient({
     call: <T>(method: string, args: unknown[], idempotencyKey?: string) =>
-      call<T>('/api/control', { apiVersion: 2, method, args, idempotencyKey }),
+      call<T>('/api/control', { method, args, idempotencyKey }),
     async subscribe(input, listener) {
       const webSocket = options.webSocket
       if (!webSocket) throw new Error('此 Node 客户端未配置 WebSocket')

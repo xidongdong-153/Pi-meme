@@ -280,7 +280,7 @@ export function createMcpServer(registry: HostRegistry) {
     },
   )
 
-  register('capabilities', '读取所选 Host 的真实身份、HostApi v2 能力及 MCP 授权范围。', {}, (_, ctx) => ({
+  register('capabilities', '读取所选 Host 的真实身份、HostApi 能力及 MCP 授权范围。', {}, (_, ctx) => ({
     ...ctx.capabilities,
     allowWrites: ctx.configuration.allowWrites,
     allowProjectRegistration: ctx.configuration.allowProjectRegistration,

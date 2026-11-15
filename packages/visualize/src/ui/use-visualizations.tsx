@@ -126,7 +126,7 @@ export function useVisualizations({
     void host
       .capabilities()
       .then((capabilities) => {
-        if (active) setRuntime({ host, rich: capabilities.features.includes('visualize-runtime-v2') })
+        if (active) setRuntime({ host, rich: capabilities.features.includes('visualize-runtime') })
       })
       .catch(() => {
         if (active) setRuntime({ host, rich: false })

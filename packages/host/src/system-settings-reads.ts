@@ -407,7 +407,7 @@ function safeRuntime(value: unknown) {
   const source = row(value)
   const connection = row(source.connection)
   return {
-    ...fields(source, ['hostId', 'version', 'piVersion', 'platform', 'arch', 'nodeVersion', 'apiVersion']),
+    ...fields(source, ['hostId', 'version', 'piVersion', 'platform', 'arch', 'nodeVersion']),
     status: selected(source.status, ['running', 'ready', 'stopping', 'stopped', 'unknown']) ?? 'unknown',
     connection: {
       status:

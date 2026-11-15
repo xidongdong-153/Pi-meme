@@ -14,7 +14,6 @@ import type { SessionHistoryData } from './sessions'
 import type { SkillReference } from './skills'
 import type { UiMessage, UiMessagePage, UiMessagePageInput } from './plugin-ui-data'
 
-export const appHostApiVersion = 2 as const
 export type ProjectRef = { hostId: string; projectId: string }
 export type SessionRef = { hostId: string; sessionId: string }
 export type WorkspaceRef = ProjectRef | SessionRef
@@ -84,7 +83,6 @@ export type TerminalSnapshot = TerminalRef & {
   exitCode?: number
 }
 export type AppHostCapabilities = {
-  apiVersion: 2
   hostId: string
   features: Array<
     | 'projects'
@@ -106,7 +104,7 @@ export type AppHostCapabilities = {
     | 'activities'
     | 'schedules'
     | 'visualize'
-    | 'visualize-runtime-v2'
+    | 'visualize-runtime'
     | 'image-generation'
     | 'image-library'
     | 'image-library-upload'
@@ -148,7 +146,6 @@ export type EventFilter = { projectId?: string; sessionId?: string; terminalId?:
 export type EventPage = { events: HostControlEvent[]; cursor: EventCursor; resyncRequired: boolean }
 export type EventSubscription = EventFilter & { after?: EventCursor }
 export type HostApi = {
-  readonly apiVersion: 2
   visualizations?: {
     list: (session: SessionRef) => Promise<Omit<import('./visualize').VisualizationDocument, 'html'>[]>
     get: (
@@ -282,7 +279,6 @@ export type HostApi = {
 }
 export type HostControlRequest = {
   hostId?: string
-  apiVersion: 2
   clientId: string
   connectionId?: string
   method: string

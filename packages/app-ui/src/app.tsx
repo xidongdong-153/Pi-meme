@@ -2044,7 +2044,7 @@ function AppContent({
     if (ready && hostId && host.visualizations) {
       void host.capabilities().then(
         (capabilities) => {
-          if (active && capabilities.hostId === hostId && capabilities.features.includes('visualize-runtime-v2'))
+          if (active && capabilities.hostId === hostId && capabilities.features.includes('visualize-runtime'))
             setVisualizationClientSupport({ host, hostId })
         },
         () => {

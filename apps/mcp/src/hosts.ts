@@ -199,7 +199,13 @@ export class HostRegistry {
         throw new McpError('closed', 'MCP 应用已关闭')
       }
       const capabilities = await client.capabilities()
-      if (capabilities.apiVersion !== 2) throw new McpError('unsupported-host', 'Host 必须支持 HostApi v2')
+      if (
+        typeof capabilities?.hostId !== 'string' ||
+        !capabilities.hostId ||
+        !Array.isArray(capabilities.features) ||
+        !(['projects', 'sessions', 'messages'] as const).every((feature) => capabilities.features.includes(feature))
+      )
+        throw new McpError('unsupported-host', 'Host 不支持所需的项目、会话与消息能力')
       return operation(new HostContext(host, client, capabilities))
     })
   }

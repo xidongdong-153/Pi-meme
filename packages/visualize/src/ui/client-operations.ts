@@ -36,8 +36,8 @@ export async function handleVisualizationClientOperation(
   assertCurrent()
   if (capabilities.hostId !== request.session.hostId)
     throw new SystemReadError('permission-denied', '可视化请求的 Host 身份不匹配')
-  if (!capabilities.features.includes('visualize-runtime-v2'))
-    throw new SystemReadError('not-supported', '当前 Host 不支持可视化运行时 v2')
+  if (!capabilities.features.includes('visualize-runtime'))
+    throw new SystemReadError('not-supported', '当前 Host 不支持可视化运行时')
   // UI 操作同样读取明确会话的版本，不用当前界面选择替代分支授权。
   const document = await host.visualizations.get(request.session, reference)
   assertCurrent()

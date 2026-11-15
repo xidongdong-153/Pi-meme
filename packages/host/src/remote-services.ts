@@ -260,9 +260,9 @@ export class RemoteServices {
     const value = JSON.parse((await responseBody(response, 64 * 1024)).toString()) as {
       hostId?: unknown
       authMode?: unknown
-      capabilities?: { sshTunnelAuthV1?: unknown }
+      capabilities?: { sshTunnelAuth?: unknown }
     }
-    if (ssh && value.capabilities?.sshTunnelAuthV1 !== true)
+    if (ssh && value.capabilities?.sshTunnelAuth !== true)
       throw new SshError('host-upgrade', '远程服务不支持安全 SSH 连接，请先升级服务')
     if (ssh && value.authMode !== 'token-required')
       throw new SshError('host-auth-mode', '远程服务必须以 PI_MEME_AUTH_MODE=token-required 模式启动')

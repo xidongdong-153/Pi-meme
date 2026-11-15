@@ -1,5 +1,5 @@
 ---
-description: 'HostApi v2 的稳定目标、HTTP 控制、幂等提交、回执、事件补读和 Node 客户端'
+description: 'HostApi 的稳定目标、HTTP 控制、幂等提交、回执、事件补读和 Node 客户端'
 status: implemented
 paths:
   - 'packages/contracts/src/app-host.ts'
@@ -21,13 +21,13 @@ paths:
   - 'packages/client/src/node-host-client.ts'
 ---
 
-# HostApi v2
+# HostApi
 
 本文描述已实现的正式接口。公共类型在 [app-host.ts](../packages/contracts/src/app-host.ts)，实现位于 [app-control.ts](../packages/host/src/app-control.ts)。Server/UI 插件通过 `context.host` 调用，不取得内部 Store、SessionPool 或 Worker。
 
 ## 稳定目标与接口组
 
-`apiVersion` 固定为 2。`ProjectRef = { hostId, projectId }`，`SessionRef = { hostId, sessionId }`，`WorkspaceRef` 接受二者之一。Host 身份在 `host-id`，项目、会话与操作记录持久化于 `state/control/`（快照与追加日志；旧版本为单个 `control.json`，详见 [数据目录与存储](storage.md)）。
+`ProjectRef = { hostId, projectId }`，`SessionRef = { hostId, sessionId }`，`WorkspaceRef` 接受二者之一。Host 身份在 `host-id`，项目、会话与操作记录持久化于 `state/control/`（快照与追加日志；旧版本为单个 `control.json`，详见 [数据目录与存储](storage.md)）。
 
 操作指定目标，不读取或改变客户端的界面选择。会话创建立即持久化身份，首次生成 Pi JSONL 后补充文件绑定；内部 `sessionKey` 不作为公开持久 ID。
 
@@ -35,7 +35,7 @@ paths:
 
 | 接口组            | 已实现操作                                                                                                                                                                                                                      |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `capabilities()`  | Host 身份、API 版本、功能及可选文件操作能力                                                                                                                                                                                     |
+| `capabilities()`  | Host 身份、功能及可选文件操作能力                                                                                                                                                                                               |
 | `models`          | `list`，查询当前 Host 可用模型，仅读取                                                                                                                                                                                          |
 | `imageGeneration` | `getConfig`、`saveModel`、`deleteModel`、`setDefault`、`test`，图片模型配置与显式生图测试                                                                                                                                       |
 | `plugins`         | `getDefaultAgentPlugins`、`setDefaultAgentPlugins`                                                                                                                                                                              |
@@ -60,7 +60,7 @@ paths:
 
 ## 项目与会话管理
 
-连接现有 Host 时，先检查 `capabilities().features` 中的 `project-management` 和 `session-management`。它们分别表示支持项目创建、命名、置顶、预览删除，以及会话命名、置顶、删除；仍使用 HostApi v2。所有写入带 `MutationOptions`，通过 HTTP 调用时幂等键放在请求顶层。`AppProject` 和 `AppSession` 的 `pinned` 返回当前 Host 的置顶状态。
+连接现有 Host 时，先检查 `capabilities().features` 中的 `project-management` 和 `session-management`。它们分别表示支持项目创建、命名、置顶、预览删除，以及会话命名、置顶、删除。所有写入带 `MutationOptions`，通过 HTTP 调用时幂等键放在请求顶层。`AppProject` 和 `AppSession` 的 `pinned` 返回当前 Host 的置顶状态。
 
 | 操作                                          | 参数与行为                                                                                           |
 | --------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
@@ -129,7 +129,7 @@ if (capabilities.features.includes('models') && client.models) {
 
 ## 消息查找与分页
 
-SDK 3 的消息数据仍使用 HostApi v2，不增加 HostApi v3。公共类型见 [plugin-ui-data.ts](../packages/contracts/src/plugin-ui-data.ts)，可见内容转换见 [plugin-ui-message.ts](../packages/contracts/src/plugin-ui-message.ts)。
+SDK 3 的消息数据通过 HostApi 提供。公共类型见 [plugin-ui-data.ts](../packages/contracts/src/plugin-ui-data.ts)，可见内容转换见 [plugin-ui-message.ts](../packages/contracts/src/plugin-ui-message.ts)。
 
 - `sessions.messages(ref, { offset?, limit?, cursor? })`：读取当前原生分支的公共消息投影，默认 100、最大 500 条。返回 `messages/totalMessages/nextOffset/nextCursor/branchRevision/leafId`。
 - `sessions.message(ref, { entryId })`：按原生条目 ID 查单条消息。调用 UI SDK 时使用 `MessageRef = { session: ref, entryId }`。
@@ -141,13 +141,12 @@ SDK 3 的消息数据仍使用 HostApi v2，不增加 HostApi v3。公共类型�
 
 ## HTTP 与认证
 
-认证、HTTPS 和来源检查见 [Remote](remote.md#认证与连接恢复)。正式控制入口是 `POST /api/control`，内置界面的 `/api/rpc` 继续保留；事件订阅使用 WebSocket `/api/control/events`。
+认证、HTTPS 和来源检查见 [Remote](remote.md#认证与连接恢复)。正式控制入口是 `POST /api/control`，内置界面的 `/api/rpc` 继续保留；事件订阅使用 WebSocket `/api/control/events`。改造前的 Host 不接受当前无版本字段的控制请求，连接它们需要先升级 Host；接入方通过 `capabilities().features` 检查具体能力。
 
 以下请求使用示例身份，实际调用前先从 Host 取得目标 Ref：
 
 ```json
 {
-  "apiVersion": 2,
   "hostId": "example-host",
   "clientId": "example-app",
   "method": "sessions.submit",

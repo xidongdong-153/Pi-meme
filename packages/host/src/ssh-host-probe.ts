@@ -114,14 +114,12 @@ def read_runtime(home):
         fail('host-probe-runtime')
     try:
         value = json.loads(read_file(file, 'host-probe-runtime', 4096, 0o600))
-        if (not isinstance(value, dict) or type(value.get('protocolVersion')) is not int
-                or value.get('protocolVersion') != 1
-                or not integer(value.get('port'), 1, 65535)
+        if (not isinstance(value, dict) or not integer(value.get('port'), 1, 65535)
                 or not integer(value.get('pid'), 1, 2 ** 53 - 1)
                 or not text(value.get('hostId')) or not text(value.get('instanceId'))
                 or 'token' in value):
             fail('host-probe-runtime')
-        return value
+        return {key: value[key] for key in ('port', 'pid', 'hostId', 'instanceId')}
     except ProbeError:
         raise
     except Exception:
@@ -172,8 +170,6 @@ def status_at(port):
 def verify(value, descriptor, root):
     try:
         if (not isinstance(value, dict) or value.get('product') != 'pi-meme'
-                or type(value.get('runtimeProtocolVersion')) is not int
-                or value.get('runtimeProtocolVersion') != 1
                 or not text(value.get('hostId')) or not text(value.get('instanceId'))
                 or value.get('owner') not in ('server', 'desktop')
                 or not isinstance(value.get('dataRoot'), str)

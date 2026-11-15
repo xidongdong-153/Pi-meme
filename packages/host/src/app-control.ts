@@ -1180,7 +1180,6 @@ export async function createAppControl(options: Options) {
     return options.schedules
   }
   const apiFor = (clientId: string, contextReader?: SessionRef): HostApi => ({
-    apiVersion: 2,
     imageGeneration: options.imageGeneration,
     imageLibrary: options.imageLibrary
       ? {
@@ -1243,12 +1242,11 @@ export async function createAppControl(options: Options) {
         }
       : undefined,
     capabilities: async () => ({
-      apiVersion: 2,
       hostId,
       fileOperations: ['preview', 'search', 'write'],
       features: [
         'system-tools',
-        ...(options.visualizations ? (['visualize', 'visualize-runtime-v2'] as const) : []),
+        ...(options.visualizations ? (['visualize', 'visualize-runtime'] as const) : []),
         ...(options.imageLibrary ? (['image-library', 'image-library-upload'] as const) : []),
         ...(options.imageGeneration ? ['image-generation' as const] : []),
         ...(options.models ? ['models' as const] : []),
@@ -2150,7 +2148,7 @@ export async function createAppControl(options: Options) {
     try {
       if (closing) throw new Error('服务正在退出')
       if (
-        request?.apiVersion !== 2 ||
+        !request ||
         typeof request.clientId !== 'string' ||
         !request.clientId ||
         request.clientId.length > 128 ||

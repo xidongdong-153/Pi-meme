@@ -13,7 +13,7 @@ paths:
 
 # App 插件开发
 
-本文描述外部 App 插件。整体进程与内置模块见 [架构](architecture.md)，正式操作接口见 [HostApi v2](host-api.md)。
+本文描述外部 App 插件。整体进程与内置模块见 [架构](architecture.md)，正式操作接口见 [HostApi](host-api.md)。
 
 应用只安装 App 插件。模型配置、技能、插件、MCP 分别管理；Pi 是 Host 内部的会话引擎，不再扫描或导入用户的裸 Pi 扩展、原生 Pi 包、`resources.extensions`。内置模块静态装配，不能从插件列表停用。
 
@@ -32,7 +32,7 @@ paths:
 
 ## 包格式与构建
 
-包身份使用 `package.json` 的 `name` 和 `version`。外部插件只接受 `sdkVersion: 3`。SDK 2 安装记录保留并显示升级诊断，不运行旧 JS、不删除插件数据或会话。SDK 版本与 HostApi 版本无关，正式 HostApi 仍为 v2。
+包身份使用 `package.json` 的 `name` 和 `version`。外部插件只接受 `sdkVersion: 3`。SDK 2 安装记录保留并显示升级诊断，不运行旧 JS、不删除插件数据或会话。SDK 版本用于插件安装与执行兼容检查，HostApi 按具体能力接入。
 
 ```json
 {

@@ -93,7 +93,7 @@ Linux/WSL2 环境、自定义端口和源码构建见[快速开始](docs/getting
 | 修改界面或内置功能       | [开发指南](docs/development.md)、[架构](docs/architecture.md)             |
 | 运行检查与相关测试       | [测试](docs/testing.md)                                                   |
 | 编写技能或 App 插件      | [技能与资源](docs/skills-and-extensions.md)、[App SDK 3](docs/plugins.md) |
-| 从其他应用控制项目与会话 | [HostApi v2](docs/host-api.md)                                            |
+| 从其他应用控制项目与会话 | [HostApi](docs/host-api.md)                                               |
 | 构建安装包与发布版本     | [版本发布](docs/releasing.md)                                             |
 
 完整主题入口见[文档索引](docs/index.md)，长期开发约定见 [AGENTS.md](AGENTS.md)。反馈问题时请附应用版本、系统与架构、复现步骤和错误信息；不要附带令牌、模型凭据或完整数据目录。

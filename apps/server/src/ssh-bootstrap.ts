@@ -14,7 +14,6 @@ import { serverOptions } from './server-options'
 
 declare const __PI_MEME_VERSION__: string
 
-const protocolVersion = 1
 const timeoutMs = 60000
 const conflictMessage = '固定数据目录已有其他服务或 SSH 启动锁未释放；不会接管手工启动的服务'
 
@@ -30,7 +29,6 @@ const version =
     : (JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version
 
 type BootstrapResult = {
-  protocolVersion: 1
   port: number
   hostId: string
   token: string
@@ -59,10 +57,9 @@ async function readJson(stream: Readable, channel: string, limit = 4096): Promis
 }
 
 function validResult(value: unknown): value is BootstrapResult {
-  if (!value || typeof value !== 'object') return false
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const result = value as BootstrapResult
   return (
-    result.protocolVersion === protocolVersion &&
     Number.isInteger(result.port) &&
     result.port > 0 &&
     result.port <= 65535 &&
@@ -95,7 +92,7 @@ async function readDescriptor(): Promise<RuntimeDescriptor | undefined> {
     if (
       !value ||
       typeof value !== 'object' ||
-      value.protocolVersion !== protocolVersion ||
+      Array.isArray(value) ||
       !Number.isInteger(value.pid) ||
       value.pid < 1 ||
       !Number.isInteger(value.port) ||
@@ -109,7 +106,14 @@ async function readDescriptor(): Promise<RuntimeDescriptor | undefined> {
       'token' in value
     )
       throw conflict('远程服务运行信息无效，拒绝复用')
-    return value
+    // 旧运行信息可能含额外字段；只复用经身份校验所需的运行描述，不传播它们。
+    return {
+      pid: value.pid,
+      port: value.port,
+      hostId: value.hostId,
+      instanceId: value.instanceId,
+      version: value.version,
+    }
   } catch (cause) {
     if (errorCode(cause) === 'ENOENT') return undefined
     throw cause
@@ -152,7 +156,7 @@ async function reuse(descriptor: RuntimeDescriptor): Promise<BootstrapResult> {
       : undefined
   if (typeof token !== 'string' || token.length < 32 || token.length > 4096)
     throw conflict('远程服务访问令牌无效，原文件未修改')
-  return { protocolVersion, port: descriptor.port, hostId: descriptor.hostId, token, version }
+  return { port: descriptor.port, hostId: descriptor.hostId, token, version }
 }
 
 async function startDetached(): Promise<BootstrapResult> {
@@ -189,14 +193,8 @@ async function startDetached(): Promise<BootstrapResult> {
 
 async function bootstrap() {
   const input = await readJson(process.stdin, 'SSH 引导输入')
-  if (
-    !input ||
-    typeof input !== 'object' ||
-    !('protocolVersion' in input) ||
-    input.protocolVersion !== protocolVersion ||
-    Object.keys(input).length !== 1
-  )
-    throw new Error('SSH 引导协议无效，只接受 protocolVersion: 1')
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 0)
+    throw new Error('SSH 引导输入无效，只接受空对象')
   await mkdir(runtime, { recursive: true, mode: 0o700 })
   const info = await lstat(runtime)
   if (!info.isDirectory() || (process.getuid && info.uid !== process.getuid()))
@@ -257,7 +255,6 @@ async function detachedHost() {
     })
   }
   const descriptor: RuntimeDescriptor = {
-    protocolVersion,
     pid: process.pid,
     port: Number(new URL(owned.url).port),
     hostId: owned.host.hostId,
@@ -265,7 +262,6 @@ async function detachedHost() {
     version,
   }
   const result: BootstrapResult = {
-    protocolVersion,
     port: descriptor.port,
     hostId: descriptor.hostId,
     token: owned.token,

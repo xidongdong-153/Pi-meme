@@ -2,11 +2,9 @@ export const defaultHostPort = 3185
 export const defaultFrontendPort = 2159
 export const defaultDevelopmentHostPort = 3180
 export const defaultDevelopmentFrontendPort = 3181
-export const hostRuntimeProtocolVersion = 1
 
 export type LocalHostStatus = {
   product: 'pi-meme'
-  runtimeProtocolVersion: typeof hostRuntimeProtocolVersion
   hostId: string
   instanceId: string
   dataRoot: string

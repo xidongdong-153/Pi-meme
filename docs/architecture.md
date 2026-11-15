@@ -57,7 +57,7 @@ Host 使用 Hono、`@hono/node-server` 和 `ws`，由 [transport-app.ts](../pack
 
 ### 本机 Host 复用与界面入口
 
-[运行契约](../packages/contracts/src/host-runtime.ts) 统一默认端口 `3185` 与运行协议版本。[local-host.ts](../packages/host/src/local-host.ts) 先探测 `/api/status`，校验产品、协议、真实数据目录和持久 Host 身份；没有监听者才创建。并发创建依靠 `host.lock` 决定唯一写入者，其余入口等待并复用。状态只允许本机来源读取，不包含令牌或 Cookie。
+[运行契约](../packages/contracts/src/host-runtime.ts) 统一默认端口 `3185` 与本机状态结构。[local-host.ts](../packages/host/src/local-host.ts) 先探测 `/api/status`，校验产品、状态字段、真实数据目录和持久 Host 身份；没有监听者才创建。并发创建依靠 `host.lock` 决定唯一写入者，其余入口等待并复用。状态只允许本机来源读取，不包含令牌或 Cookie。
 
 Desktop 的连接状态分 `owned` 与 `attached`。[本机进程管理](../apps/desktop/src/main/local-host.ts) 只为 `owned` 保留 utilityProcess、维护和停机操作；`attached` Desktop 退出不停止 Server。Server 入口发现兼容 Host 后输出地址并退出，不转移所有权。管理方退出后其他客户端只重连，不自动创建替代 Host。
 
@@ -128,7 +128,7 @@ Agent 项目服务由 [activities](../packages/activities/src/server/service.ts)
 
 ## 协议与平台适配
 
-正式接口 [HostApi v2](host-api.md) 使用稳定 `ProjectRef` / `SessionRef` 操作显式目标；App 内部 `/api/rpc` 和客户端选择继续服务内置界面。正式操作不读取或改变界面选择。
+正式接口 [HostApi](host-api.md) 使用稳定 `ProjectRef` / `SessionRef` 操作显式目标；App 内部 `/api/rpc` 和客户端选择继续服务内置界面。正式操作不读取或改变界面选择。
 
 [PlatformAdapter](../packages/contracts/src/host.ts) 提供本机文件选择、连接配置、文件管理器/编辑器启动和主题导入导出等平台操作；Electron preload 只连接平台 channel。Remote 目录查询、会话和插件安装经 Host，不把远程路径交给本机文件选择器。
 

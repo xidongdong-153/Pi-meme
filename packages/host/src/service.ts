@@ -2749,6 +2749,7 @@ export async function createHost(options: HostOptions = {}) {
       control: {
         ...appControl,
         dispatch: async (request: import('@pi-meme/contracts/app-host').HostControlRequest) => {
+          if (!request || typeof request !== 'object' || Array.isArray(request)) return appControl!.dispatch(request)
           const identity = systemClients.identity(request.clientId)
           if (identity && request.connectionId !== identity.connectionId)
             return { hostId, error: { code: 'permission-denied', message: '控制请求来自其他客户端连接，操作未执行' } }
