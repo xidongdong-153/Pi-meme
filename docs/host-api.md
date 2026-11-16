@@ -148,7 +148,7 @@ SDK 3 的消息数据通过 HostApi 提供。公共类型见 [plugin-ui-data.ts]
 
 ## Git 查看与轮次撤销
 
-`capabilities().features` 中的 `git` 表示支持 Git 接口组，其中包含读取和写入；可选 `availability(ref)` 另以 `git-availability` 协商。参数与返回类型见 [Git review](../packages/contracts/src/git-review.ts)、[可用性摘要](../packages/contracts/src/git-availability.ts) 和[轮次变更](../packages/contracts/src/turn-changes.ts)。
+`capabilities().features` 中的 `git` 表示支持 Git 接口组，其中包含读取和写入；可选 `availability(ref)` 另以 `git-availability` 协商。内置界面的分支切换由 `git-branch-switch-in-place` 协商：`git:switch-branch` 和 `git:create-branch` 返回更新后的 `GitEnvironment`，保留客户端选择与当前会话；未声明此能力的 Host 需要先更新，客户端不会调用旧的会话切换流程。参数与返回类型见 [Git 环境](../packages/contracts/src/desktop.ts)、[Git review](../packages/contracts/src/git-review.ts)、[可用性摘要](../packages/contracts/src/git-availability.ts) 和[轮次变更](../packages/contracts/src/turn-changes.ts)。
 
 - `environment(root)`、`snapshot(root)`、`diff(root, {path,staged?,kind?})` 读取显式 `WorkspaceRef` 的仓库环境、工作区状态和文件差异。
 - `review(root, {scope,ref?})` 与 `reviewFile(root, {query,path})` 读取指定范围的变更列表和文件内容。`scope` 为 `uncommitted`、`unstaged`、`staged`、`commit` 或 `branch`；`reviewOptions(root, {search?,offset?})` 提供本地分支和提交候选，不 fetch。

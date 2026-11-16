@@ -1384,18 +1384,21 @@ function AppContent({
             />
           )}
         </div>
-        {chat.connection.workspaceKind !== 'standalone' && chat.connection.cwd && (
-          <GitMenu
-            bridge={bridge}
-            sessionKey={chat.connection.sessionKey}
-            refreshToken={chat.refreshToken}
-            disabledReason={chat.workspaceDisabledReason}
-            onSwitch={chat.switchGitBranch}
-            onCreateBranch={chat.createGitBranch}
-            onCreateWorktree={chat.createGitWorktree}
-            onReview={() => openTool('builtin:git')}
-          />
-        )}
+        {chat.isNewChat &&
+          showWorkspaceSlot &&
+          chat.connection.workspaceKind !== 'standalone' &&
+          chat.connection.cwd && (
+            <GitMenu
+              bridge={bridge}
+              sessionKey={chat.connection.sessionKey}
+              refreshToken={chat.refreshToken}
+              disabledReason={chat.workspaceDisabledReason}
+              onSwitch={chat.switchGitBranch}
+              onCreateBranch={chat.createGitBranch}
+              onCreateWorktree={chat.createGitWorktree}
+              onReview={() => openTool('builtin:git')}
+            />
+          )}
       </div>
       <div className="relative z-10">
         {interaction?.method === 'questions' && (

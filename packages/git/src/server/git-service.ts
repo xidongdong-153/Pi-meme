@@ -274,9 +274,9 @@ export async function switchGitBranch(
   branchRef: string,
   newBranch?: string,
   headSha?: string,
+  beforeSwitch?: () => Promise<void>,
 ) {
-  const status = await runGit(environment.root, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
-  if (status.stdout) throw new Error('工作目录存在未提交更改，请先处理后再切换分支')
+  let args: string[]
   if (newBranch !== undefined) {
     if (environment.branches.some((branch) => branch.ref === `refs/heads/${newBranch}`))
       throw new Error('分支名称已存在，请选择其他名称')
@@ -284,14 +284,17 @@ export async function switchGitBranch(
     await runGit(environment.root, ['check-ref-format', '--branch', newBranch]).catch(() => {
       throw new Error('分支名称无效')
     })
-    await runGit(environment.root, ['switch', '-c', newBranch, headSha!])
+    if (!headSha) throw new Error('分支起点无效，请刷新分支列表')
+    args = ['switch', '-c', newBranch, headSha]
   } else {
     const branch = environment.branches.find((item) => item.ref === branchRef)
     if (!branch) throw new Error('所选分支已不存在，请刷新分支列表')
+    if (branch.current) return
     if (branch.occupiedBy) throw new Error(`此分支已被其他 Worktree 使用：${branch.occupiedBy}`)
-    await runGit(
-      environment.root,
-      branch.kind === 'local' ? ['switch', '--', branch.name] : ['switch', '--detach', branch.ref],
-    )
+    args = branch.kind === 'local' ? ['switch', '--', branch.name] : ['switch', '--detach', branch.ref]
   }
+  const status = await runGit(environment.root, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
+  if (status.stdout) throw new Error('工作目录存在未提交更改，请先处理后再切换分支')
+  await beforeSwitch?.()
+  await runGit(environment.root, args)
 }

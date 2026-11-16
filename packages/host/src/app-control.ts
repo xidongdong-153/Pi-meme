@@ -1262,6 +1262,7 @@ export async function createAppControl(options: Options) {
         'files',
         'git',
         'git-availability',
+        'git-branch-switch-in-place',
         'interaction',
         'agents',
         'plans',

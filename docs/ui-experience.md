@@ -51,6 +51,12 @@ Desktop 正常关窗、退出、受控重新加载和存储维护使用同一准
 
 实现入口为 [WorkspacePanels](../packages/app-ui/src/layout/workspace-panels.tsx)、[RetainedToolPanels](../packages/app-ui/src/layout/retained-tool-panels.tsx)、[useSidebarLayout](../packages/app-ui/src/layout/use-sidebar-layout.ts)、[useWorkspaceView](../packages/app-ui/src/layout/use-workspace-view.ts) 和 [useConversationScroll](../packages/chat/src/ui/conversation/use-conversation-scroll.ts)。
 
+## Git 分支切换
+
+仅新会话可在输入框上方的项目选择区域，通过原有设置入口选择 Git 分支；已有对话不提供分支选择，顶栏不新增分支按钮。切换或新建 Git 分支原地完成，点击目标后立即收起菜单，只更新分支和工作区数据。保留会话身份、输入框实例、草稿与工具布局，不进入会话切换等待页。重复点击当前分支直接收起菜单，不发起切换。失败时重新打开菜单并在操作处显示原因，保留原输入。
+
+Host 在切换前校验分支、工作区改动、任务与活动服务；同一工作目录的操作继续串行。空闲 Worker 退役后，下一次发送在同一会话中读取新分支的资源，不创建新聊天。创建 Worktree 仍进入对应工作目录的新对话。
+
 ## 新聊天草稿
 
 同一 Host、同一窗口保留一份新聊天草稿。点击新聊天或选择其他项目时复用该草稿；进入历史会话后，显示该会话自己的输入，再返回新聊天时恢复原草稿。顶部新聊天采用当前会话的项目，项目旁入口采用指定项目。

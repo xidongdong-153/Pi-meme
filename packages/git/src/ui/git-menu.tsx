@@ -23,20 +23,24 @@ export function GitMenu({
   sessionKey?: string
   refreshToken: number
   disabledReason?: string
-  onSwitch: (branch: string) => Promise<boolean>
-  onCreateBranch: (name: string, base: string) => Promise<boolean>
+  onSwitch: (branch: string) => Promise<GitEnvironment>
+  onCreateBranch: (name: string, base: string) => Promise<GitEnvironment>
   onCreateWorktree: (base: string) => Promise<boolean>
   onReview?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [environment, setEnvironment] = useState<GitEnvironment | null>(null)
   const [error, setError] = useState('')
+  const [operationError, setOperationError] = useState('')
   const [notRepository, setNotRepository] = useState(false)
   const [query, setQuery] = useState('')
   const [create, setCreate] = useState<'branch' | 'worktree'>()
   const [branchName, setBranchName] = useState('codex/')
   const [base, setBase] = useState('HEAD')
   const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
+  const targetRef = useRef({ bridge, sessionKey })
+  targetRef.current = { bridge, sessionKey }
   const searchRef = useRef<HTMLInputElement>(null)
   const reviewRef = useRef<HTMLButtonElement>(null)
   const previousKey = useRef(sessionKey)
@@ -46,12 +50,13 @@ export function GitMenu({
       previousKey.current = sessionKey
       setEnvironment(null)
       setError('')
+      setOperationError('')
       setNotRepository(false)
       setOpen(false)
       setCreate(undefined)
       setQuery('')
     }
-    if (!sessionKey) return
+    if (!sessionKey || busy) return
     void bridge
       .getGitEnvironment(sessionKey)
       .then((value) => {
@@ -78,22 +83,34 @@ export function GitMenu({
     return () => {
       current = false
     }
-  }, [bridge, sessionKey, refreshToken, open])
+  }, [bridge, sessionKey, refreshToken, open, busy])
   const branches =
     environment?.branches.filter((branch) => branch.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())) ?? []
   const unavailable =
     disabledReason || (notRepository ? '当前项目未使用 Git' : !environment ? error || '正在读取 Git 状态' : '')
-  async function run(action: () => Promise<boolean>) {
-    if (busy) return
+  async function run(action: () => Promise<GitEnvironment | boolean>, closeImmediately = false) {
+    if (busyRef.current) return
+    const owns = () => targetRef.current.bridge === bridge && targetRef.current.sessionKey === sessionKey
+    busyRef.current = true
     setBusy(true)
-    setError('')
+    setOperationError('')
+    if (closeImmediately) setOpen(false)
     try {
-      await action()
+      const result = await action()
+      if (!owns()) return
+      if (result === false) {
+        if (closeImmediately) setOpen(true)
+        return
+      }
+      if (typeof result !== 'boolean') setEnvironment(result)
       setOpen(false)
       setCreate(undefined)
     } catch (cause) {
-      setError(String(cause))
+      if (!owns()) return
+      setOperationError(cause instanceof Error ? cause.message : String(cause))
+      if (closeImmediately) setOpen(true)
     } finally {
+      busyRef.current = false
       setBusy(false)
     }
   }
@@ -101,7 +118,7 @@ export function GitMenu({
     setOpen(false)
     setBase('HEAD')
     setBranchName('codex/')
-    setError('')
+    setOperationError('')
     setCreate(kind)
   }
   return (
@@ -113,7 +130,8 @@ export function GitMenu({
               <button
                 type="button"
                 aria-label="Git 分支与工作树"
-                disabled={Boolean(disabledReason)}
+                aria-busy={busy || undefined}
+                disabled={busy || Boolean(disabledReason)}
                 className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors enabled:hover:bg-secondary/60 enabled:hover:text-foreground data-[state=open]:bg-secondary/60 data-[state=open]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset enabled:cursor-pointer disabled:opacity-50"
               >
                 <Settings className="size-3.5" />
@@ -183,8 +201,15 @@ export function GitMenu({
                         type="button"
                         role="option"
                         aria-selected={branch.current}
-                        disabled={busy || Boolean(branch.occupiedBy) || environment?.dirty || !environment?.headSha}
-                        onClick={() => void run(() => onSwitch(branch.ref))}
+                        disabled={
+                          busy ||
+                          (!branch.current &&
+                            (Boolean(branch.occupiedBy) || environment?.dirty || !environment?.headSha))
+                        }
+                        onClick={() => {
+                          if (branch.current) setOpen(false)
+                          else void run(() => onSwitch(branch.ref), true)
+                        }}
                         className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs hover:bg-secondary disabled:opacity-50"
                       >
                         <span className="truncate">
@@ -217,9 +242,9 @@ export function GitMenu({
               </div>
             </>
           )}
-          {error && environment && (
+          {(operationError || error) && environment && (
             <p role="alert" className="break-words px-2 text-xs text-destructive">
-              {error}
+              {operationError || error}
             </p>
           )}
         </PopoverContent>
@@ -235,7 +260,7 @@ export function GitMenu({
           <DialogDescription>
             {create === 'worktree'
               ? '从所选提交创建分离 HEAD 的工作树，不带入未提交改动。创建后在原项目中新建对话，带上文字、图片和输入模式。'
-              : '从所选提交创建并切换分支，在当前项目中新建对话，保留草稿。'}
+              : '从所选提交创建并切换分支，继续当前对话。'}
           </DialogDescription>
           {create === 'branch' && (
             <FormField label="分支名称" className="text-sm">
@@ -268,9 +293,9 @@ export function GitMenu({
               </SelectContent>
             </Select>
           </FormField>
-          {error && (
+          {(operationError || error) && (
             <p role="alert" className="break-words text-sm text-destructive">
-              {error}
+              {operationError || error}
             </p>
           )}
           <div className="flex justify-end gap-2">

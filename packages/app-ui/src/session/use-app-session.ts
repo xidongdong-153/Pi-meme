@@ -12,6 +12,7 @@ import type {
   WorkspaceDeletionResult,
   DesktopEvent,
   DesktopError,
+  GitEnvironment,
 } from '@pi-meme/contracts/desktop'
 import type {
   PiModel,
@@ -890,6 +891,40 @@ export function useAppSession(
     }
   }, [])
 
+  const changeGitBranch = async (work: (key: string) => Promise<GitEnvironment>) => {
+    const { sessionKey: key, generation } = current.current
+    if (
+      !key ||
+      actionLock.current ||
+      selection.current.current ||
+      preview.current ||
+      current.current.accessChanging ||
+      chatRef.current?.editSubmitting
+    )
+      throw new Error('当前会话仍在处理操作，请稍后切换分支')
+    const owns = () =>
+      mounted.current && key === current.current.sessionKey && generation === current.current.generation
+    actionLock.current = true
+    try {
+      const environment = await work(key)
+      if (owns()) {
+        setRefreshToken((value) => value + 1)
+        const request = ++commandRequest.current
+        void bridge.getCommands().then(
+          (next) => {
+            if (owns() && request === commandRequest.current) setCommands(next)
+          },
+          (cause) => {
+            if (owns() && request === commandRequest.current) setError(`无法读取会话命令：${String(cause)}`)
+          },
+        )
+      }
+      return environment
+    } finally {
+      actionLock.current = false
+    }
+  }
+
   const select = async (
     work: () => Promise<SessionSelectionResult>,
     target?: string,
@@ -1426,10 +1461,8 @@ export function useAppSession(
       }
       return changed
     },
-    switchGitBranch: (branch: string) =>
-      select(() => bridge.switchGitBranch(current.current.sessionKey!, branch), undefined, true),
-    createGitBranch: (name: string, base: string) =>
-      select(() => bridge.createGitBranch(current.current.sessionKey!, name, base), undefined, true),
+    switchGitBranch: (branch: string) => changeGitBranch((key) => bridge.switchGitBranch(key, branch)),
+    createGitBranch: (name: string, base: string) => changeGitBranch((key) => bridge.createGitBranch(key, name, base)),
     createGitWorktree: (base: string) =>
       select(
         async () => {

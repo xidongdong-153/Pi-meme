@@ -1308,6 +1308,12 @@ export class HostClient {
       if (!platform) throw new Error(`目录位于服务：${settings[field]}`)
       await platform.openPath(settings[field])
     }
+    const changeGitBranch = async (method: 'git:switch-branch' | 'git:create-branch', args: string[], key: string) => {
+      const capabilities = await this.host.capabilities()
+      if (!capabilities.features.includes('git-branch-switch-in-place'))
+        throw new Error('当前服务不支持原地切换 Git 分支，请更新服务')
+      return rpc<Awaited<ReturnType<DesktopBridge['switchGitBranch']>>>(method, args, key)
+    }
     const settingsRequest = <T>(method: string, args: unknown[], signal?: AbortSignal): Promise<T> => {
       const deadline = AbortSignal.timeout(5000)
       const requestSignal = AbortSignal.any([this.lifetime.signal, deadline, ...(signal ? [signal] : [])])
@@ -1510,8 +1516,8 @@ export class HostClient {
       forkReply: (key, timestamp) => this.selection('pi:fork-reply', [key, timestamp], key),
       respondExtensionUI: (key, id, response) => rpc('pi:extension-ui-response', [key, id, response], key),
       getGitEnvironment: (key) => rpc('git:environment', [key], key),
-      switchGitBranch: (key, branch) => this.selection('git:switch-branch', [key, branch], key),
-      createGitBranch: (key, branch, baseRef) => this.selection('git:create-branch', [key, branch, baseRef], key),
+      switchGitBranch: (key, branch) => changeGitBranch('git:switch-branch', [key, branch], key),
+      createGitBranch: (key, branch, baseRef) => changeGitBranch('git:create-branch', [key, branch, baseRef], key),
       createGitWorktree: async (key, baseRef) => {
         const epoch = ++this.selectionEpoch
         this.pendingSelections++

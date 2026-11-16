@@ -200,8 +200,6 @@ const selections = new Set([
   'pi:switch-session',
   'workspace:select',
   'pi:directory',
-  'git:switch-branch',
-  'git:create-branch',
   'git:create-worktree',
 ])
 
@@ -1914,19 +1912,28 @@ export async function createHost(options: HostOptions = {}) {
             checkoutGates.add(environment.root)
             const matches = (directory: string) => withinCheckout(directory, environment.root)
             try {
+              const current = await getGitEnvironment(cwd)
+              if (baseRef === undefined && current.branches.some((item) => item.ref === branch && item.current))
+                return current
               pi.assertCheckoutIdle(matches)
               collaboration.assertCheckoutIdle(matches)
               activityBridge.assertIdle(environment.root)
-              const current = await getGitEnvironment(cwd)
-              const sha = baseRef ? await resolveGitBase(current, baseRef) : undefined
-              if (current.dirty) throw new Error('工作目录存在未提交更改，请先处理后再切换分支')
-              await pi.retireCheckout(matches)
-              await collaboration.retireCheckout(matches)
-              await switchGitBranch(current, baseRef ?? branch, baseRef ? branch : undefined, sha)
+              const sha = baseRef === undefined ? undefined : await resolveGitBase(current, baseRef)
+              await switchGitBranch(
+                current,
+                baseRef ?? branch,
+                baseRef === undefined ? undefined : branch,
+                sha,
+                async () => {
+                  await pi.retireCheckout(matches)
+                  await collaboration.retireCheckout(matches)
+                },
+              )
+              commandRevision++
+              return await getGitEnvironment(cwd)
             } finally {
               checkoutGates.delete(environment.root)
             }
-            return pi.selectWorkspaceDirectory(cwd, true)
           })
         },
         createWorktree: async (key: string, baseRef: string) => {
@@ -3008,10 +3015,7 @@ export async function createHost(options: HostOptions = {}) {
                     } else outcome.selection = { cancelled: true }
                   }
                 }
-                const gitSelection =
-                  request.method === 'git:switch-branch' ||
-                  request.method === 'git:create-branch' ||
-                  request.method === 'git:create-worktree'
+                const gitSelection = request.method === 'git:create-worktree'
                 if (epoch !== undefined && !gitSelection) {
                   if (selectionEpochs.get(request.clientId) !== epoch) return { cancelled: true }
                   if (!isTempTarget) {

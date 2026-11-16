@@ -97,6 +97,7 @@ export type AppHostCapabilities = {
     | 'system-tools'
     | 'git'
     | 'git-availability'
+    | 'git-branch-switch-in-place'
     | 'interaction'
     | 'agents'
     | 'plans'

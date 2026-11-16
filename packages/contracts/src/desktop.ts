@@ -347,8 +347,8 @@ export interface ExtensionBridge {
 /** Git 状态与文件 Diff。 */
 export interface GitBridge {
   getGitEnvironment: (sessionKey: string) => Promise<GitEnvironment>
-  switchGitBranch: (sessionKey: string, branch: string) => Promise<SessionSelectionResult>
-  createGitBranch: (sessionKey: string, branch: string, baseRef: string) => Promise<SessionSelectionResult>
+  switchGitBranch: (sessionKey: string, branch: string) => Promise<GitEnvironment>
+  createGitBranch: (sessionKey: string, branch: string, baseRef: string) => Promise<GitEnvironment>
   createGitWorktree: (sessionKey: string, baseRef: string) => Promise<GitWorktreeResult>
   getGitSnapshot: () => Promise<GitSnapshot>
   getGitDiff: (filePath: string, kind: GitFileChange['kind']) => Promise<string>

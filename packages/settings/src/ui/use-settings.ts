@@ -119,10 +119,13 @@ export function useSettings(
       void bridge
         .getSettings()
         .then((next) => {
-          if (active && revision === settingsReadRevision.current) accept(next)
+          if (active && revision === settingsReadRevision.current) {
+            accept(next)
+            setError('')
+          }
         })
         .catch((cause) => {
-          if (active) setError(String(cause))
+          if (active && revision === settingsReadRevision.current) setError(String(cause))
         })
     }
     refresh()
@@ -226,16 +229,17 @@ export function useSettings(
   }
   const refresh = useCallback(async () => {
     if (!enabled) return
+    const readRevision = ++settingsReadRevision.current
+    const targetBridge = bridgeRef.current
     try {
-      const readRevision = ++settingsReadRevision.current
-      const targetBridge = bridgeRef.current
       const next = await targetBridge.getSettings()
       if (targetBridge === bridgeRef.current && readRevision === settingsReadRevision.current) {
         accept(next)
         setError('')
       }
     } catch (cause) {
-      setError(`刷新外观失败：${String(cause)}`)
+      if (targetBridge === bridgeRef.current && readRevision === settingsReadRevision.current)
+        setError(`刷新外观失败：${String(cause)}`)
     }
   }, [enabled, accept])
   return {

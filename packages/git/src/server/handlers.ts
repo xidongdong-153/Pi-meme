@@ -1,11 +1,11 @@
-import type { GitFileChange, GitWorktreeResult, SessionSelectionResult } from '@pi-meme/contracts/desktop'
+import type { GitEnvironment, GitFileChange, GitWorktreeResult } from '@pi-meme/contracts/desktop'
 import { text } from '@pi-meme/contracts/ipc'
 import { getGitDiff, getGitSnapshot } from './git-service'
 
 export type GitHandlerContext = {
   getCwd: () => string
-  environment?: (sessionKey: string) => Promise<import('@pi-meme/contracts/desktop').GitEnvironment>
-  switchBranch?: (sessionKey: string, branch: string, baseRef?: string) => Promise<SessionSelectionResult>
+  environment?: (sessionKey: string) => Promise<GitEnvironment>
+  switchBranch?: (sessionKey: string, branch: string, baseRef?: string) => Promise<GitEnvironment>
   createWorktree?: (sessionKey: string, baseRef: string) => Promise<GitWorktreeResult>
 }
 
