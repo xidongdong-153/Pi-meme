@@ -178,20 +178,11 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
             {snapshot && <TokenActivity daily={snapshot.daily} today={snapshot.today} />}
           </RevealContent>
         </SettingsGroup>
-        {snapshot && snapshot.warnings.length > 0 && (
-          <ul role="status" className="space-y-1 text-xs text-muted-foreground">
-            {snapshot.warnings.map((warning, index) => (
-              <li key={`${index}:${warning}`}>{warning}</li>
-            ))}
-          </ul>
-        )}
-        <div className="space-y-2 text-[11px] text-muted-foreground">
-          <p>
-            <CrossfadeText>
-              {snapshot ? `更新于 ${new Date(snapshot.updatedAt).toLocaleString('zh-CN')}` : '尚未获取统计'}
-            </CrossfadeText>
-          </p>
-        </div>
+        <p className="text-[11px] text-muted-foreground">
+          <CrossfadeText>
+            {snapshot ? `更新于 ${new Date(snapshot.updatedAt).toLocaleString('zh-CN')}` : '尚未获取统计'}
+          </CrossfadeText>
+        </p>
       </div>
     </div>
   )
