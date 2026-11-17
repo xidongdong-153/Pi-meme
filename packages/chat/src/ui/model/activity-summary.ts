@@ -69,6 +69,18 @@ function activityAction(item: ActivityItem): string {
   return activityActions[meta.kind]
 }
 
+function latestActivity(activities: ActivityItem[]): ActivityItem | undefined {
+  return (
+    activities.findLast((entry) => entry.status === 'running') ??
+    activities.findLast((entry) => entry.type !== 'thinking' && entry.type !== 'narration') ??
+    activities.findLast((entry) => entry.type === 'thinking')
+  )
+}
+
+export function currentActivity(items: ActivityItem[]): ActivityItem | undefined {
+  return latestActivity(items.flatMap(flattenActivities))
+}
+
 export function summarizeActivities(
   items: ActivityItem[],
   isLive = false,
@@ -80,10 +92,7 @@ export function summarizeActivities(
 } {
   const activities = items.flatMap(flattenActivities)
   if (isLive) {
-    const item =
-      activities.findLast((entry) => entry.status === 'running') ??
-      activities.findLast((entry) => entry.type !== 'thinking' && entry.type !== 'narration') ??
-      activities.findLast((entry) => entry.type === 'thinking')
+    const item = latestActivity(activities)
     const kind = item ? parseToolMeta(item).kind : 'thinking'
     if (isPaused) return { summary: '已暂停，等待继续', kind, status: 'paused' }
     if (!item) return { summary: '正在处理…', kind, status: 'running' }

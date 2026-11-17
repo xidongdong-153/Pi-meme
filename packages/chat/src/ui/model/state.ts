@@ -8,7 +8,7 @@ import { messageAttachmentParts } from '@pi-meme/contracts/chat-attachments'
 import type { Snapshot, DesktopEvent } from '@pi-meme/contracts/desktop'
 import type { ChatState, ToolRun } from './types'
 import { sameMessage } from './message-text'
-import { updateLiveMessage } from './live-message'
+import { completeThinkingTimings, updateLiveMessage } from './live-message'
 
 export const emptyChat: ChatState = {
   messages: [],
@@ -74,6 +74,7 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
         source: message.source,
         sourceEntry: message.sourceEntry,
         result: { content: message.content, details: message.details },
+        durationMs: message.durationMs,
         status: message.isError ? 'error' : 'success',
       }
     }
@@ -132,13 +133,15 @@ function restoreNestedTools(
         id: call.id,
         name: call.name,
         args: call.arguments,
+        durationMs: call.durationMs,
         result:
           call.status !== 'ok' ? { content: [{ type: 'text', text: call.error ?? '内部调用未完成' }] } : undefined,
         status: call.status === 'ok' ? 'success' : 'error',
       },
     ]),
   )
-  for (const interaction of interactions.values()) calls.set(interaction.id, interaction)
+  for (const interaction of interactions.values())
+    calls.set(interaction.id, { ...calls.get(interaction.id), ...interaction })
   for (const call of calls.values()) {
     const previous = state.tools[call.id]
     const saved = interactions.get(call.id)
@@ -158,6 +161,7 @@ function restoreNestedTools(
       parentToolCallId: parentToolCallId ?? message.toolCallId,
       args: saved?.args ?? previous?.args ?? call.args,
       result: saved?.result ?? previous?.result ?? call.result,
+      durationMs: previous?.durationMs ?? call.durationMs,
     }
   }
 }
@@ -344,6 +348,14 @@ export function applyEvent(
     case 'message_end': {
       let message: PiMessage = event.source ? { ...event.message, source: event.source } : event.message
       const index = state.messages.findIndex((message) => sameMessage(message, event.message))
+      if (message.role === 'assistant') {
+        const liveTimings = state.live && sameMessage(state.live, message) ? state.live.thinkingTimings : undefined
+        const thinkingTimings = completeThinkingTimings(
+          message.thinkingTimings ?? liveTimings ?? state.messages[index]?.thinkingTimings,
+          event.emittedAt ?? message.completedAt ?? Date.now(),
+        )
+        if (thinkingTimings) message = { ...message, thinkingTimings }
+      }
       const messages = [...state.messages]
       if (index === -1) messages.push(message)
       else {
@@ -371,6 +383,7 @@ export function applyEvent(
             source: message.source,
             sourceEntry: message.sourceEntry,
             result: { content: message.content, details: message.details },
+            durationMs: message.durationMs ?? state.tools[message.toolCallId]?.durationMs,
             status: message.isError ? 'error' : 'success',
           },
         }
@@ -404,6 +417,12 @@ export function applyEvent(
             name: event.toolName,
             source: event.source ?? previous?.source,
             parentToolCallId: event.parentToolCallId ?? previous?.parentToolCallId,
+            startedAt:
+              event.startedAt ??
+              previous?.startedAt ??
+              (event.type === 'tool_execution_start' ? (event.emittedAt ?? Date.now()) : undefined),
+            durationMs:
+              event.type === 'tool_execution_end' ? (event.durationMs ?? previous?.durationMs) : previous?.durationMs,
             args: event.type === 'tool_execution_end' ? previous?.args : event.args,
             result:
               event.type === 'tool_execution_end'

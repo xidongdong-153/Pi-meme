@@ -3,6 +3,7 @@ import type { ActivityItem } from '../model/types'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { ChevronDown, Sparkles } from 'lucide-react'
 import { getThinkingLabel } from '../model/thinking-labels'
+import { RetainedDisclosure } from './retained-disclosure'
 
 export function ThinkingActivityRow({
   item,
@@ -18,108 +19,52 @@ export function ThinkingActivityRow({
   isLive?: boolean
 }) {
   const label = React.useMemo(() => getThinkingLabel(item.id || item.thinking), [item.id, item.thinking])
-  const isWorking = (item.status === 'running' || (isLive && item.status !== 'success')) && !isPaused
-
-  const [elapsed, setElapsed] = React.useState<number | null>(null)
-  const startTimeRef = React.useRef<number | null>(null)
-
-  React.useEffect(() => {
-    if (isWorking) {
-      const started = startTimeRef.current ?? performance.now()
-      startTimeRef.current = started
-      const timer = window.setInterval(() => {
-        setElapsed((performance.now() - started) / 1000)
-      }, 100)
-      return () => window.clearInterval(timer)
-    }
-
-    if (startTimeRef.current !== null) {
-      setElapsed((performance.now() - startTimeRef.current) / 1000)
-      startTimeRef.current = null
-    }
-  }, [isWorking])
-
-  const formattedTime = React.useMemo(() => {
-    if (elapsed === null) return null
-    return `${elapsed.toFixed(1)}s`
-  }, [elapsed])
+  const isRunning = isLive && item.status === 'running'
+  const isWorking = isRunning && !isPaused
+  const detailsId = React.useId()
 
   return (
-    <div className="text-xs select-none">
-      <div
-        role="button"
+    <div className="conversation-event min-w-0 select-none">
+      <button
+        type="button"
         aria-label="思考过程"
         aria-expanded={open}
-        tabIndex={0}
+        aria-controls={detailsId}
         onClick={onToggle}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            onToggle()
-          }
-        }}
         className={cn(
-          'conversation-activity-toggle group/thinking-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded cursor-pointer transition-colors',
-          'text-muted-foreground hover:text-foreground',
+          'conversation-activity-toggle group/thinking-toggle flex min-h-6 w-fit max-w-full items-start gap-2 pr-1 rounded cursor-pointer text-left transition-colors',
+          'text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         )}
       >
-        {!isPaused && (
+        <span aria-hidden="true" className="mt-[0.16em] inline-flex size-[1.4em] shrink-0 items-center justify-center">
           <Sparkles
             className={cn(
-              'size-4 shrink-0 transition-all duration-300',
+              'size-[1.15em] transition-colors',
               isWorking
-                ? 'text-primary animate-[thought-pulse_1.6s_ease-in-out_infinite]'
+                ? 'text-primary animate-[thought-pulse_1.6s_ease-in-out_infinite] motion-reduce:animate-none'
                 : 'text-muted-foreground group-hover/thinking-toggle:text-foreground',
             )}
           />
-        )}
-        <span className="relative inline-grid items-center min-w-0">
-          <span
-            aria-hidden={!isWorking}
-            className={cn(
-              'col-start-1 row-start-1 truncate transition-[filter,opacity] duration-300 ease-out',
-              isWorking ? 'opacity-100 filter-none' : 'opacity-0 blur-[2px] pointer-events-none select-none',
-            )}
-          >
-            <span className="thought-shimmer">{label}</span>
-          </span>
-          <span
-            aria-hidden={isWorking}
-            className={cn(
-              'col-start-1 row-start-1 truncate transition-[filter,opacity] duration-300 ease-out',
-              !isWorking ? 'opacity-100 filter-none' : 'opacity-0 blur-[2px] pointer-events-none select-none',
-            )}
-          >
-            <span>{label}</span>
-          </span>
         </span>
-        {formattedTime !== null && (
-          <span
-            aria-label={`思考用时 ${formattedTime}`}
-            className={cn(
-              'shrink-0 text-xs tabular-nums font-mono transition-opacity duration-300',
-              isWorking ? 'text-primary/90 font-medium' : 'text-muted-foreground/60',
-            )}
-          >
-            {formattedTime}
-          </span>
-        )}
+        <span className={cn('min-w-0 truncate', isWorking && 'thought-shimmer')}>{label}</span>
         <span
           aria-hidden="true"
           className={cn(
-            'inline-flex size-3.5 shrink-0 text-muted-foreground/70 opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none ml-0.5 group-hover/thinking-toggle:opacity-100 group-focus-visible/thinking-toggle:opacity-100',
-            open ? 'rotate-0' : '-rotate-90',
+            'mt-[0.16em] inline-flex size-[1.4em] shrink-0 items-center justify-center text-muted-foreground/70 transition-[rotate] duration-200 ease-out motion-reduce:transition-none',
+            !open && '-rotate-90',
           )}
         >
           <ChevronDown className="size-3.5" />
         </span>
-      </div>
+      </button>
 
-      <div
+      <RetainedDisclosure
+        open={open}
+        id={detailsId}
         aria-hidden={!open}
         inert={!open}
         className={cn(
-          'grid transition-[grid-template-rows,opacity] duration-300 ease-out',
+          'grid transition-[grid-template-rows,opacity] duration-[240ms] ease-out motion-reduce:transition-none',
           open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
         )}
       >
@@ -134,7 +79,7 @@ export function ThinkingActivityRow({
             </div>
           </div>
         </div>
-      </div>
+      </RetainedDisclosure>
     </div>
   )
 }

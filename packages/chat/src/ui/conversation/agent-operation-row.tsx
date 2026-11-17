@@ -34,7 +34,7 @@ export function AgentOperationRow({
         aria-controls={detailsId}
         onClick={() => setOpen((value) => !value)}
         className={cn(
-          'conversation-activity-toggle group/agent-operation flex min-h-6 max-w-full items-start gap-2 rounded-sm pr-1 text-left text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer',
+          'conversation-activity-toggle group/agent-operation flex min-h-6 min-w-0 w-fit max-w-full items-start gap-2 rounded-sm pr-1 text-left text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer',
           operation.status === 'error' && 'text-destructive',
         )}
       >

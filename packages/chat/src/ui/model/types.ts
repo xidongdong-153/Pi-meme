@@ -26,6 +26,8 @@ export type ToolRun = {
   children?: ToolRun[]
   args?: unknown
   result?: unknown
+  startedAt?: number
+  durationMs?: number
   status: 'running' | 'success' | 'error'
 }
 export type ChatCompactionState = {
@@ -77,6 +79,8 @@ export type ActivityItem =
       id: string
       type: 'thinking'
       thinking: string
+      startedAt?: number
+      durationMs?: number
       status?: 'running' | 'success'
     }
   | {
@@ -96,6 +100,8 @@ export type ActivityItem =
       output?: string
       args?: unknown
       result?: unknown
+      startedAt?: number
+      durationMs?: number
       status?: 'running' | 'success' | 'error'
     }
 

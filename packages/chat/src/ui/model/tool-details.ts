@@ -2,6 +2,26 @@ import type { ActivityItem } from './types'
 
 export type ToolKind = 'command' | 'read' | 'write' | 'edit' | 'search' | 'image' | 'image-generation' | 'generic'
 
+const commandExecutionNames = new Set([
+  'bash',
+  'powershell',
+  'exec_command',
+  'execute_command',
+  'run_command',
+  'run_terminal_cmd',
+  'run_terminal_command',
+])
+
+export function isCommandExecution(item: ActivityItem): boolean {
+  if (item.type === 'thinking' || item.type === 'narration') return false
+  const name =
+    (item.name ?? '')
+      .toLowerCase()
+      .split(/__|[.:/]/u)
+      .at(-1) ?? ''
+  return commandExecutionNames.has(name)
+}
+
 function isImagePath(pathStr: string): boolean {
   if (!pathStr) return false
   return /\.(?:png|jpe?g|gif|webp|svg|bmp|ico)$/i.test(pathStr)
@@ -151,6 +171,7 @@ export function parseToolMeta(item: ActivityItem): {
 
   // 1. 命令类
   if (
+    isCommandExecution(item) ||
     item.command ||
     name.includes('bash') ||
     name.includes('terminal') ||

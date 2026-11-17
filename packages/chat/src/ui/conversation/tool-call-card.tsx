@@ -9,6 +9,8 @@ export function ToolCallCard({ tool, className }: { tool: ToolRun; className?: s
         name: tool.name,
         args: tool.args,
         result: tool.result,
+        startedAt: tool.startedAt,
+        durationMs: tool.durationMs,
         status: tool.status,
       }}
       className={className}

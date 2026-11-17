@@ -11,6 +11,7 @@ import {
   extractImages,
   fileChangeStats,
   formatDetailValue,
+  isCommandExecution,
   parseToolMeta,
 } from '../model/tool-details'
 import { FileToolDiff } from './file-tool-diff'
@@ -21,6 +22,7 @@ import { imageSource } from '../content/image-viewer'
 import { toolMessageActionAnchor } from '../model/tool-message-action-anchor'
 import { ToolExecutionDetails } from './tool-execution-details'
 import { RetainedDisclosure } from './retained-disclosure'
+import { ActivityDuration } from './activity-duration'
 
 const MemoFileToolDiff = React.memo(FileToolDiff)
 const NestedToolActivity = React.memo(NestedToolActivityContent)
@@ -104,13 +106,13 @@ function ToolActivityRowContent({
   )
   const hasDetail =
     images.length > 0 ||
-    (isFileMutation
-      ? Boolean(filePatch)
-      : meta.kind !== 'read' && Boolean(isExecution || diff || rawText || item.children?.length || item.source))
+    (isError
+      ? Boolean(rawText || item.children?.length)
+      : isFileMutation
+        ? Boolean(filePatch)
+        : meta.kind !== 'read' && Boolean(isExecution || diff || rawText || item.children?.length || item.source))
   const detailsId = React.useId()
   const imageOnly = meta.kind === 'image' && !isExecution && !diff && !item.children?.length && !item.source
-  const showExecutionDisclosure = images.length > 0 && !imageOnly && !isError
-  const DetailContainer = showExecutionDisclosure ? 'details' : 'div'
 
   const imagePreviews = images.length > 0 && (
     <div className="flex flex-wrap">
@@ -149,16 +151,14 @@ function ToolActivityRowContent({
               !hasDetail && 'cursor-default',
             )}
           >
-            {!isPaused && (
-              <span
-                aria-hidden="true"
-                className="mt-[0.16em] inline-flex size-[1.4em] shrink-0 items-center justify-center"
-              >
-                <IconComponent className="size-[1.15em] text-muted-foreground group-hover/tool-toggle:text-foreground" />
-              </span>
-            )}
+            <span
+              aria-hidden="true"
+              className="mt-[0.16em] inline-flex size-[1.4em] shrink-0 items-center justify-center"
+            >
+              <IconComponent className="size-[1.15em] text-muted-foreground group-hover/tool-toggle:text-foreground" />
+            </span>
 
-            <span className="truncate">
+            <span className="min-w-0 truncate">
               {isError ? summary.replace(/^已/u, '') : summary}
               {isError ? ' · 失败' : ''}
             </span>
@@ -179,6 +179,15 @@ function ToolActivityRowContent({
               </TooltipHint>
             )}
 
+            {isCommandExecution(item) && (
+              <ActivityDuration
+                startedAt={item.startedAt}
+                durationMs={item.durationMs}
+                isRunning={isRunning}
+                isPaused={isPaused}
+                label="命令用时"
+              />
+            )}
             {hasDetail && (
               <span
                 aria-hidden="true"
@@ -211,16 +220,7 @@ function ToolActivityRowContent({
             {filePatch ? (
               hasOpened && <MemoFileToolDiff patch={filePatch} path={meta.fullPath} />
             ) : (
-              <DetailContainer className={showExecutionDisclosure ? 'group/image-execution mt-2 min-w-0' : undefined}>
-                {showExecutionDisclosure && (
-                  <summary className="conversation-activity-toggle flex min-h-6 w-fit max-w-full cursor-pointer list-none items-center gap-2 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
-                    <ChevronDown
-                      aria-hidden="true"
-                      className="size-3.5 shrink-0 -rotate-90 transition-transform duration-200 group-open/image-execution:rotate-0 motion-reduce:transition-none"
-                    />
-                    <span>执行详情</span>
-                  </summary>
-                )}
+              <div className="min-w-0">
                 {(!imageOnly || isError) && (
                   <ToolExecutionDetails
                     code={isExecution ? (script ?? command) : undefined}
@@ -242,7 +242,7 @@ function ToolActivityRowContent({
                   />
                 ))}
                 {!isError && <PluginToolCard tool={item} {...item.source} />}
-              </DetailContainer>
+              </div>
             )}
           </div>
         </RetainedDisclosure>

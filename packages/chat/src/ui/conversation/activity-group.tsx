@@ -3,15 +3,22 @@ import * as React from 'react'
 import type { PiPauseInterval } from '@pi-meme/contracts/pi'
 import { activeDuration } from '../model/active-duration'
 import type { ActivityItem } from '../model/types'
+import { isCommandExecution } from '../model/tool-details'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { BookOpen, ChevronDown, Images, Pencil, Search, Sparkles, SquareTerminal, Wrench } from 'lucide-react'
-import { groupAdjacentActivities, summarizeActivities, formatDurationChinese } from '../model/activity-summary'
+import {
+  currentActivity,
+  groupAdjacentActivities,
+  summarizeActivities,
+  formatDurationChinese,
+} from '../model/activity-summary'
 import { MarkdownContent } from '../content/markdown-content'
 import { ThinkingActivityRow } from './thinking-activity-row'
 import { ToolActivityRow } from './tool-activity-row'
 import { PluginMessageActionsGroup } from '@pi-meme/ui/components/plugin-message-actions'
 import { toolMessageActionAnchor } from '../model/tool-message-action-anchor'
 import { RetainedDisclosure, usePresentationActive } from './retained-disclosure'
+import { ActivityDuration } from './activity-duration'
 
 const activityIcons = {
   command: SquareTerminal,
@@ -114,6 +121,10 @@ function ActivityDisclosureContent({
     setChildOpenMap({})
   }
   const meta = React.useMemo(() => summarizeActivities(items, isLive, isPaused), [items, isLive, isPaused])
+  const timedItem = React.useMemo(
+    () => (isLive ? currentActivity(items) : items.length === 1 ? items[0] : undefined),
+    [items, isLive],
+  )
   const waitingForInput = meta.status === 'waiting'
   const toolAnchors = React.useMemo(
     () =>
@@ -147,7 +158,7 @@ function ActivityDisclosureContent({
           aria-expanded={open}
           aria-controls={detailsId}
           onClick={toggle}
-          className="conversation-activity-toggle group/activity-toggle flex min-h-6 max-w-full items-start gap-2 rounded-sm pr-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+          className="conversation-activity-toggle group/activity-toggle flex min-h-6 min-w-0 w-fit max-w-full items-start gap-2 rounded-sm pr-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
         >
           <span
             aria-hidden="true"
@@ -163,6 +174,15 @@ function ActivityDisclosureContent({
               {meta.summary}
             </span>
           </OverflowTooltip>
+          {!open && timedItem && timedItem.type !== 'narration' && isCommandExecution(timedItem) && (
+            <ActivityDuration
+              startedAt={timedItem.startedAt}
+              durationMs={timedItem.durationMs}
+              isRunning={isLive && timedItem.status === 'running'}
+              isPaused={isPaused}
+              label="命令用时"
+            />
+          )}
           <span
             aria-hidden="true"
             className={cn(

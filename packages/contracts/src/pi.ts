@@ -79,8 +79,11 @@ export function readPiNestedInteractionEntry(value: unknown): PiNestedInteractio
     return
   return { rootToolCallId, interaction }
 }
+export type PiThinkingTiming = { startedAt: number; durationMs?: number }
 export type PiMessage = AgentSession['messages'][number] & {
   source?: PiUiSource
+  /** 客户端观测到的思考流区间；没有精确记录的历史消息不补造耗时。 */
+  thinkingTimings?: Record<number, PiThinkingTiming>
   /** 按原生调用 ID 绑定的嵌套结果，用于恢复界面及工具产物引用，不加入模型上下文。 */
   nestedInteractions?: PiNestedInteraction[]
   completedAt?: number
@@ -89,6 +92,11 @@ export type PiMessage = AgentSession['messages'][number] & {
 }
 type WithMessageMetadata<Event> = Event extends { message: PiMessage }
   ? Omit<Event, 'message'> & { message: PiMessage }
+  : Event
+type WithExecutionStart<Event> = Event extends {
+  type: 'tool_execution_start' | 'tool_execution_update' | 'tool_execution_end'
+}
+  ? Event & { startedAt?: number }
   : Event
 export type PiSessionEntry = SessionEntry
 export type PiBranchEntry = Pick<PiSessionEntry, 'id' | 'parentId' | 'timestamp' | 'type'> & {
@@ -274,27 +282,29 @@ export type PiState = Pick<
 }
 type PiCoreEvent =
   | (WithMessageMetadata<
-      Extract<
-        JsonAgentSessionEvent,
-        {
-          type:
-            | 'agent_start'
-            | 'agent_end'
-            | 'turn_start'
-            | 'message_start'
-            | 'message_update'
-            | 'message_end'
-            | 'tool_execution_start'
-            | 'tool_execution_update'
-            | 'tool_execution_end'
-            | 'compaction_start'
-            | 'compaction_end'
-            | 'auto_retry_start'
-            | 'auto_retry_end'
-            | 'summarization_retry_scheduled'
-            | 'summarization_retry_attempt_start'
-            | 'summarization_retry_finished'
-        }
+      WithExecutionStart<
+        Extract<
+          JsonAgentSessionEvent,
+          {
+            type:
+              | 'agent_start'
+              | 'agent_end'
+              | 'turn_start'
+              | 'message_start'
+              | 'message_update'
+              | 'message_end'
+              | 'tool_execution_start'
+              | 'tool_execution_update'
+              | 'tool_execution_end'
+              | 'compaction_start'
+              | 'compaction_end'
+              | 'auto_retry_start'
+              | 'auto_retry_end'
+              | 'summarization_retry_scheduled'
+              | 'summarization_retry_attempt_start'
+              | 'summarization_retry_finished'
+          }
+        >
       >
     > & { runIntervals?: PiRunInterval[]; source?: PiUiSource })
   | { type: 'agent_settled'; aborted?: boolean; runIntervals?: PiRunInterval[]; recovery?: PiRecoveryState }
@@ -312,7 +322,11 @@ type PiCoreEvent =
   | { type: 'turn_changes_update'; entryId: string; revision: string }
   | { type: 'session_saved'; sessionFile: string }
   | { type: 'composer_hint'; text?: string }
-export type PiEvent = PiCoreEvent & { generationMetrics?: PiGenerationMetrics }
+export type PiEvent = PiCoreEvent & {
+  generationMetrics?: PiGenerationMetrics
+  /** Host 发布时刻，回放流式事件时保留原始计时边界。 */
+  emittedAt?: number
+}
 export type PiExtensionDialogRequest =
   Extract<RpcExtensionUIRequest, { method: 'select' | 'confirm' | 'input' | 'editor' }> | PiUserInputRequest
 export type PiExtensionEvent =

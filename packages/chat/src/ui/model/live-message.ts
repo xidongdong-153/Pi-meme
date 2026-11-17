@@ -1,16 +1,32 @@
 import { parseStreamingJson } from '@earendil-works/pi-ai/utils/json-parse'
-import type { PiContent, PiEvent, PiMessage } from '@pi-meme/contracts/pi'
+import type { PiContent, PiEvent, PiMessage, PiThinkingTiming } from '@pi-meme/contracts/pi'
 import type { LiveStream } from './types'
 
 type AssistantMessage = Extract<PiMessage, { role: 'assistant' }>
 type MessageUpdate = Extract<PiEvent, { type: 'message_update' }>
 
+export function completeThinkingTimings(
+  timings: Record<number, PiThinkingTiming> | undefined,
+  endedAt: number,
+): Record<number, PiThinkingTiming> | undefined {
+  if (!timings) return
+  let completed = timings
+  for (const [index, timing] of Object.entries(timings)) {
+    if (timing.durationMs !== undefined) continue
+    if (completed === timings) completed = { ...timings }
+    completed[Number(index)] = { ...timing, durationMs: Math.max(0, endedAt - timing.startedAt) }
+  }
+  return completed
+}
+
 export function updateLiveMessage(live: AssistantMessage, stream: LiveStream, event: MessageUpdate) {
   const update = event.assistantMessageEvent
+  const emittedAt = event.emittedAt ?? Date.now()
   if (update.type === 'done' || update.type === 'error') {
     const message = update.type === 'done' ? update.message : update.error
+    const thinkingTimings = completeThinkingTimings(live.thinkingTimings, emittedAt)
     return {
-      live: message,
+      live: { ...message, ...(thinkingTimings ? { thinkingTimings } : {}) },
       stream: { arguments: {}, completed: Object.fromEntries(message.content.map((_, index) => [index, true])) },
     }
   }
@@ -19,6 +35,7 @@ export function updateLiveMessage(live: AssistantMessage, stream: LiveStream, ev
   if (!Number.isInteger(index) || index < 0 || index > live.content.length) return { live, stream }
   const content = [...live.content]
   const part = content[index]
+  let thinkingTimings = live.thinkingTimings
   const nextStream = { arguments: { ...stream.arguments }, completed: { ...stream.completed } }
 
   switch (update.type) {
@@ -37,17 +54,31 @@ export function updateLiveMessage(live: AssistantMessage, stream: LiveStream, ev
       break
     case 'thinking_start':
       content[index] = { type: 'thinking', thinking: '' }
+      thinkingTimings = {
+        ...thinkingTimings,
+        [index]: thinkingTimings?.[index] ?? { startedAt: emittedAt },
+      }
       nextStream.completed[index] = false
       break
     case 'thinking_delta':
       if (part?.type !== 'thinking') return { live, stream }
       content[index] = { ...part, thinking: part.thinking + update.delta }
+      if (!thinkingTimings?.[index]) thinkingTimings = { ...thinkingTimings, [index]: { startedAt: emittedAt } }
       break
-    case 'thinking_end':
+    case 'thinking_end': {
       if (part?.type !== 'thinking') return { live, stream }
       content[index] = { ...part, thinking: update.content }
+      const timing = thinkingTimings?.[index]
+      thinkingTimings = {
+        ...thinkingTimings,
+        [index]: {
+          startedAt: timing?.startedAt ?? emittedAt,
+          durationMs: timing?.durationMs ?? Math.max(0, emittedAt - (timing?.startedAt ?? emittedAt)),
+        },
+      }
       nextStream.completed[index] = true
       break
+    }
     case 'toolcall_start':
       content[index] = { type: 'toolCall', id: update.id, name: update.toolName, arguments: {} }
       nextStream.arguments[index] = ''
@@ -67,5 +98,8 @@ export function updateLiveMessage(live: AssistantMessage, stream: LiveStream, ev
       nextStream.completed[index] = true
       break
   }
-  return { live: { ...live, content, usage: event.usage }, stream: nextStream }
+  return {
+    live: { ...live, content, usage: event.usage, ...(thinkingTimings ? { thinkingTimings } : {}) },
+    stream: nextStream,
+  }
 }

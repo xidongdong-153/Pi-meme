@@ -217,6 +217,7 @@ export class SdkSession {
   private pauseControlApplied = true
   private pauseIntervals: PiPauseInterval[] = []
   private runIntervals: PiRunInterval[] = []
+  private readonly toolStarts = new Map<string, number>()
   private readonly generationMetrics = new GenerationMetricsTracker()
   private pauseGate?: Promise<void>
   private releasePause?: () => void
@@ -1131,6 +1132,23 @@ export class SdkSession {
         .finally(() => this.handleEvent(event, forceSettled, true))
       return
     }
+    const emittedAt = event.emittedAt ?? Date.now()
+    event = { ...event, emittedAt }
+    if (
+      event.type === 'tool_execution_start' ||
+      event.type === 'tool_execution_update' ||
+      event.type === 'tool_execution_end'
+    ) {
+      const startedAt =
+        event.startedAt ??
+        this.toolStarts.get(event.toolCallId) ??
+        (event.type === 'tool_execution_start' ? emittedAt : undefined)
+      if (startedAt !== undefined) {
+        event = { ...event, startedAt }
+        if (event.type !== 'tool_execution_end') this.toolStarts.set(event.toolCallId, startedAt)
+      }
+      if (event.type === 'tool_execution_end') this.toolStarts.delete(event.toolCallId)
+    }
     if (event.type === 'auto_retry_start' || event.type === 'summarization_retry_scheduled') {
       this.retry = {
         kind: event.type === 'auto_retry_start' ? 'model' : 'summary',
@@ -1156,7 +1174,10 @@ export class SdkSession {
     if (event.type === 'message_end' && event.message.role === 'assistant')
       event = { ...event, message: { ...event.message, completedAt: Date.now() } }
     if (event.type === 'agent_start' || event.type === 'compaction_start') {
-      if (event.type === 'agent_start') this.cancelComposerHint()
+      if (event.type === 'agent_start') {
+        this.cancelComposerHint()
+        this.toolStarts.clear()
+      }
       this.compactionError = undefined
       this.pendingSend = false
       this.activityRevision += 1
@@ -1172,6 +1193,7 @@ export class SdkSession {
       this.pendingSend = false
       if (!this.running && !forceSettled) return
       this.running = false
+      this.toolStarts.clear()
       // 正常结束且没有待处理输入时，清除停止任务留下的空队列暂停标记。
       if (
         !aborted &&
@@ -1241,6 +1263,7 @@ export class SdkSession {
   }
 
   private teardownRuntime() {
+    this.toolStarts.clear()
     this.viewProjection = undefined
     this.retry = undefined
     this.compactionError = undefined

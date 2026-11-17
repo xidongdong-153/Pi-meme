@@ -52,6 +52,8 @@ export function groupConversationTurns(
       sourceEntry: t.sourceEntry,
       args: t.args,
       result: t.result,
+      startedAt: t.startedAt,
+      durationMs: t.durationMs,
       status: t.status,
       children: nestedTools(t.id, toolsMap),
     }))
@@ -286,6 +288,8 @@ export function groupConversationTurns(
                 sourceEntry: toolRun?.sourceEntry,
                 args: part.arguments,
                 result: toolRun?.result,
+                startedAt: toolRun?.startedAt,
+                durationMs: toolRun?.durationMs,
                 children: nestedTools(part.id, toolsMap),
                 status: toolRun?.status || (isAgentRunning ? 'running' : 'success'),
               },
@@ -298,6 +302,8 @@ export function groupConversationTurns(
                   id: `thinking-${msg.timestamp ?? i}-${pIdx}`,
                   type: 'thinking',
                   thinking: part.thinking,
+                  startedAt: msg.thinkingTimings?.[pIdx]?.startedAt,
+                  durationMs: msg.thinkingTimings?.[pIdx]?.durationMs,
                   status: msg === liveMessage && isAgentRunning && !completed[pIdx] ? 'running' : 'success',
                 },
               })
