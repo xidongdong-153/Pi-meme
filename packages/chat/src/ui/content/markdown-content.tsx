@@ -5,6 +5,7 @@ import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import { MarkdownStreamingContext, useMarkdownComponents } from './markdown-components'
 import { fileLinkTarget } from './markdown-link'
+import { useStreamingLines } from './use-streaming-lines'
 import { MessageImagePresentationContext, type ImagePresentation } from './message-image'
 
 function markdownUrlTransform(url: string, key: string) {
@@ -22,10 +23,11 @@ export const MarkdownContent = memo(
     imagePresentation?: ImagePresentation
   }) => {
     const components = useMarkdownComponents()
+    const root = useStreamingLines(isStreaming, children)
     return (
       <MarkdownStreamingContext.Provider value={isStreaming}>
         <MessageImagePresentationContext value={imagePresentation}>
-          <div className="pi-markdown">
+          <div ref={root} className="pi-markdown">
             <Markdown
               remarkPlugins={[remarkGfm, remarkMath]}
               rehypePlugins={[rehypeKatex]}

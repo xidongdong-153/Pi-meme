@@ -24,6 +24,38 @@
   margin-bottom: 0;
 }
 
+/* 上方正文完全可见，只在正在显示的视觉行上从左向右淡入。 */
+@property --stream-edge {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+.pi-markdown [data-stream-line] {
+  mask-image:
+    linear-gradient(#000, #000), linear-gradient(to right, #000 var(--stream-line-from), transparent 0),
+    linear-gradient(to right, #000 var(--stream-edge), transparent calc(var(--stream-edge) + var(--stream-feather)));
+  mask-size:
+    100% var(--stream-line-top),
+    var(--stream-line-width) var(--stream-line-height),
+    var(--stream-line-width) var(--stream-line-height);
+  mask-position:
+    left top,
+    left 0 top var(--stream-line-top),
+    left 0 top var(--stream-line-top);
+  mask-repeat: no-repeat;
+}
+
+:root[data-reduced-motion='true'] .pi-markdown [data-stream-line] {
+  mask-image: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pi-markdown [data-stream-line] {
+    mask-image: none;
+  }
+}
+
 /* 文本选区高亮 */
 .pi-markdown ::selection {
   background: color-mix(in srgb, var(--color-accent) 25%, transparent);
