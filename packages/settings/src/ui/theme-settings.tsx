@@ -80,7 +80,7 @@ export function ThemeSettings({
   loadFonts: () => Promise<InstalledFont[]>
 }) {
   const snapshot = loadedSnapshot ?? {
-    settings: { themeId: 'catppuccin-latte' },
+    settings: { themeId: 'light' },
     themes: builtinThemes,
     themesDirectory: '',
     errors: [],
@@ -284,10 +284,10 @@ export function ThemeSettings({
                       style={{
                         background:
                           entry === 'system'
-                            ? 'linear-gradient(90deg,#e6e9ef 50%,#181825 50%)'
+                            ? 'linear-gradient(90deg,#faf9fc 50%,#18181a 50%)'
                             : entry === 'light'
-                              ? '#e6e9ef'
-                              : '#181825',
+                              ? '#faf9fc'
+                              : '#18181a',
                       }}
                     >
                       <span className="w-4 border-r border-gray-500/30" />

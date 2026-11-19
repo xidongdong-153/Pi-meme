@@ -257,7 +257,7 @@ export function useSettings(
     saveCapabilities: (value: { codemodeEnabled: boolean; mcpEnabled: boolean }) =>
       saveRuntime({
         ...snapshot?.settings,
-        themeId: snapshot?.settings.themeId ?? 'catppuccin-mocha',
+        themeId: snapshot?.settings.themeId ?? 'dark',
         ...value,
       }),
     subagentDefaults: {
@@ -273,7 +273,7 @@ export function useSettings(
     saveSubagents: async (subagentsEnabled: boolean, enabledSubagents: string[]) => {
       const next = await saveRuntime({
         ...snapshot?.settings,
-        themeId: snapshot?.settings.themeId ?? 'catppuccin-mocha',
+        themeId: snapshot?.settings.themeId ?? 'dark',
         subagentsEnabled,
         enabledSubagents,
       })
@@ -296,7 +296,7 @@ export function useSettings(
     saveAccessMode: (mode: AgentAccessMode) =>
       saveRuntime({
         ...snapshot?.settings,
-        themeId: snapshot?.settings.themeId ?? 'catppuccin-mocha',
+        themeId: snapshot?.settings.themeId ?? 'dark',
         defaultAccessMode: mode,
       }),
     saveEditor,

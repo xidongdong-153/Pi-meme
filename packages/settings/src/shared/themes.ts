@@ -6,6 +6,42 @@ const fonts = {
 }
 export const builtinThemes: Theme[] = [
   {
+    id: 'dark',
+    name: '深色',
+    appearance: 'dark',
+    fonts,
+    colors: {
+      background: '#18181a',
+      surface: '#1e1e21',
+      elevated: '#29292e',
+      text: '#e9e9eb',
+      muted: '#a0a0aa',
+      border: '#3a3a42',
+      accent: '#b6a4ed',
+      accentText: '#211c2e',
+      success: '#7bb795',
+      error: '#f5a49b',
+    },
+  },
+  {
+    id: 'light',
+    name: '浅色',
+    appearance: 'light',
+    fonts,
+    colors: {
+      background: '#faf9fc',
+      surface: '#f1eff5',
+      elevated: '#e8e4ef',
+      text: '#262330',
+      muted: '#686271',
+      border: '#d2cddc',
+      accent: '#6c4eb3',
+      accentText: '#ffffff',
+      success: '#257548',
+      error: '#b2372d',
+    },
+  },
+  {
     id: 'catppuccin-latte',
     name: 'Catppuccin Latte',
     appearance: 'light',
@@ -108,7 +144,7 @@ function parseBackground(value: unknown): ThemeBackground {
     fit: 'cover',
     position: 'center',
     opacity: 0.25,
-    overlay: '#181825',
+    overlay: '#18181a',
     blur: 0,
     ...value,
   }
