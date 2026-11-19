@@ -252,6 +252,7 @@ export interface WorkspaceBridge {
   previewProjectDeletion: (cwd: string) => Promise<{ paths: string[]; warnings: string[] }>
   removeProject: (cwd: string, expectedPaths: string[]) => Promise<WorkspaceDeletionResult>
   renameSession: (path: string, name: string) => Promise<void>
+  suggestSessionName: (path: string) => Promise<string | null>
   deleteSession: (path: string) => Promise<WorkspaceDeletionResult>
   getProjects: () => Promise<DesktopProject[]>
   selectWorkspace: (input: SelectWorkspace) => Promise<SessionSelectionResult>

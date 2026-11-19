@@ -204,6 +204,7 @@ export function applyEvent(
         : { ...state, agentMessages: [...(state.agentMessages ?? []), event.message] }
     case 'turn_changes_update':
     case 'session_saved':
+    case 'session_info_changed':
     case 'access_mode_changed':
       return state
     case 'goal_updated':

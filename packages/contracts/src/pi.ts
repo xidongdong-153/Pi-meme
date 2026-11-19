@@ -321,6 +321,7 @@ type PiCoreEvent =
   | { type: 'skill_usage_update'; usages: BranchSkillUsage[] }
   | { type: 'turn_changes_update'; entryId: string; revision: string }
   | { type: 'session_saved'; sessionFile: string }
+  | { type: 'session_info_changed'; name?: string }
   | { type: 'composer_hint'; text?: string }
 export type PiEvent = PiCoreEvent & {
   generationMetrics?: PiGenerationMetrics

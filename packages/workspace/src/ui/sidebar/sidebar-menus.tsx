@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from '@pi-meme/ui/components/ui/dialog'
 import { Button } from '@pi-meme/ui/components/ui/button'
-import { Input } from '@pi-meme/ui/components/ui/input'
+import { SessionNameInput } from '@pi-meme/ui/components/session-name-input'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { formatSessionTitle } from './session-title'
 
@@ -31,6 +31,7 @@ export type SidebarMenuBridge = Pick<
   | 'previewProjectDeletion'
   | 'removeProject'
   | 'renameSession'
+  | 'suggestSessionName'
   | 'deleteSession'
 >
 
@@ -286,12 +287,18 @@ export function SidebarMenus({
                 void submit()
               }}
             >
-              <Input
+              <SessionNameInput
+                key={action.target.kind === 'session' ? action.target.session.path : action.target.project.cwd}
                 ref={input}
                 aria-label="名称"
                 value={name}
                 disabled={busy}
-                onChange={(event) => setName(event.target.value)}
+                suggestion={
+                  action.target.kind === 'session'
+                    ? { path: action.target.session.path, load: bridge.suggestSessionName }
+                    : undefined
+                }
+                onNameChange={setName}
               />
             </form>
           ) : (

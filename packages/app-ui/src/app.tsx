@@ -17,6 +17,7 @@ import { HistoryDetails } from './session/history-details'
 import { HistoryMarkdown } from '@pi-meme/history/ui/history-markdown'
 import { MemorySettings } from '@pi-meme/memory/ui/memory-settings'
 import { resolveModelThinkingLevel } from '@pi-meme/contracts/pi'
+import { explicitSessionName, sessionPreviewText } from '@pi-meme/contracts/sessions'
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
 import { BrowserFavicon, BrowserPanel } from '@pi-meme/browser/ui/browser-panel'
 import { BrowserSettings } from '@pi-meme/browser/ui/browser-settings'
@@ -1025,10 +1026,6 @@ function AppContent({
           : chat.connection.status === 'connecting'
             ? '连接中'
             : '未连接'
-  const title =
-    ready || Boolean(chat.connection.sessionKey)
-      ? chat.state?.sessionName || (first ? messageText(first).split('\n')[0].slice(0, 32) : '') || '新会话'
-      : status
 
   // 分叉来源使用会话元数据里的 parentSession 路径，按路径查标题，避免同名混淆。
   const sessionList = chat.sessions
@@ -1039,6 +1036,20 @@ function AppContent({
       ]
     : []
   const activeSummary = sessionList.find((session) => session.path === chat.sessions?.activeSessionPath)
+  const savedPreview =
+    activeSummary &&
+    (activeSummary.id === chat.connection.sessionKey || activeSummary.path === chat.connection.sessionFile)
+      ? activeSummary.firstMessage
+      : undefined
+  const titlePreview = useMemo(
+    () => (savedPreview ? sessionPreviewText(savedPreview) : messageText(first).trim()),
+    [savedPreview, first],
+  )
+  const sessionName = explicitSessionName(chat.state?.sessionName, titlePreview)
+  const title =
+    ready || chat.connection.sessionKey
+      ? sessionName || titlePreview.split('\n', 1)[0].slice(0, 32) || '新会话'
+      : status
   const hasConversation = chat.chat.messages.length > 0 || chat.chat.live !== null || chat.chat.running
   // 新聊天预览出现时，侧栏摘要可能仍属于上一个会话。
   const showWorkspaceSlot = !hasConversation && (chat.isNewChat || !activeSummary?.messageCount)
@@ -1182,7 +1193,10 @@ function AppContent({
     onGoalCommand: chat.goalsSupported && !chat.inputDisabled ? chat.activateGoal : undefined,
     onCompact: chat.inputDisabled ? undefined : () => void chat.compactNow(),
     sessionStarted: chat.chat.messages.length > 0 || chat.chat.live !== null,
-    sessionName: chat.state?.sessionName,
+    sessionName,
+    sessionNameSuggestion: chat.connection.sessionKey
+      ? { path: chat.connection.sessionKey, load: bridge.suggestSessionName }
+      : undefined,
     onRenameSession: async (name) => {
       if (!chat.chat.messages.length && !chat.chat.live) throw new Error('当前还是新会话，开始对话后才能重命名')
       const path = chat.connection.sessionKey
@@ -2318,7 +2332,7 @@ function AppContent({
                     }}
                     project={project}
                     title={title}
-                    sessionName={chat.state?.sessionName}
+                    sessionName={sessionName}
                     session={activeSummary}
                     canRenameSession={ready && !chat.workspaceDisabledReason}
                     onOpenProject={(app) => void bridge.openProject(app).catch((cause) => chat.setError(String(cause)))}

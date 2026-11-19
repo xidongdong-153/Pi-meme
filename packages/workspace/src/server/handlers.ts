@@ -11,7 +11,10 @@ import { mergeRuntimeSessions } from './session-groups'
 import type { SessionHistoryData } from './session-reader'
 
 export type WorkspaceHandlerContext = {
-  mutations?: Pick<PiSessionPool, 'renameSession' | 'deleteSessions' | 'assertWorkspaceAvailable'>
+  mutations?: Pick<
+    PiSessionPool,
+    'renameSession' | 'suggestSessionName' | 'deleteSessions' | 'assertWorkspaceAvailable'
+  >
   removePins?: (paths: string[]) => Promise<unknown>
   beforeDelete?: (paths: string[]) => Promise<void>
   afterDelete?: (
@@ -134,6 +137,14 @@ export function createWorkspaceHandlers({
           return result
         },
       )
+    },
+    'session:suggest-name': async (value: unknown) => {
+      text(value)
+      if (!value.startsWith('runtime:'))
+        return mutations!.suggestSessionName(await validateSessionFile(await sessions.getSessionsDirectory(), value))
+      const target = getRuntimeSessions?.().find((session) => session.id === value)
+      if (!target || target.temporary) return null
+      return mutations!.suggestSessionName(value)
     },
     'session:rename': async (value: unknown, nextName: unknown) => {
       text(value)

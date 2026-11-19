@@ -45,7 +45,12 @@ import type {
 } from '@pi-meme/contracts/desktop'
 import type { SkillReference } from '@pi-meme/contracts/skills'
 import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
-import type { SessionWindow, PiSessionSummary, WorkspaceKind } from '@pi-meme/contracts/sessions'
+import {
+  explicitSessionName,
+  type SessionWindow,
+  type PiSessionSummary,
+  type WorkspaceKind,
+} from '@pi-meme/contracts/sessions'
 import type {
   PiExtensionEvent,
   PiExtensionUIResponse,
@@ -70,6 +75,13 @@ import { defaultModelConfiguration, readLocalModels, readLocalPreferences, readL
 import { appendSessionThinkingSelection, projectSessionThinkingLevel } from './session-thinking'
 import { createPiRuntimePaths, createTemporaryRuntimePaths, type PiRuntimePaths } from './runtime-paths'
 import { MemoryCredentialStorage } from './secure-store'
+import {
+  generateSessionTitle,
+  SessionTitleRequests,
+  sessionTitlePrompt,
+  suggestedTitlePrompt,
+  titleUserText,
+} from './session-title'
 
 function activePath<T extends { id: string; parentId: string | null }>(entries: T[], leafId: string | null) {
   const byId = new Map(entries.map((entry) => [entry.id, entry]))
@@ -147,6 +159,7 @@ type RuntimeSession = {
   name?: string
   completedAt?: string | null
   firstMessage?: string
+  awaitingTitleInput: boolean
   messages: PiMessage[]
   totalMessages?: number
   sessionEntries?: Snapshot['sessionEntries']
@@ -287,6 +300,7 @@ export class PiSessionPool implements PiRuntime {
         this.commands.delete(key)
   }
   private sessions = new Map<string, RuntimeSession>()
+  private readonly titles = new SessionTitleRequests()
   private readonly settledListeners = new Set<() => void>()
   private signalSettled() {
     for (const resolve of this.settledListeners) resolve()
@@ -374,6 +388,8 @@ export class PiSessionPool implements PiRuntime {
   async stopAndWait() {
     this.changing = true
     this.clearWarmup()
+    this.titles.cancel()
+    await Promise.allSettled(this.titles.writes.values())
     const retained = [...this.sessions.values()]
     await Promise.all([...this.retired, ...retained.map((record) => record.session.stopAndWait())])
     this.sessions.clear()
@@ -486,44 +502,117 @@ export class PiSessionPool implements PiRuntime {
     )
       throw new Error('目标会话正在运行或修改配置，请先停止任务')
   }
-  async renameSession(sessionPath: string, name: string) {
-    this.assertPathAvailable(sessionPath)
-    if (!sessionPath.startsWith('runtime:')) {
-      const sessionRoot = await realpath(this.runtimePaths.sessionsDirectory).catch(() => '')
-      const sessionTarget = await realpath(sessionPath).catch(() => '')
-      if (!sessionRoot || !sessionTarget || !pathWithin(sessionRoot, sessionTarget))
-        throw new Error('Desktop 只能修改应用内保存的会话')
-    }
-    const record = [...this.sessions.values()].find(
-      (item) => item.key === sessionPath || this.recordPath(item) === sessionPath,
+  private sessionForPath(sessionPath: string) {
+    return (
+      this.sessions.get(sessionPath) ??
+      [...this.sessions.values()].find(
+        (item) => item.sessionFile === sessionPath || this.recordPath(item) === sessionPath,
+      )
     )
-    if (record) {
-      this.checkoutGate?.(record.cwd)
-      this.assertWorkspaceAvailable(record.cwd)
-      this.assertPathAvailable(record.key)
-    }
-    if (record?.stopping || record?.accessChanging) throw new Error('目标会话正在停止或修改权限，请稍后重命名')
-    this.mutatingPaths.add(sessionPath)
-    if (record) this.mutatingPaths.add(record.key)
-    try {
-      if (record && !record.dormant && record.session.connection().status === 'ready') {
-        await record.session.setSessionName(name)
-      } else if (!sessionPath.startsWith('runtime:')) {
-        const { SessionManager } = await loadPiSdk()
-        const cwd = record?.cwd ?? (await readSessionHistory(sessionPath)).cwd
-        const sessionDirectory = this.runtimePaths.sessionDirectory(cwd)
-        SessionManager.open(sessionPath, sessionDirectory, cwd).appendSessionInfo(name)
+  }
+
+  private automaticSessionTitle(record: RuntimeSession, message: Extract<PiMessage, { role: 'user' }>) {
+    if (!record.awaitingTitleInput) return
+    const text = titleUserText(message)
+    if (!text) return
+    record.awaitingTitleInput = false
+    if (explicitSessionName(record.name, text)) return
+    const key = record.sessionFile ?? record.key
+    void this.titles.run(key, 'automatic', async (signal) => {
+      const { model, name } = await record.session.getSessionTitleContext()
+      if (!model || explicitSessionName(name, text)) return null
+      const title = await generateSessionTitle(
+        this.runtimePaths.agentDir,
+        this.credentialStorage,
+        model,
+        sessionTitlePrompt(text),
+        signal,
+      )
+      if (title && !signal.aborted && this.sessions.get(record.key) === record) {
+        await this.writeSessionName(record.key, title, { signal, preview: text })
       }
+      return title
+    })
+  }
+
+  suggestSessionName(sessionPath: string) {
+    const record = this.sessionForPath(sessionPath)
+    if (record?.temporary) return Promise.resolve(null)
+    const key = record?.sessionFile ?? sessionPath
+    return this.titles.run(key, 'suggestion', async (signal) => {
+      if (key.startsWith('runtime:')) return null
+      const [history, live] = await Promise.all([
+        readSessionHistory(key),
+        record && !record.dormant && record.session.connection().status === 'ready'
+          ? record.session.getSessionTitleContext()
+          : undefined,
+      ])
+      const prompt = suggestedTitlePrompt(history.messages)
+      if (!prompt) return null
+      let model = live?.model ?? record?.state.model ?? history.model
+      if (!model) {
+        const [models, preferences] = await Promise.all([
+          readLocalModels(this.runtimePaths.agentDir, this.credentialStorage),
+          readLocalPreferences(history.cwd, this.runtimePaths.agentDir),
+        ])
+        model = defaultModelConfiguration(models, preferences)?.model
+      }
+      return model
+        ? generateSessionTitle(this.runtimePaths.agentDir, this.credentialStorage, model, prompt, signal)
+        : null
+    })
+  }
+
+  renameSession(sessionPath: string, name: string) {
+    const record = this.sessionForPath(sessionPath)
+    if (record) record.awaitingTitleInput = false
+    this.titles.cancel(record?.sessionFile ?? sessionPath)
+    return this.writeSessionName(sessionPath, name)
+  }
+
+  private writeSessionName(sessionPath: string, name: string, automatic?: { signal: AbortSignal; preview: string }) {
+    const origin = this.sessionForPath(sessionPath)
+    const key = origin?.sessionFile ?? sessionPath
+    return this.titles.write(key, async () => {
+      const targetPath = origin ? this.recordPath(origin) : sessionPath
+      const file = targetPath.startsWith('runtime:') || origin?.temporary ? undefined : targetPath
+      if (file) {
+        const [root, target] = await Promise.all([realpath(this.runtimePaths.sessionsDirectory), realpath(file)])
+        if (!pathWithin(root, target)) throw new Error('Desktop 只能修改应用内保存的会话')
+      }
+      const sdk = file ? await loadPiSdk() : undefined
+      const cwd = origin?.cwd ?? (file && (await readSessionHistory(file)).cwd)
+      const record = origin ?? this.sessionForPath(sessionPath)
+      await record?.starting
+      await record?.workerStopping
+      automatic?.signal.throwIfAborted()
+      this.assertPathAvailable(sessionPath)
+      if (file) this.assertPathAvailable(file)
       if (record) {
-        record.name = name
-        record.state = { ...record.state, sessionName: name }
+        if (this.sessions.get(record.key) !== record) throw new Error('目标会话已关闭')
+        this.checkoutGate?.(record.cwd)
+        this.assertWorkspaceAvailable(record.cwd)
+        this.assertPathAvailable(record.key)
+        if (record.stopping || record.accessChanging) throw new Error('目标会话正在停止或修改权限，请稍后重命名')
+        if (automatic && explicitSessionName(record.name, automatic.preview)) return
       }
-      invalidateSessionHistory([sessionPath])
-      this.notify.sessionsChanged({ paths: [sessionPath], kind: 'append' })
-    } finally {
-      this.mutatingPaths.delete(sessionPath)
-      if (record) this.mutatingPaths.delete(record.key)
-    }
+      if (record && !record.dormant) {
+        name = await record.session.setSessionName(name, automatic?.preview)
+      } else if (file && cwd && sdk) {
+        const manager = sdk.SessionManager.open(file, this.runtimePaths.sessionDirectory(cwd), cwd)
+        const saved = manager.getSessionName()
+        if (automatic && explicitSessionName(saved, automatic.preview)) return
+        if (saved !== name) manager.appendSessionInfo(name)
+      } else if (!record) throw new Error('目标会话不存在')
+      if (record && record.name !== name) {
+        this.handleEvent(record, {
+          generation: record.executionGeneration,
+          event: { type: 'session_info_changed', name },
+        })
+      }
+      if (file) invalidateSessionHistory([file])
+      this.notify.sessionsChanged({ paths: [file ?? sessionPath], kind: 'append' })
+    })
   }
   async deleteSessions(
     paths: string[],
@@ -562,6 +651,9 @@ export class PiSessionPool implements PiRuntime {
         this.mutatingPaths.add(record.key)
         lockedKeys.push(record.key)
       }
+      const titleKeys = new Set([...paths, ...records.map((record) => record.sessionFile ?? record.key)])
+      for (const key of titleKeys) this.titles.cancel(key)
+      await Promise.allSettled([...titleKeys].map((key) => this.titles.writes.get(key)))
       await Promise.all(
         records.map(async (record) => {
           record.cancelledPrompt = true
@@ -831,6 +923,7 @@ export class PiSessionPool implements PiRuntime {
       session: null!,
       sessionFile,
       restored: Boolean(sessionFile),
+      awaitingTitleInput: !sessionFile && !options?.temporary,
       dormant: true,
       cancelledPrompt: false,
       state: {
@@ -997,8 +1090,15 @@ export class PiSessionPool implements PiRuntime {
     this.rememberRecoveryEvent(record, event)
     if (event.type === 'message_start' && event.message.role === 'assistant') record.liveEvents = [recordEvent]
     if (event.type === 'message_update') record.liveEvents.push(recordEvent)
+    if (event.type === 'session_info_changed') {
+      record.name = event.name
+      record.state = { ...record.state, sessionName: event.name }
+      const key = record.sessionFile ?? record.key
+      if (!this.titles.writes.has(key)) this.titles.cancel(key)
+    }
     if (event.type === 'message_end') {
       this.rememberMessage(record, event.message)
+      if (event.message.role === 'user') this.automaticSessionTitle(record, event.message)
       if (event.message.role === 'assistant') record.liveEvents = []
     }
     if (event.type === 'pause_update' && event.revision >= (record.state.pauseRevision ?? 0))
@@ -1028,6 +1128,7 @@ export class PiSessionPool implements PiRuntime {
     if (
       event.type === 'agent_start' ||
       event.type === 'agent_settled' ||
+      event.type === 'session_info_changed' ||
       event.type === 'message_end' ||
       event.type === 'pause_update' ||
       event.type === 'extension_ui_request' ||
@@ -1164,6 +1265,7 @@ export class PiSessionPool implements PiRuntime {
     }
   }
   stop() {
+    this.titles.cancel()
     this.clearWarmup()
     this.epoch += 1
     this.selection += 1
@@ -1427,6 +1529,10 @@ export class PiSessionPool implements PiRuntime {
         await this.accessStore.set(record.sessionFile, record.accessMode)
       for (const value of buffer) {
         if (value.event.type === 'message_end') this.rememberMessage(record, value.event.message)
+        if (value.event.type === 'session_info_changed') {
+          record.name = value.event.name
+          record.state = { ...record.state, sessionName: value.event.name }
+        }
         this.rememberRecoveryEvent(record, value.event)
       }
       if (!buffer.some((value) => value.event.type === 'agent_start' || value.event.type === 'agent_settled'))
@@ -1437,6 +1543,7 @@ export class PiSessionPool implements PiRuntime {
         extensionError: record.extensionError ? { ...record.extensionError, generation } : undefined,
         state: {
           ...snapshot.state,
+          sessionName: record.name,
           mode: record.state.mode,
           isPaused: record.state.isPaused,
           queuePaused: record.state.queuePaused,
@@ -1669,6 +1776,7 @@ export class PiSessionPool implements PiRuntime {
       this.changing ||
       this.deletingCwds.size > 0 ||
       this.mutatingPaths.size > 0 ||
+      this.titles.writes.size > 0 ||
       [...this.sessions.values()].some(
         (record) => record.running || record.accessChanging || record.starting || record.stopping,
       )
@@ -1986,22 +2094,28 @@ export class PiSessionPool implements PiRuntime {
       await this.collaboration?.beforePrompt(sessionKey, { mode: normalized.mode, message })
       if (record.cancelledPrompt || !this.sessions.has(record.key)) throw new Error('消息发送已取消')
       record.state.activeMode = normalized.mode
-      const result = recoveryEntryId
-        ? await record.session.recover(recoveryEntryId)
-        : goalControl
-          ? await record.session.continueGoalTask(message, goalControl, options)
-          : await record.session.prompt(
-              message,
-              images,
-              skills,
-              { ...options, mode: normalized.mode, sourceClientId: this.viewContext.getStore()?.clientId },
-              false,
-              true,
-              undefined,
-              editEntryId,
-            )
+      if (recoveryEntryId) await record.session.recover(recoveryEntryId)
+      else if (goalControl) await record.session.continueGoalTask(message, goalControl, options)
+      else {
+        const send = () =>
+          record.session.prompt(
+            message,
+            images,
+            skills,
+            { ...options, mode: normalized.mode, sourceClientId: this.viewContext.getStore()?.clientId },
+            false,
+            true,
+            undefined,
+            editEntryId,
+          )
+        const command = !options?.plan && builtinCommand(message)
+        if (command && command.name === 'name' && command.args) {
+          const key = record.sessionFile ?? record.key
+          this.titles.cancel(key)
+          await this.titles.write(key, send)
+        } else await send()
+      }
       await record.session.setSessionMode(record.state.mode)
-      return result
     } catch (cause) {
       if (!this.sessions.has(record.key)) throw cause
       // 失败只通知当前客户端。写进连接状态的话，之后每次刷新都会把同一条错误再显示出来。

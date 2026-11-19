@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
+import { SessionNameInput, type SessionNameSuggestion } from '@pi-meme/ui/components/session-name-input'
 
 export function SessionNamePanel({
   sessionName,
+  suggestion,
   onRename,
   onClose,
 }: {
   sessionName?: string
+  suggestion?: SessionNameSuggestion
   onRename: (name: string) => Promise<void>
   onClose: () => void
 }) {
@@ -23,10 +26,6 @@ export function SessionNamePanel({
     const next = name.trim()
     if (!next) {
       setError('会话名称不能为空')
-      return
-    }
-    if (next === (sessionName ?? '').trim()) {
-      onClose()
       return
     }
     setBusy(true)
@@ -55,14 +54,15 @@ export function SessionNamePanel({
       <label className="mb-2 block text-xs text-muted-foreground" htmlFor="session-name-input">
         重命名会话
       </label>
-      <input
+      <SessionNameInput
+        suggestion={suggestion}
         id="session-name-input"
         ref={input}
         aria-label="会话名称"
         value={name}
         disabled={busy}
-        onChange={(event) => {
-          setName(event.target.value)
+        onNameChange={(value) => {
+          setName(value)
           setError('')
         }}
         onKeyDown={(event) => {
@@ -71,7 +71,6 @@ export function SessionNamePanel({
           event.stopPropagation()
           void confirm()
         }}
-        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
       {error ? (
         <p role="alert" className="mt-2 break-words text-xs text-destructive">

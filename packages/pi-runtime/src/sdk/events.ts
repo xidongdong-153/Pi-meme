@@ -10,6 +10,7 @@ const desktopEventTypes = new Set<PiEvent['type']>([
   'message_start',
   'message_update',
   'message_end',
+  'session_info_changed',
   'tool_execution_start',
   'tool_execution_update',
   'tool_execution_end',

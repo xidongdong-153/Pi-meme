@@ -166,14 +166,17 @@ export function useAppSession(
       streamEvents.current?.flush()
       for (const record of events ?? []) {
         if (
-          record.event.type === 'access_mode_changed' &&
           record.sessionKey === snapshot.connection.sessionKey &&
           record.generation === snapshot.connection.generation &&
           (record.sequence === undefined ||
             snapshot.eventSequence === undefined ||
             record.sequence > snapshot.eventSequence)
-        )
-          snapshot = { ...snapshot, connection: { ...snapshot.connection, accessMode: record.event.mode } }
+        ) {
+          if (record.event.type === 'access_mode_changed')
+            snapshot = { ...snapshot, connection: { ...snapshot.connection, accessMode: record.event.mode } }
+          if (record.event.type === 'session_info_changed')
+            snapshot = { ...snapshot, state: { ...snapshot.state, sessionName: record.event.name } }
+        }
       }
       const retained = snapshot.connection.sessionKey && views.current.get(snapshot.connection.sessionKey)
       if (
@@ -716,6 +719,14 @@ export function useAppSession(
         record.generation === current.current.generation &&
         !selection.current.current &&
         !preview.current
+      if (event.type === 'session_info_changed') {
+        if (cached) {
+          cached.snapshot = { ...cached.snapshot, state: { ...cached.snapshot.state, sessionName: event.name } }
+          cached.sequence = record.sequence ?? cached.sequence
+        }
+        if (visible) setState((state) => state && { ...state, sessionName: event.name })
+        return
+      }
       const applyCurrent = (event: Parameters<typeof reduceEvent>[1]) => {
         chatRef.current?.applyEvent(event)
         if (cached && chatRef.current) cached.chat = chatRef.current.captureChat()

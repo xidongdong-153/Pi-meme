@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./components/file-icon": "./src/components/file-icon.tsx",
+    "./components/session-name-input": "./src/components/session-name-input.tsx",
     "./components/ui/slider": "./src/components/ui/slider.tsx",
     "./components/ui/switch": "./src/components/ui/switch.tsx",
     "./components/integration-header": "./src/components/integration-header.tsx",

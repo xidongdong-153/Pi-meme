@@ -1460,6 +1460,7 @@ export class HostClient {
       previewProjectDeletion: (cwd) => rpc('project:delete-preview', [cwd]),
       removeProject: (cwd, paths) => this.deletion('project:remove', [cwd, paths]),
       renameSession: (path, name) => rpc('session:rename', [path, name]),
+      suggestSessionName: (path) => rpc('session:suggest-name', [path], null),
       deleteSession: (path) => this.deletion('session:delete', [path]),
       selectWorkspace: (input) => this.selection('workspace:select', [input]),
       getSessions: () => this.readSessions(sessionKey),

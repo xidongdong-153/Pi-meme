@@ -89,6 +89,7 @@ import {
   summarizeTurn,
   type HintSourceMessage,
 } from './composer-hint'
+import { explicitSessionName } from '@pi-meme/contracts/sessions'
 import { toDesktopEvent } from './events'
 import { GenerationMetricsTracker } from './generation-metrics'
 import { findSessionRecovery, recoveryEntryType, recoveryMessage } from './recovery'
@@ -2724,11 +2725,21 @@ export class SdkSession {
     })
   }
 
-  setSessionName(name: string) {
+  getSessionTitleContext() {
     return this.call(() => {
+      const { model, sessionName } = this.session
+      return { model: model && { provider: model.provider, id: model.id }, name: sessionName }
+    })
+  }
+
+  setSessionName(name: string, automaticPreview?: string) {
+    return this.call(() => {
+      const saved = this.session.sessionName
+      if (saved && automaticPreview !== undefined && explicitSessionName(saved, automaticPreview)) return saved
       const trimmed = name.trim()
       if (!trimmed) throw new Error('会话名称不能为空')
-      this.session.setSessionName(trimmed)
+      if (saved !== trimmed) this.session.setSessionName(trimmed)
+      return trimmed
     })
   }
 

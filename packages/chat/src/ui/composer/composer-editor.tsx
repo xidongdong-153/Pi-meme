@@ -29,6 +29,7 @@ export function ComposerEditor({
   sessionBusy = false,
   onError,
   sessionName,
+  sessionNameSuggestion,
   onRenameSession,
   projectPath,
   loadProjectFiles,
@@ -55,6 +56,7 @@ export function ComposerEditor({
   | 'onCompact'
   | 'sessionStarted'
   | 'sessionName'
+  | 'sessionNameSuggestion'
   | 'onRenameSession'
   | 'sessionKey'
   | 'agentPlugins'
@@ -84,12 +86,13 @@ export function ComposerEditor({
   const positions = useRef({ sessionKey, draft, offsets: new Map<string, number>() })
   const plugins = agentPlugins?.mentions ?? emptyPlugins
   const [pluginRevision, redrawPlugins] = useReducer((value: number) => value + 1, 0)
-  const [naming, setNaming] = useState(false)
+  const [namingSession, setNamingSession] = useState<string | null>(null)
+  const naming = namingSession === (sessionKey ?? '')
   const namingOpen = useRef(false)
   namingOpen.current = naming
-  useEffect(() => setNaming(false), [sessionKey])
+  useEffect(() => setNamingSession(null), [sessionKey])
   useEffect(() => {
-    if (!sessionStarted || sessionBusy) setNaming(false)
+    if (!sessionStarted || sessionBusy) setNamingSession(null)
   }, [sessionStarted, sessionBusy])
   const {
     editor,
@@ -120,7 +123,7 @@ export function ComposerEditor({
             onError?.('Pi 正在运行或切换，请等待完成后重试')
             return
           }
-          setNaming(true)
+          setNamingSession(sessionKey ?? '')
         }
       : undefined,
     sessionStarted,
@@ -192,7 +195,7 @@ export function ComposerEditor({
     composerStore?.setSelection(editorSelection(element))
     const caret = editorCaret(element)
     setDraftCaret(caret)
-    if (namingOpen.current && completionQuery(text, caret)?.kind === 'command') setNaming(false)
+    if (namingOpen.current && completionQuery(text, caret)?.kind === 'command') setNamingSession(null)
     setSuggestionsOpen(true)
   }
 
@@ -294,9 +297,10 @@ export function ComposerEditor({
       {naming && onRenameSession && (
         <SessionNamePanel
           sessionName={sessionName}
+          suggestion={sessionNameSuggestion}
           onRename={onRenameSession}
           onClose={() => {
-            setNaming(false)
+            setNamingSession(null)
             editor.current?.focus()
           }}
         />

@@ -43,6 +43,7 @@ export type ComposerProps = {
   /** 已有对话后才提供压缩和命名。默认提供，避免未接线的调用方把命令藏掉。 */
   sessionStarted?: boolean
   sessionName?: string
+  sessionNameSuggestion?: import('@pi-meme/ui/components/session-name-input').SessionNameSuggestion
   onRenameSession?: (name: string) => Promise<void>
   goalControl?: ReactNode
   goalBanner?: ReactNode
@@ -119,6 +120,7 @@ export function Composer({
   onCompact,
   sessionStarted,
   sessionName,
+  sessionNameSuggestion,
   onRenameSession,
   goalControl,
   goalBanner,
@@ -358,6 +360,7 @@ export function Composer({
             sessionBusy={Boolean(running || paused)}
             onError={onError}
             sessionName={sessionName}
+            sessionNameSuggestion={sessionNameSuggestion}
             onRenameSession={onRenameSession}
             projectPath={projectPath}
             loadProjectFiles={loadProjectFiles}

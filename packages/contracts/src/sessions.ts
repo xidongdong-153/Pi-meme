@@ -4,6 +4,22 @@ import type { BranchSkillUsage } from './skills'
 import type { QueuedInput, PlanCheckpoint } from './plan'
 import type { SessionInfo } from '@earendil-works/pi-coding-agent'
 import type { ScheduledTask } from './schedules'
+import { browserAnnotationSummary } from './browser-annotations'
+import { skillMessageText } from './skills'
+
+export const sessionTitleLimit = 36
+
+export function sessionPreviewText(text: string) {
+  return skillMessageText(browserAnnotationSummary(text)).trim()
+}
+
+/** Older clients may have saved the first-message preview in the name field. */
+export function explicitSessionName(name: string | undefined, preview: string) {
+  const title = name?.trim()
+  if (!title) return undefined
+  const firstLine = preview.split('\n', 1)[0]
+  return title === preview || title === firstLine || title === firstLine.slice(0, sessionTitleLimit) ? undefined : title
+}
 
 export type SessionReadObservation = { completionToken?: string; inputRequestIds?: string[] }
 
