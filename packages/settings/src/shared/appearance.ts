@@ -11,8 +11,8 @@ export const fontStyles: FontStyle[] = ['regular', 'bold', 'italic', 'bold-itali
 export function defaultAppearance(): AppearanceSettings {
   return {
     mode: 'system',
-    lightThemeId: 'light',
-    darkThemeId: 'dark',
+    lightThemeId: 'catppuccin-latte',
+    darkThemeId: 'catppuccin-mocha',
     separate: false,
     shared: {},
     uiSize: 14,

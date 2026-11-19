@@ -1,28 +1,14 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import type { Connection } from '@pi-meme/contracts/desktop'
-import type { ChatState } from '@pi-meme/chat/ui/model/types'
 import type { MessageEditorState } from '@pi-meme/chat/ui/conversation/inline-message-editor'
 import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Button } from '@pi-meme/ui/components/ui/button'
-import type { PiMessage, PiState } from '@pi-meme/contracts/pi'
-
-export function isWorkspaceSlotVisible(
-  session: { state: PiState | null; chat: ChatState },
-  summary?: { messageCount: number },
-) {
-  return (
-    Boolean(session.state) &&
-    !summary?.messageCount &&
-    !session.chat.messages.length &&
-    session.chat.live === null &&
-    !session.chat.running
-  )
-}
+import type { PiMessage } from '@pi-meme/contracts/pi'
 
 export function WorkspaceContent({
-  chat,
+  hasConversation,
   connection,
   ready,
   hasConnected,
@@ -39,7 +25,7 @@ export function WorkspaceContent({
   notice,
   children,
 }: {
-  chat: ChatState
+  hasConversation: boolean
   connection: Connection
   ready: boolean
   hasConnected: boolean
@@ -61,7 +47,6 @@ export function WorkspaceContent({
   notice: ReactNode
   children: ReactNode
 }) {
-  const hasConversation = chat.messages.length > 0 || chat.live !== null || chat.running
   const contentRef = useRef<HTMLDivElement>(null)
   const welcomeRef = useRef<HTMLDivElement>(null)
   const previousView = useRef({ sessionKey: connection.sessionKey, active })

@@ -44,7 +44,7 @@ import { SidebarWorkspace } from './layout/sidebar-workspace'
 import { ProjectsPage } from './projects/projects-page'
 import { ProjectDialog } from './projects/project-dialog'
 import { ForkNotice } from './layout/fork-notice'
-import { isWorkspaceSlotVisible, WorkspaceContent } from './layout/workspace-content'
+import { WorkspaceContent } from './layout/workspace-content'
 import { SideChatPanel } from './panels/side-chat-panel'
 import { SideChatSession } from './session/side-chat-session'
 import { ErrorNotice, SystemErrorStack, SystemErrorToast } from './layout/error-notice'
@@ -1039,7 +1039,9 @@ function AppContent({
       ]
     : []
   const activeSummary = sessionList.find((session) => session.path === chat.sessions?.activeSessionPath)
-  const showWorkspaceSlot = isWorkspaceSlotVisible(chat, activeSummary)
+  const hasConversation = chat.chat.messages.length > 0 || chat.chat.live !== null || chat.chat.running
+  // 新聊天预览出现时，侧栏摘要可能仍属于上一个会话。
+  const showWorkspaceSlot = !hasConversation && (chat.isNewChat || !activeSummary?.messageCount)
   const sourcePath = activeSummary?.parentSessionPath
   const sourceSummary = sourcePath ? sessionList.find((session) => session.path === sourcePath) : undefined
   const forkedFrom =
@@ -1552,7 +1554,7 @@ function AppContent({
   ]
   const conversation = (
     <WorkspaceContent
-      chat={chat.chat}
+      hasConversation={hasConversation}
       connection={chat.connection}
       ready={ready}
       hasConnected={chat.hasConnected || Boolean(chat.connection.sessionKey)}
@@ -1565,7 +1567,7 @@ function AppContent({
       conversation={
         <RetainedConversations
           hostId={hostId ?? hostAddress ?? 'local'}
-          active={active && (chat.chat.messages.length > 0 || chat.chat.live !== null || chat.chat.running)}
+          active={active && hasConversation}
           getCachedChat={chat.cachedChat}
           {...{
             chat: chat.chat,

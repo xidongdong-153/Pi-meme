@@ -128,7 +128,7 @@ function avatarMime(bytes: Buffer) {
 
 export class SettingsStore {
   settings: DesktopSettings = {
-    themeId: 'dark',
+    themeId: 'catppuccin-mocha',
     codemodeEnabled: true,
     mcpEnabled: true,
     subagentsEnabled: true,
