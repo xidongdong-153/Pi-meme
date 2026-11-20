@@ -1,5 +1,5 @@
 import { registerBrowserRuntime } from './browser/browser-runtime'
-import { app, type BrowserWindow } from 'electron'
+import { app, dialog, type BrowserWindow, type MessageBoxOptions } from 'electron'
 import path from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -16,6 +16,7 @@ import { retryHostPage } from './window/load-host-page'
 import { createStorageController } from './storage/controller'
 import { pendingStorageJob } from './storage/preferences'
 import { acquireDesktopHost } from './local-host'
+import { findHostLoginItem } from './host-login-item'
 import { cancelWindowPreparation, closePreparedWindow, prepareWindowMaintenance } from './window/prepare-window'
 
 const isolatedTest = ['memory', 'file'].includes(process.env.PI_MEME_TEST_CREDENTIALS ?? '')
@@ -145,6 +146,7 @@ async function initializeHost() {
   }
 }
 function startHost() {
+  if (stopping) return Promise.reject(new Error('桌面正在退出'))
   starting ??= initializeHost().finally(() => {
     starting = undefined
   })
@@ -183,6 +185,7 @@ async function setConnection(value: { url: string; token: string } | null) {
   }
 }
 async function open(failed = false) {
+  if (stopping || window) return
   window = createWindow('#171717', trustedOrigin)
   const target = window
   target.on('closed', () => {
@@ -217,7 +220,7 @@ app
       },
       storage.adapter,
     )
-    if (!failed && process.env.PI_MEME_REMOTE_HOST) {
+    if (!failed && !stopping && process.env.PI_MEME_REMOTE_HOST) {
       try {
         await setConnection({ url: process.env.PI_MEME_REMOTE_HOST, token: process.env.PI_MEME_TOKEN ?? '' })
       } catch (cause) {
@@ -238,6 +241,50 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 let stopped = false
+let pendingLoginItem: Awaited<ReturnType<typeof findHostLoginItem>>
+async function quitDesktop() {
+  // 启动中的 Host 和界面代理可能已经创建，但尚未赋给主进程的变量。
+  await starting?.catch(() => {})
+  let loginItem = pendingLoginItem
+  if (!loginItem && app.isPackaged && localHost) {
+    loginItem = await findHostLoginItem(localHost)
+    if (loginItem) {
+      const prompt: MessageBoxOptions = {
+        type: 'question',
+        message: '随 Pi meme 一起关闭本机 Host？',
+        detail: `登录项 ${loginItem.label} 会在后台启动 Host。停用它将结束它管理的本机任务和终端，以后 Host 随 Pi meme 启停。`,
+        buttons: ['停用登录项并退出', '仅退出桌面', '取消'],
+        defaultId: 0,
+        cancelId: 2,
+        noLink: true,
+      }
+      const { response } = window ? await dialog.showMessageBox(window, prompt) : await dialog.showMessageBox(prompt)
+      if (response === 2) return
+      if (response === 1) loginItem = undefined
+    }
+  }
+  const target = window
+  if (target && !(await closePreparedWindow(target, 'quit'))) {
+    cancelWindowPreparation(target)
+    return
+  }
+  // 先卸载登录项，避免它在自管 Host 释放端口后立即补启 Server。
+  pendingLoginItem = loginItem
+  await loginItem?.stop()
+  pendingLoginItem = undefined
+  const lease = localHost
+  hostClient?.dispose()
+  hostClient = undefined
+  uiUrl = ''
+  try {
+    await frontend?.dispose()
+    frontend = undefined
+  } finally {
+    if (lease?.ownership === 'owned') await lease.resource.dispose()
+  }
+  stopped = true
+  app.quit()
+}
 app.on('before-quit', (event) => {
   if (storage.busy) {
     event.preventDefault()
@@ -247,42 +294,16 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   if (stopping) return
   stopping = true
-  const target = window
-  const contents = target?.webContents
-  function cancelQuit() {
-    target?.removeListener('closed', dispose)
-    contents?.removeListener('will-prevent-unload', cancelQuit)
-    cancelWindowPreparation(target)
-    stopping = false
-  }
-  function dispose() {
-    contents?.removeListener('will-prevent-unload', cancelQuit)
-    const lease = localHost
-    hostClient?.dispose()
-    void (async () => {
-      try {
-        await frontend?.dispose()
-      } finally {
-        if (lease?.ownership === 'owned') await lease.resource.dispose()
-      }
-    })()
-      .catch((cause: unknown) => console.error(`桌面退出清理失败：${String(cause)}`))
-      .finally(() => {
-        stopped = true
-        app.quit()
-      })
-  }
-  if (target) {
-    target.once('closed', dispose)
-    contents?.once('will-prevent-unload', cancelQuit)
-    void closePreparedWindow(target, 'quit').then(
-      (allowed) => {
-        if (!allowed) cancelQuit()
-      },
-      (cause: unknown) => {
-        console.error(`退出准备失败：${String(cause)}`)
-        cancelQuit()
-      },
-    )
-  } else dispose()
+  let showRecovery = false
+  void quitDesktop()
+    .catch((cause: unknown) => {
+      showRecovery = true
+      cancelWindowPreparation(window)
+      dialog.showErrorBox('Pi meme 退出未完成', cause instanceof Error ? cause.message : String(cause))
+    })
+    .finally(() => {
+      if (stopped) return
+      stopping = false
+      if (!window && app.isReady()) void open(showRecovery).catch((cause: unknown) => console.error(String(cause)))
+    })
 })

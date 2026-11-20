@@ -183,10 +183,22 @@ export function cancelWindowPreparation(window: BrowserWindow | null) {
   if (window) coordinators.get(window)?.cancel()
 }
 
-export function closePreparedWindow(window: BrowserWindow, reason: 'close' | 'quit') {
+export async function closePreparedWindow(window: BrowserWindow, reason: 'close' | 'quit') {
   const coordinator = coordinators.get(window)
   if (!coordinator) throw new Error('窗口关闭准备尚未初始化')
-  return coordinator.closePrepared(reason)
+  const contents = window.webContents
+  const result = Promise.withResolvers<boolean>()
+  const closed = () => result.resolve(true)
+  const prevented = () => result.resolve(false)
+  window.once('closed', closed)
+  contents.once('will-prevent-unload', prevented)
+  try {
+    if (!(await coordinator.closePrepared(reason))) return window.isDestroyed()
+    return await result.promise
+  } finally {
+    window.removeListener('closed', closed)
+    contents.removeListener('will-prevent-unload', prevented)
+  }
 }
 
 export function reloadPreparedWindow(window: BrowserWindow, ignoreCache = false) {

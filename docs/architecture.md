@@ -67,7 +67,9 @@ Host 使用 Hono、`@hono/node-server` 和 `ws`，由 [transport-app.ts](../pack
 
 [运行契约](../packages/contracts/src/host-runtime.ts) 统一默认端口 `3185` 与本机状态结构。[local-host.ts](../packages/host/src/local-host.ts) 先探测 `/api/status`，校验产品、状态字段、真实数据目录和持久 Host 身份；没有监听者才创建。并发创建依靠 `host.lock` 决定唯一写入者，其余入口等待并复用。状态只允许本机来源读取，不包含令牌或 Cookie。
 
-Desktop 的连接状态分 `owned` 与 `attached`。[本机进程管理](../apps/desktop/src/main/local-host.ts) 只为 `owned` 保留 utilityProcess、维护和停机操作；`attached` Desktop 退出不停止 Server。Server 入口发现兼容 Host 后输出地址并退出，不转移所有权。管理方退出后其他客户端只重连，不自动创建替代 Host。
+Desktop 的连接状态分 `owned` 与 `attached`。退出时先等待正在进行的本机启动结束，再关闭界面代理，并等待 `owned` 的 utilityProcess 退出。`attached` 连接由独立 Server 的启动方负责停机。macOS 安装版允许在退出时停用匹配的专用 Host 登录项，主进程核对用户域、启动脚本和 Host 归属，在用户确认且窗口完成关闭后卸载登录项，再释放自己创建的 Host。[本机进程管理](../apps/desktop/src/main/local-host.ts) · [Host 登录项](../apps/desktop/src/main/host-login-item.ts)
+
+Server 入口发现兼容 Host 后输出地址并退出，不转移所有权。管理方退出后其他客户端只重连，不自动创建替代 Host。
 
 开发态 Desktop 直接加载端口 `3181` 的 Vite，代理到端口 `3180` 的 Host；正式版加载随包界面，由 [frontend-server.ts](../packages/host/src/frontend-server.ts) 在端口 `2159` 提供同源 HTTP/WebSocket 代理，连接端口 `3185` 的 Host。该入口不持有数据锁、不装配业务服务、不创建会话 Worker，因此不是第二个 Host。已有 Server 没有 Web 静态资源时，也不影响 Desktop 加载自己的界面。Host 自身仍可为普通浏览器提供 Web 页面；静态资源逻辑共用 [frontend.ts](../packages/host/src/frontend.ts)。
 

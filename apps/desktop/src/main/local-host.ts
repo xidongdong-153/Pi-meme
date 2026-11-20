@@ -19,31 +19,57 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
     let exited = false
     let exitCode: number | undefined
     let hostId = ''
+    let startupError: Error | undefined
     let disposing: Promise<void> | undefined
     const requests = new Map<string, { resolve: () => void; reject: (cause: Error) => void; timer: NodeJS.Timeout }>()
     const startup = setTimeout(() => {
-      child.kill()
-      reject(new Error('本机服务启动超时'))
+      startupError ??= new Error('本机服务启动超时')
+      void terminate().catch(reject)
     }, 30000)
     child.stderr?.on('data', (data: Buffer) => console.error(data.toString()))
-    function stop(timeoutMs: number, force: boolean) {
-      if (exited)
-        return !force && exitCode !== 0 ? Promise.reject(new Error(`服务未正常退出（${exitCode}）`)) : Promise.resolve()
-      return new Promise<void>((resolve, reject) => {
+    function waitForExit(timeoutMs: number) {
+      if (exited) return Promise.resolve(exitCode)
+      return new Promise<number | undefined>((resolve) => {
         let timer: NodeJS.Timeout
         const onExit = (code: number) => {
           clearTimeout(timer)
-          if (code === 0) resolve()
-          else reject(new Error(`服务未正常退出（${code}）`))
+          resolve(code)
         }
         timer = setTimeout(() => {
           child.removeListener('exit', onExit)
-          if (force) child.kill()
-          reject(new Error(force ? '本机服务停机超时' : '服务正常停机超时，维护已取消；不会强制终止后迁移'))
+          resolve(undefined)
         }, timeoutMs)
         child.once('exit', onExit)
-        child.postMessage({ type: 'stop', hostId })
       })
+    }
+    async function terminate() {
+      if (exited) return
+      child.kill()
+      if ((await waitForExit(2_000)) !== undefined) return
+      if (child.pid !== undefined) {
+        try {
+          process.kill(child.pid, 'SIGKILL')
+        } catch (cause) {
+          if ((cause as NodeJS.ErrnoException).code !== 'ESRCH') throw cause
+        }
+      }
+      if ((await waitForExit(5_000)) === undefined) throw new Error('本机 Host 进程尚未退出')
+    }
+    async function stop(timeoutMs: number, force: boolean) {
+      if (exited && force) return
+      if (!exited) {
+        try {
+          child.postMessage({ type: 'stop', hostId })
+        } catch (cause) {
+          if (force) return terminate()
+          throw cause
+        }
+      }
+      const code = await waitForExit(timeoutMs)
+      if (code === 0) return
+      if (code !== undefined) throw new Error(`服务未正常退出（${code}）`)
+      if (force) return terminate()
+      throw new Error('服务正常停机超时，维护已取消；不会强制终止后迁移')
     }
     child.on(
       'message',
@@ -56,7 +82,7 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
         error?: string
         code?: string
       }) => {
-        if (value.type === 'ready') {
+        if (value.type === 'ready' && !startupError) {
           clearTimeout(startup)
           hostId = value.hostId
           resolve({
@@ -78,14 +104,16 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
               }),
             stopForMaintenance: () => stop(60000, false),
             dispose() {
-              disposing ??= stop(10000, true)
+              disposing ??= stop(10000, true).catch((cause: unknown) => {
+                disposing = undefined
+                throw cause
+              })
               return disposing
             },
           })
         }
         if (value.type === 'failed') {
-          clearTimeout(startup)
-          reject(Object.assign(new Error(value.message ?? '服务启动失败'), { code: value.code }))
+          startupError = Object.assign(new Error(value.message ?? '服务启动失败'), { code: value.code })
         }
         if (value.type === 'maintenance:result') {
           const request = requests.get(value.id)
@@ -107,7 +135,7 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
         request.reject(cause)
       }
       requests.clear()
-      reject(cause)
+      reject(startupError ?? cause)
     })
   })
 }
