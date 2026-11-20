@@ -3,7 +3,8 @@ import { MakerZIP } from '@electron-forge/maker-zip'
 import { VitePlugin } from '@electron-forge/plugin-vite'
 import { FusesPlugin } from '@electron-forge/plugin-fuses'
 import { FuseV1Options, FuseVersion } from '@electron/fuses'
-import { copyFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import { copyFile, chmod, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { copyPiRuntime } from '../../scripts/copy-pi-runtime.mjs'
 import { preparePluginSkill } from '../../scripts/copy-builtin-skills.mjs'
@@ -50,6 +51,22 @@ const config: ForgeConfig = {
         throw new Error('Desktop 必须在目标平台与架构的原生环境中构建')
       await prepareNodeRuntime(path.join(desktopResources, 'runtime'))
       await prepareWindowsNative(path.join(desktopResources, 'runtime/bin'))
+      if (platform === 'darwin' && arch === 'arm64') {
+        const dir = path.join(
+          path.dirname(createRequire(path.join(__dirname, 'package.json')).resolve('agent-desktop/package.json')),
+          'bin',
+        )
+        const destination = path.join(desktopResources, 'runtime/bin')
+        await mkdir(destination, { recursive: true })
+        for (const name of ['agent-desktop-darwin-arm64', 'agent-desktop-macos-helper-darwin-arm64']) {
+          await copyFile(path.join(dir, name), path.join(destination, name))
+          await chmod(path.join(destination, name), 0o755)
+        }
+        await copyFile(
+          path.join(__dirname, 'licenses/agent-desktop-LICENSE'),
+          path.join(destination, 'agent-desktop-LICENSE'),
+        )
+      }
       await writeReleaseResources(desktopResources, 'desktop')
     },
     packageAfterExtract: async (_config, buildPath, _electronVersion, platform) => {

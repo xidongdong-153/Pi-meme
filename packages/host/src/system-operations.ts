@@ -1,3 +1,4 @@
+import { computerOperations } from '@pi-meme/contracts/computer-use'
 import type { HostApi, ProjectRef, SessionRef, WorkspaceRef, MutationOptions } from '@pi-meme/contracts/app-host'
 import type { SystemOperation, SystemToolRequest, SystemOperationAvailability } from '@pi-meme/contracts/system-tools'
 import {
@@ -593,6 +594,16 @@ export function createSystemOperations(context: SystemOperationContext) {
         definition.scope === 'client' ? context.client(definition.name, args) : context.read(definition.name, args),
     })
   }
+  for (const definition of computerOperations) {
+    operations.set(definition.name, {
+      definition,
+      run: (args) => {
+        if (!context.canWrite) throw new SystemReadError('permission-denied', '电脑操控需要普通任务和完全权限')
+        validateReadArguments(definition.inputSchema, args)
+        return context.client(definition.name, args)
+      },
+    })
+  }
   const visualizations = api.visualizations
   if (visualizations) {
     for (const definition of visualizationClientOperationDefinitions) {
@@ -647,7 +658,7 @@ export function createSystemOperations(context: SystemOperationContext) {
     }
   }
   const availability = (definition: SystemOperation): SystemOperationAvailability => {
-    const allowed = !definition.write || context.canWrite
+    const allowed = context.canWrite || (!definition.write && definition.domain !== 'computer')
     if (definition.scope === 'client' && !context.clientAvailable(definition.name))
       return { available: false, allowed, reason: context.clientUnavailableReason?.() ?? 'disconnected' }
     const supported = definition.name.startsWith('contextWindow.')

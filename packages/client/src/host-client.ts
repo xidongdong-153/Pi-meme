@@ -154,6 +154,7 @@ export class HostClient {
   private readonly pluginListeners = new Set<() => void>()
   private readonly appearanceListeners = new Set<() => void>()
   private systemHandler?: Parameters<NonNullable<DesktopBridge['registerSystemClient']>>[1]
+  private onSystemInvalidated?: (registrationId: string) => void
   private systemRegistration?: symbol
   private systemOperations: string[] = []
   private connectionId = crypto.randomUUID()
@@ -288,6 +289,7 @@ export class HostClient {
   suspend(reason = '服务连接已暂停，请恢复连接后继续') {
     if (this.closed || this.suspended) return
     this.suspended = true
+    this.resetSystemIdentity()
     this.networkEpoch++
     this.selectionEpoch++
     this.lifetime.abort(new Error(reason))
@@ -932,7 +934,7 @@ export class HostClient {
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     url.searchParams.set('clientId', this.clientId)
     this.connectionId = crypto.randomUUID()
-    this.systemIdentity = undefined
+    this.resetSystemIdentity()
     url.searchParams.set('connectionId', this.connectionId)
     const socket = (this.options.createSocket ?? ((address) => new WebSocket(address)))(url.href)
     this.socket = socket
@@ -959,7 +961,7 @@ export class HostClient {
     socket.addEventListener('close', () => {
       if (this.socket !== socket) return
       this.socket = undefined
-      this.systemIdentity = undefined
+      this.resetSystemIdentity()
       this.publishTransportConnection(true)
       if (this.closed || this.suspended || epoch !== this.networkEpoch) return
       if (this.selected)
@@ -1165,7 +1167,15 @@ export class HostClient {
           }
           assertActive()
           if (!handler) throw new SystemReadError('not-supported', '客户端操作不可用')
-          return handler(request, { assertActive })
+          return handler(request, {
+            assertActive,
+            confirmPending: async () => {
+              assertActive()
+              if (!(await this.rpc('system:pending', [request.id, identity], null)))
+                throw new SystemReadError('cancelled', '本轮电脑操作已取消')
+              assertActive()
+            },
+          })
         }
         void execute()
           .then(
@@ -1244,6 +1254,12 @@ export class HostClient {
     this.appearanceListeners.clear()
   }
 
+  private resetSystemIdentity() {
+    const identity = this.systemIdentity
+    this.systemIdentity = undefined
+    if (identity) this.onSystemInvalidated?.(identity.registrationId)
+  }
+
   private async registerSystemCapabilities() {
     const handler = this.systemHandler
     const registrationOwner = this.systemRegistration
@@ -1267,13 +1283,15 @@ export class HostClient {
     this.systemIdentity = identity
     const visualizationNames = new Set(visualizationClientOperationDefinitions.map((definition) => definition.name))
     const operations = this.systemOperations.filter(
-      (name) => !visualizationNames.has(name) || capabilities.features.includes('visualize-runtime'),
+      (name) =>
+        (!visualizationNames.has(name) || capabilities.features.includes('visualize-runtime')) &&
+        (!name.startsWith('computer.') || capabilities.features.includes('computer-use')),
     )
     const registration: SystemClientRegistration = { ...identity, operations }
     try {
       await this.rpc('system:register', [registration], null)
     } catch (cause) {
-      if (this.systemIdentity === identity) this.systemIdentity = undefined
+      if (this.systemIdentity === identity) this.resetSystemIdentity()
       throw cause
     }
   }
@@ -1361,13 +1379,14 @@ export class HostClient {
       return { ...result, snapshot: settingsSnapshot(result.snapshot) }
     }
     return {
-      registerSystemClient: (operations, handler) => {
+      registerSystemClient: (operations, handler, onInvalidated) => {
         const registrationOwner = Symbol('system-client-registration')
         this.systemRegistration = registrationOwner
         const previousIdentity = this.systemIdentity
-        this.systemIdentity = undefined
+        this.resetSystemIdentity()
         if (previousIdentity && this.transportConnected)
           void this.rpc('system:unregister', [previousIdentity], null).catch(() => {})
+        this.onSystemInvalidated = onInvalidated
         this.systemHandler = handler
         this.systemOperations = operations
         void this.registerSystemCapabilities().catch((cause) => this.reportError(String(cause)))
@@ -1377,7 +1396,8 @@ export class HostClient {
             this.systemRegistration = undefined
             this.systemHandler = undefined
             this.systemOperations = []
-            this.systemIdentity = undefined
+            this.resetSystemIdentity()
+            this.onSystemInvalidated = undefined
             if (identity && this.transportConnected)
               void this.rpc('system:unregister', [identity], null).catch(() => {})
           }

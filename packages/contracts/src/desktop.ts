@@ -229,6 +229,7 @@ export interface ConnectionBridge {
       request: import('./system-tools').SystemClientRequest,
       context: import('./system-tools').SystemClientExecutionContext,
     ) => Promise<unknown>,
+    onInvalidated?: (registrationId: string) => void,
   ) => () => void
   scopeSession?: (sessionKey: string) => DesktopBridge
   openTemporarySession?: (sourceSessionKey: string) => Promise<Snapshot>

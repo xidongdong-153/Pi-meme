@@ -1,16 +1,24 @@
 import { fileIconSprite, resolveFileIcon } from '@pi-meme/assets/file-icons'
-import { fileReferences } from './completion-query'
+import { composerReferences } from './completion-query'
 import { fileReferenceClassName, fileReferenceDetails, fileReferenceIconClassName } from '../content/file-reference'
 
 /** 文件引用仍保存为带引号的完整路径，编辑器只改变其显示。 */
 export function fileReferenceNodes(text: string): Node[] {
   const nodes: Node[] = []
   let offset = 0
-  for (const reference of fileReferences(text)) {
+  for (const reference of composerReferences(text)) {
     if (reference.start > offset) nodes.push(document.createTextNode(text.slice(offset, reference.start)))
     const token = document.createElement('span')
     token.dataset.fileToken = reference.text
     token.setAttribute('contenteditable', 'false')
+    if (reference.computer) {
+      token.className = fileReferenceClassName
+      token.textContent = '电脑'
+      token.setAttribute('aria-label', '已选择电脑操控')
+      nodes.push(token)
+      offset = reference.end
+      continue
+    }
     const file = fileReferenceDetails(reference.path)
     token.setAttribute('aria-label', file.label)
     token.dataset.tooltip = reference.path

@@ -20,6 +20,8 @@ import { resolveModelThinkingLevel } from '@pi-meme/contracts/pi'
 import { explicitSessionName, sessionPreviewText } from '@pi-meme/contracts/sessions'
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
 import { BrowserFavicon, BrowserPanel } from '@pi-meme/browser/ui/browser-panel'
+import { ComputerActivity, ComputerSettings } from './settings/computer-use'
+import { computerMention } from '@pi-meme/chat/ui/composer/completion-query'
 import { BrowserSettings } from '@pi-meme/browser/ui/browser-settings'
 import { useBrowser } from '@pi-meme/browser/ui/use-browser'
 import { annotationAttachment, type ComposerAttachment } from '@pi-meme/chat/ui/composer/image-attachment'
@@ -1360,6 +1362,17 @@ function AppContent({
     </div>
   ) : (
     <div data-testid="composer-area">
+      <ComputerActivity
+        hostId={hostId}
+        sessionId={appSession?.sessionId}
+        remoteHost={hostLocal ? undefined : currentService ? serviceLabel(currentService) : (hostAddress ?? '远程服务')}
+      />
+      {chat.draft.includes(computerMention) &&
+        (chat.mode === 'plan' || chat.connection.accessMode !== 'full-access') && (
+          <p role="status" className="px-3 py-1 text-xs text-muted-foreground">
+            操作电脑需要普通任务和完全权限，可在输入框下方切换。
+          </p>
+        )}
       {chat.chat.running && liveChanges && <LiveTurnChanges changes={liveChanges} onView={viewChanges} />}
       {turnChanges.error && (
         <p role="status" className="px-3 pb-2 text-xs text-destructive">
@@ -2761,6 +2774,20 @@ function AppContent({
                         if (!sourceSession.sessionFile) throw new Error('来源会话当前无法打开')
                         if (!serviceUI && !(await beforeDeactivate())) return
                         if (await switchSession(sourceSession.sessionFile)) navigation.replace({ kind: 'chat' })
+                      }}
+                    />
+                  )
+                if (section === 'computer')
+                  return (
+                    <ComputerSettings
+                      hostId={hostId}
+                      onTry={() => {
+                        chat.setDraft((draft) =>
+                          draft.includes(computerMention)
+                            ? draft
+                            : `${computerMention} ${draft || '帮我在日历里找下周三下午半小时的空档。'}`,
+                        )
+                        navigation.home()
                       }}
                     />
                   )

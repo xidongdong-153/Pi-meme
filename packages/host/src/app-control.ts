@@ -1246,6 +1246,7 @@ export async function createAppControl(options: Options) {
       fileOperations: ['preview', 'search', 'write'],
       features: [
         'system-tools',
+        'computer-use',
         ...(options.visualizations ? (['visualize', 'visualize-runtime'] as const) : []),
         ...(options.imageLibrary ? (['image-library', 'image-library-upload'] as const) : []),
         ...(options.imageGeneration ? ['image-generation' as const] : []),

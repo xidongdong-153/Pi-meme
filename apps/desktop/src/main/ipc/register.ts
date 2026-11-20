@@ -1,3 +1,4 @@
+import { registerComputerUse } from '../computer-use/controller'
 import { app, dialog, ipcMain, shell, type BrowserWindow } from 'electron'
 import { readFile, writeFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
@@ -35,6 +36,7 @@ export function registerPlatformIpc(
         throw new Error('不允许此页面调用本机平台接口')
       return action(...args)
     })
+  registerComputerUse(handle, getWindow)
   const local = async () => {
     if (!(await getConnection()).local) throw new Error('远程服务不能调用本机文件操作')
     const window = getWindow()

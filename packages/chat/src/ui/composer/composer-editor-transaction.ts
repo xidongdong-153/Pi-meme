@@ -5,7 +5,7 @@ import { composerDocument } from './composer-document'
 import { createEditorToken, editorPluginPositions } from './editor-plugin-tokens'
 import { editorSelection, readEditorText, setEditorSelection } from './rich-draft'
 import { fileReferenceNodes } from './editor-file-tokens'
-import { fileReferences } from './completion-query'
+import { composerReferences } from './completion-query'
 
 type Selection = { anchor: number; focus: number }
 type EditorInline = ComposerInline | { kind: 'file'; text: string }
@@ -15,7 +15,7 @@ function units(value: ComposerDraftData) {
     const result: EditorInline[] = []
     const textUnits = (text: string) => Array.from(text, (text): EditorInline => ({ kind: 'text', text }))
     let offset = 0
-    for (const reference of fileReferences(part.text)) {
+    for (const reference of composerReferences(part.text)) {
       result.push(...textUnits(part.text.slice(offset, reference.start)), { kind: 'file', text: reference.text })
       offset = reference.end
     }
@@ -62,7 +62,7 @@ export function editorDraftNodes(value: ComposerDraftData, plugins: AgentPluginO
 export function editorMatchesDraft(element: HTMLElement, value: ComposerDraftData) {
   if (readEditorText(element) !== value.draft) return false
   const files = [...element.querySelectorAll<HTMLElement>('[data-file-token]')]
-  const references = fileReferences(value.draft)
+  const references = composerReferences(value.draft)
   if (
     files.length !== references.length ||
     files.some((token, index) => token.dataset.fileToken !== references[index].text)

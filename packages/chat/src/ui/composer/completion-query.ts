@@ -1,14 +1,23 @@
-export function fileReferences(text: string) {
-  return [...text.matchAll(/(?:^|[\s\uFFFC])(@"([^"\n]+)")/gu)].map((match) => ({
+export const computerMention = '@[电脑]'
+
+export function composerReferences(text: string) {
+  return [...text.matchAll(/(?:^|[\s\uFFFC])(@"([^"\n]+)"|@\[电脑\])/gu)].map((match) => ({
     text: match[1],
-    path: match[2],
+    computer: match[1] === computerMention,
+    path: match[2] ?? '',
     start: match.index + match[0].length - match[1].length,
     end: match.index + match[0].length,
   }))
 }
 
+export function fileReferences(text: string) {
+  return composerReferences(text)
+    .filter((ref) => !ref.computer)
+    .map(({ text, path, start, end }) => ({ text, path, start, end }))
+}
+
 export function completionQuery(draft: string, caret: number) {
-  if (fileReferences(draft).some((reference) => caret > reference.start && caret <= reference.end)) return null
+  if (composerReferences(draft).some((reference) => caret > reference.start && caret <= reference.end)) return null
   const before = draft.slice(0, caret)
   const file = before.match(/(?:^|\s|\uFFFC)(@"([^"]*)|@([^\s"@]*))$/)
   if (file)

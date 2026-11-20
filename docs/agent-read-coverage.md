@@ -67,7 +67,7 @@ system_read({ operation: 'capabilities.describe', args: ['sessions.history'] })
 
 旧预览接口保留原有小文件语义。大目录使用 `files.listPage`；大 UTF-8 文件使用 `files.readPiece([{relativePath,offset?,limit?,revision?},WorkspaceRef?])`，不受旧 1 MiB 文本预览限制。保持返回的文件修订与字节偏移；文件变化、非 UTF-8、字符中间偏移及非法路径会被拒绝。
 
-## 设置的 16 个入口
+## 设置入口
 
 ID 与标题以 [settings-page.tsx](../packages/app-ui/src/settings/settings-page.tsx) 为准。`account` 是“个人资料”，`profile` 是“用量”，不能按英文 ID 猜业务。
 
@@ -87,6 +87,7 @@ ID 与标题以 [settings-page.tsx](../packages/app-ui/src/settings/settings-pag
 | `plugins` 插件              | `plugins.list/get/status/dependencies/permissions/session/diagnostics/defaults`、`client.plugins.ui.list` | 安装、授权、依赖、项目状态、本轮代次、已加载 UI 元数据分别读取；不执行私有渲染或任意插件业务 |
 | `mcp` MCP                   | `mcp.get/status/tools`                                                                                    | 保存配置与本轮加载信息；没有工具捕获时为 unknown，不为了查询建立 MCP 连接                    |
 | `browser` 浏览器            | `browser.settings.get/history.list/downloads.list/downloads.get/permissions.list/data.status`             | 发起 Desktop 的本地浏览器档案；Web/无客户端不支持，Cookie/网站存储正文为 not-inspected       |
+| `computer` 电脑操控         | `computer.windows/snapshot/screenshot`                                                                    | 发起 Desktop 的已授权应用。开关、系统权限和长期授权由用户在本机设置管理                      |
 | `host` 远程                 | `client.connections.list/status`、`client.ssh.capabilities/list`                                          | 入口缓存连接与 SSH 管理能力；不重连、不探测、不返回 token/身份文件                           |
 | `about` 关于                | `host.runtime/modules/diagnostics`、`host.capabilities`                                                   | 执行 Host、已有 Pi 运行时、装配模块与安全诊断；不以客户端所选其他服务替代                    |
 
@@ -113,7 +114,7 @@ ID 与标题以 [settings-page.tsx](../packages/app-ui/src/settings/settings-pag
 
 Host 在提交时固定客户端连接、注册与文档代次。sessionStorage 中的 `clientId` 保持重载归属；新的 WebSocket 有独立 `connectionId`，登记具有 `registrationId/documentGeneration`。请求、回执、卸载与断线都校验完整身份；同 ID 的另一连接不能抢注册、代答或提交原窗口任务。缺少客户端、断线、能力未登记或目标过期时明确失败，不转发到另一窗口或机器。
 
-客户端读取最长等待 30 秒。草稿 ref、修订、页面注册或连接变化后旧读取失效；没有合适输入框时不回退到其他会话的草稿。真实 Desktop IPC、原生截图和平台专用行为仍需对应平台真路径验收。
+电脑操控等待授权与执行最长 90 秒，其他客户端读取最长等待 30 秒。草稿 ref、修订、页面注册或连接变化后旧读取失效；没有合适输入框时不回退到其他会话的草稿。真实 Desktop IPC、原生截图和平台专用行为仍需对应平台真路径验收。
 
 ## 纯读取与验收
 

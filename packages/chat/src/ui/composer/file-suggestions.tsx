@@ -1,11 +1,14 @@
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import type { ProjectFile } from '@pi-meme/contracts/desktop'
-import { ChevronRight, File, Folder } from 'lucide-react'
+import { ChevronRight, File, Folder, Monitor } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { useSuggestionPlacement } from './use-suggestion-placement'
 
 export function FileSuggestions({
   matches,
+  computerMatch,
+  projectFiles,
+  onComputer,
   query,
   loading,
   error,
@@ -13,6 +16,9 @@ export function FileSuggestions({
   onComplete,
   onDirectory,
 }: {
+  computerMatch: boolean
+  projectFiles: boolean
+  onComputer: () => void
   matches: ProjectFile[]
   query: string
   loading: boolean
@@ -34,86 +40,116 @@ export function FileSuggestions({
       )}
       style={maxHeight ? { maxHeight } : undefined}
     >
-      <div className="flex flex-wrap items-center gap-1 px-3 pb-1 pt-2 text-xs text-muted-foreground">
-        <span className="shrink-0">文件与文件夹</span>
-        {directory && (
-          <nav aria-label="文件目录" className="flex min-w-0 max-w-full flex-wrap items-center gap-1">
-            {['项目', ...segments].map((segment, index) => {
-              const path = segments.slice(0, index).join('/') + (index ? '/' : '')
-              return (
-                <button
-                  key={index}
-                  type="button"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => onDirectory(/\s/u.test(path) ? `@"${path}` : `@${path}`)}
-                  className="min-w-0 max-w-full break-all text-left hover:text-foreground"
-                >
-                  / {segment}
-                </button>
-              )
-            })}
-          </nav>
-        )}
-      </div>
       <div
         id="composer-suggestions"
         role="listbox"
-        aria-label="项目文件选择"
-        className="max-h-[min(16rem,50vh)] overflow-y-auto overscroll-contain"
-        style={{ scrollbarWidth: 'thin', maxHeight: maxHeight ? Math.max(100, maxHeight - 40) : undefined }}
+        aria-label="文件与内置能力"
+        className="max-h-[min(22rem,50vh)] overflow-y-auto overscroll-contain"
       >
-        {matches.map((file, index) => {
-          const folder = file.kind === 'directory'
-          const name = file.path.slice(file.path.lastIndexOf('/') + 1)
-          const parent = file.path.slice(0, file.path.lastIndexOf('/') + 1)
-          return (
-            <div key={file.path} className={cn('flex rounded-xl', index === suggestionIndex && 'bg-secondary')}>
-              <TooltipHint content={file.path}>
-                <button
-                  id={`composer-option-${index}`}
-                  type="button"
-                  tabIndex={-1}
-                  role="option"
-                  aria-selected={index === suggestionIndex}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => onComplete(file)}
-                  className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-secondary/60"
-                >
-                  {folder ? (
-                    <span className="flex size-6 shrink-0 items-center justify-center">
-                      <Folder className="size-4 text-muted-foreground" />
-                    </span>
-                  ) : (
-                    <span className="flex size-6 shrink-0 items-center justify-center">
-                      <File className="size-4 text-muted-foreground" />
-                    </span>
-                  )}
-                  <span className="truncate">
-                    {name}
-                    {folder ? '/' : ''}
-                  </span>
-                  {!directory && parent && <span className="truncate text-muted-foreground">{parent}</span>}
-                </button>
-              </TooltipHint>
-              {folder && (
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  aria-label={`进入目录 ${file.path}`}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => onComplete(file, true)}
-                  className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-xl px-2 text-xs text-muted-foreground hover:bg-secondary/60"
-                >
-                  {index === suggestionIndex && <span>进入目录 Tab</span>}
-                  <ChevronRight className="size-3.5" />
-                </button>
+        {computerMatch && (
+          <div role="group" aria-label="内置能力">
+            <div className="px-3 pt-2 pb-1 text-xs text-muted-foreground">内置能力</div>
+            <button
+              type="button"
+              tabIndex={-1}
+              role="option"
+              id="composer-option-0"
+              aria-selected={suggestionIndex === 0}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={onComputer}
+              className={cn(
+                'flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-secondary/60',
+                suggestionIndex === 0 && 'bg-secondary',
+              )}
+            >
+              <Monitor className="size-4" />
+              电脑<span className="text-xs text-muted-foreground">操作这台 Mac 上的应用</span>
+            </button>
+          </div>
+        )}
+        {projectFiles && (
+          <div role="group" aria-label="文件与文件夹">
+            <div className="flex flex-wrap items-center gap-1 px-3 pb-1 pt-2 text-xs text-muted-foreground">
+              <span className="shrink-0">文件与文件夹</span>
+              {directory && (
+                <nav aria-label="文件目录" className="flex min-w-0 max-w-full flex-wrap items-center gap-1">
+                  {['项目', ...segments].map((segment, index) => {
+                    const path = segments.slice(0, index).join('/') + (index ? '/' : '')
+                    return (
+                      <button
+                        key={index}
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => onDirectory(/\s/u.test(path) ? `@"${path}` : `@${path}`)}
+                        className="min-w-0 max-w-full break-all text-left hover:text-foreground"
+                      >
+                        / {segment}
+                      </button>
+                    )
+                  })}
+                </nav>
               )}
             </div>
-          )
-        })}
-        {!matches.length && (
-          <div role="status" className="px-3 py-2 text-xs text-muted-foreground">
-            {loading ? '正在查找文件…' : error || '没有匹配的文件'}
+            <div
+              className="max-h-[min(16rem,50vh)] overflow-y-auto overscroll-contain"
+              style={{ scrollbarWidth: 'thin', maxHeight: maxHeight ? Math.max(100, maxHeight - 40) : undefined }}
+            >
+              {matches.map((file, fileIndex) => {
+                const index = fileIndex + Number(computerMatch)
+                const folder = file.kind === 'directory'
+                const name = file.path.slice(file.path.lastIndexOf('/') + 1)
+                const parent = file.path.slice(0, file.path.lastIndexOf('/') + 1)
+                return (
+                  <div key={file.path} className={cn('flex rounded-xl', index === suggestionIndex && 'bg-secondary')}>
+                    <TooltipHint content={file.path}>
+                      <button
+                        id={`composer-option-${index}`}
+                        type="button"
+                        tabIndex={-1}
+                        role="option"
+                        aria-selected={index === suggestionIndex}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => onComplete(file)}
+                        className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-secondary/60"
+                      >
+                        {folder ? (
+                          <span className="flex size-6 shrink-0 items-center justify-center">
+                            <Folder className="size-4 text-muted-foreground" />
+                          </span>
+                        ) : (
+                          <span className="flex size-6 shrink-0 items-center justify-center">
+                            <File className="size-4 text-muted-foreground" />
+                          </span>
+                        )}
+                        <span className="truncate">
+                          {name}
+                          {folder ? '/' : ''}
+                        </span>
+                        {!directory && parent && <span className="truncate text-muted-foreground">{parent}</span>}
+                      </button>
+                    </TooltipHint>
+                    {folder && (
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        aria-label={`进入目录 ${file.path}`}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => onComplete(file, true)}
+                        className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-xl px-2 text-xs text-muted-foreground hover:bg-secondary/60"
+                      >
+                        {index === suggestionIndex && <span>进入目录 Tab</span>}
+                        <ChevronRight className="size-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+              {!matches.length && (
+                <div role="status" className="px-3 py-2 text-xs text-muted-foreground">
+                  {loading ? '正在查找文件…' : error || '没有匹配的文件'}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

@@ -147,6 +147,7 @@ const reads = new Set([
   'system:register',
   'system:unregister',
   'system:reply',
+  'system:pending',
   'pi:connection',
   'host:session-ref',
   'pi:snapshot',
@@ -348,6 +349,13 @@ export async function createHost(options: HostOptions = {}) {
       string,
       { clientId: string; rootTaskId: string; epoch: number; identity?: SystemClientIdentity }
     >()
+    const computerRuns = new Map<string, { runId: string; end: () => void }>()
+    const endComputerRun = (key: string, runId?: string) => {
+      const run = computerRuns.get(key)
+      if (!run || (runId && run.runId !== runId)) return
+      computerRuns.delete(key)
+      run.end()
+    }
     const systemClients = new SystemClientBridge((clientId, value) => {
       const subscribers = listeners.get(clientId)
       if (!subscribers?.size) return false
@@ -1025,7 +1033,7 @@ export async function createHost(options: HostOptions = {}) {
                 throw new Error('工作台请求来自已结束或过期执行')
               if (
                 !isBuiltinAgentToolAllowed(
-                  request.write ? 'system_write' : 'system_read',
+                  request.write || request.operation.startsWith('computer.') ? 'system_write' : 'system_read',
                   effectiveAgentAccess(current.accessMode, current.mode),
                 )
               )
@@ -1132,7 +1140,21 @@ export async function createHost(options: HostOptions = {}) {
               clientAvailable: (operation) => systemClients.supports(initiatingClient(), operation),
               client: async (operation, args) => {
                 assertActive()
-                return systemClients.request(initiatingClient(), ref, operation, args, signal)
+                if (operation.startsWith('computer.') && !actor.runId)
+                  throw new SystemReadError('cancelled', '本轮电脑操作已结束')
+                const executionId = operation.startsWith('computer.')
+                  ? revisionOf([actor.rootTaskId, actor.runId, actor.epoch, actor.executionGeneration])
+                  : undefined
+                const clientId = initiatingClient()
+                if (executionId && clientId && actor.runId) {
+                  const identity = systemClients.identity(clientId)!
+                  if (computerRuns.get(sessionKey)?.runId !== actor.runId) endComputerRun(sessionKey)
+                  computerRuns.set(sessionKey, {
+                    runId: actor.runId,
+                    end: () => systemClients.endComputer(clientId, ref, identity, executionId),
+                  })
+                }
+                return systemClients.request(clientId, ref, operation, args, signal, executionId)
               },
               read: async (operation, args) => {
                 assertActive()
@@ -1334,6 +1356,7 @@ export async function createHost(options: HostOptions = {}) {
           },
           resolvePlan: (reference, signal) => collaboration.resolvePlan(session, reference, signal),
           release: async () => {
+            endComputerRun(sessionKey)
             try {
               await memoryCoordinator
                 .cancel(sessionKey)
@@ -1413,6 +1436,12 @@ export async function createHost(options: HostOptions = {}) {
       stopServicesForRun: (run) => activities.stopRun(run),
       createSession: (cwd, notify, key, parentKey) => createSession(cwd, notify, key, paths, parentKey),
       emit: (value) => {
+        if (value.event.type === 'agents_update' && computerRuns.size) {
+          for (const agent of value.event.agents) {
+            if (['completed', 'failed', 'stopped', 'interrupted'].includes(agent.status))
+              endComputerRun(agent.sessionKey, agent.runId)
+          }
+        }
         if (value.agentId && value.agentId === value.rootAgentId && value.sessionKey)
           pi.publishSessionEvent(value.sessionKey, value)
         else emit('event', value)
@@ -1427,6 +1456,7 @@ export async function createHost(options: HostOptions = {}) {
     const bindRoot = async (key: string) => collaboration.bindRoot(pi.readSessionBinding(key))
     pi.configureCollaboration({
       pause: async (key) => {
+        endComputerRun(key)
         await bindRoot(key)
         const goal = await appControl?.goalForRuntime(key)
         if (goal?.status === 'active') {
@@ -1471,14 +1501,17 @@ export async function createHost(options: HostOptions = {}) {
         await collaboration.adoptFork(source, pi.readSessionBinding(key), agentIds)
       },
       settled: async (key, event) => {
+        endComputerRun(key, event.runId)
         await bindRoot(key)
         await collaboration.rootSettled(key, event)
       },
       failed: async (key, cause, runId) => {
+        endComputerRun(key, runId)
         await bindRoot(key)
         await collaboration.rootFailed(key, cause, runId)
       },
       stop: async (key) => {
+        endComputerRun(key)
         await bindRoot(key)
         const goal = await appControl?.goalForRuntime(key)
         if (goal?.status === 'active') await goals.stop(goal.session, 'paused', '目标执行已停止')
@@ -2891,6 +2924,14 @@ export async function createHost(options: HostOptions = {}) {
               const identity = request.args[0] as SystemClientIdentity | undefined
               if (!identity || request.connectionId !== identity.connectionId) throw new Error('客户端注销来源不匹配')
               return systemClients.unregister(request.clientId, identity)
+            }
+            if (request.method === 'system:pending') {
+              const [id, identity] = request.args as [string, SystemClientIdentity]
+              return Boolean(
+                identity &&
+                request.connectionId === identity.connectionId &&
+                systemClients.isPending(request.clientId, id, identity),
+              )
             }
             if (request.method === 'system:reply') {
               const reply = request.args[0] as import('@pi-meme/contracts/system-tools').SystemClientReply

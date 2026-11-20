@@ -105,6 +105,7 @@ export type AppHostCapabilities = {
     | 'activities'
     | 'schedules'
     | 'visualize'
+    | 'computer-use'
     | 'visualize-runtime'
     | 'image-generation'
     | 'image-library'

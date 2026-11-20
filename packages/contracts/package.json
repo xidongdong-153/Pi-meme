@@ -42,6 +42,7 @@
     "./service-activity": "./src/service-activity.ts",
     "./keyboard-shortcuts": "./src/keyboard-shortcuts.ts",
     "./schedules": "./src/schedules.ts",
+    "./computer-use": "./src/computer-use.ts",
     "./browser": "./src/browser.ts",
     "./browser-annotations": "./src/browser-annotations.ts",
     "./image-generation": "./src/image-generation.ts",

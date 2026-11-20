@@ -1,3 +1,4 @@
+import { desktopComputer } from '@pi-meme/contracts/computer-use'
 import { goalCommands } from '@pi-meme/contracts/goal'
 import { planCompletion } from './plan-input'
 import * as React from 'react'
@@ -6,7 +7,7 @@ import type { KeyboardEvent } from 'react'
 import type { AgentPluginOption, ComposerProps } from './composer'
 import { editorCaret, setEditorCaret, setEditorSelection } from './rich-draft'
 import { skillMarker } from '@pi-meme/contracts/skills'
-import { completionQuery } from './completion-query'
+import { completionQuery, computerMention } from './completion-query'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 
 export type CompletionItem =
@@ -81,7 +82,14 @@ export function useCommandCompletion({
   }, [focusVersion])
 
   const query = completionQuery(draft, draftCaret)
-  const fileCompletion = suggestionsOpen && query?.kind === 'file' && Boolean(projectPath && loadProjectFiles)
+  const projectFiles = Boolean(projectPath && loadProjectFiles)
+  const computerMatch = Boolean(
+    desktopComputer() &&
+    query?.kind === 'file' &&
+    !query.quoted &&
+    ['电脑', 'computer', 'computer-use'].some((name) => name.startsWith(query.query.toLowerCase())),
+  )
+  const fileCompletion = suggestionsOpen && query?.kind === 'file' && (projectFiles || computerMatch)
   const fileQuery = query?.kind === 'file' ? query.query : undefined
   const [fileResult, setFileResult] = React.useState<{
     path?: string
@@ -175,7 +183,7 @@ export function useCommandCompletion({
   const selectable = matches.flatMap((item, index) =>
     item.kind === 'plugin' && agentPlugins?.disabledReason ? [] : [index],
   )
-  const matchCount = fileCompletion ? fileMatches.length : selectable.length
+  const matchCount = fileCompletion ? fileMatches.length + Number(computerMatch) : selectable.length
   const activeIndex = fileCompletion
     ? Math.min(suggestionIndex, Math.max(0, matchCount - 1))
     : (selectable[Math.min(suggestionIndex, Math.max(0, matchCount - 1))] ?? -1)
@@ -305,12 +313,12 @@ export function useCommandCompletion({
       if (['ArrowDown', 'ArrowUp', 'Enter', 'Tab'].includes(event.key) && !event.shiftKey) {
         event.preventDefault()
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-          if (fileMatches.length)
-            setSuggestionIndex(
-              (index) => (index + (event.key === 'ArrowDown' ? 1 : -1) + fileMatches.length) % fileMatches.length,
-            )
-        } else if (fileMatches[activeIndex]) {
-          const file = fileMatches[activeIndex]
+          if (matchCount)
+            setSuggestionIndex((index) => (index + (event.key === 'ArrowDown' ? 1 : -1) + matchCount) % matchCount)
+        } else if (computerMatch && activeIndex === 0) {
+          replaceFileQuery(`${computerMention} `, false)
+        } else if (fileMatches[activeIndex - Number(computerMatch)]) {
+          const file = fileMatches[activeIndex - Number(computerMatch)]
           completeFile(file, event.key === 'Tab' && file.kind === 'directory')
         }
         return
@@ -359,7 +367,10 @@ export function useCommandCompletion({
     fileMatches,
     fileQuery,
     fileError,
-    filesLoading: fileCompletion && !currentFiles,
+    computerMatch,
+    projectFiles,
+    completeComputer: () => replaceFileQuery(`${computerMention} `, false),
+    filesLoading: projectFiles && fileCompletion && !currentFiles,
     completeFile,
     replaceFileQuery,
     skillCompletion,

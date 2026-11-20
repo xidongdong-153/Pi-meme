@@ -84,6 +84,7 @@ export type PlatformPrepareRequest = {
 
 /** Electron 仅提供本机窗口与文件操作；业务通信由 client 使用 HTTP/WebSocket。 */
 export interface PlatformAdapter {
+  computer?: import('./computer-use').ComputerPlatform
   browser?: BrowserPlatform
   lifecycle?: {
     onPrepare: (handler: (request: PlatformPrepareRequest) => Promise<void>) => () => void

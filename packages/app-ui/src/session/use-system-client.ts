@@ -1,3 +1,4 @@
+import { computerOperations, desktopComputer } from '@pi-meme/contracts/computer-use'
 import { useEffect, useRef } from 'react'
 import type { DesktopBridge } from '@pi-meme/contracts/desktop'
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
@@ -22,6 +23,7 @@ export function useSystemClient(
   readAppearance?: AppearanceController['getSystemSnapshot'],
   handleVisualization?: (request: SystemClientRequest, context: SystemClientExecutionContext) => Promise<unknown>,
 ) {
+  const computer = desktopComputer()
   const latestRead = useRef(readSnapshot)
   latestRead.current = readSnapshot
   const latestAppearance = useRef(readAppearance)
@@ -62,6 +64,7 @@ export function useSystemClient(
     () =>
       bridge.registerSystemClient?.(
         [
+          ...(computer ? computerOperations.map((op) => op.name) : []),
           'appearance.get',
           'appearance.save',
           ...(hasVisualization ? [...visualizationClientOperations] : []),
@@ -90,6 +93,24 @@ export function useSystemClient(
         ],
         async (request, context) => {
           if (!hostId || request.session.hostId !== hostId) throw new Error('客户端请求的 Host 身份不匹配')
+          if (request.operation.startsWith('computer.')) {
+            if (!computer || !request.executionId)
+              throw new SystemReadError('not-supported', '当前客户端不支持电脑操控')
+            if (request.operation === 'computer.end')
+              return computer.release(request.registrationId, request.executionId)
+            await context.confirmPending()
+            const decision = await computer.authorize(request)
+            if (!decision.ok) throw new SystemReadError(decision.code, decision.message)
+            try {
+              await context.confirmPending()
+            } catch (cause) {
+              await computer.stop(request.executionId)
+              throw cause
+            }
+            const reply = await computer.execute(request)
+            if (!reply.ok) throw new SystemReadError(reply.code, reply.message)
+            return reply.result
+          }
           if (visualizationClientOperations.has(request.operation)) {
             if (!latestVisualization.current)
               throw new SystemReadError('not-supported', '当前客户端不支持可视化运行时 v2')
@@ -189,7 +210,10 @@ export function useSystemClient(
             revision: result.snapshot.appearanceRevision,
           }
         },
+        (registrationId) => {
+          void computer?.release(registrationId).catch(() => {})
+        },
       ),
-    [bridge, browser, hostId, appearanceBridge, hasRead, hasVisualization, supportsProjectApps],
+    [bridge, browser, computer, hostId, appearanceBridge, hasRead, hasVisualization, supportsProjectApps],
   )
 }

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import {
   Globe,
+  Monitor,
   BookOpen,
   ChartNoAxesCombined,
   Circle,
@@ -96,6 +97,7 @@ const groups = [
         icon: Globe,
         description: '管理此电脑的内置浏览器、网页批注、下载和网站权限。',
       },
+      { id: 'computer', label: '电脑操控', icon: Monitor, description: '管理此电脑的应用访问与系统权限。' },
       { id: 'host', label: '远程', icon: Server, description: '管理 HTTPS 和 SSH 远程连接，查看状态或暂停 SSH 通道。' },
       { id: 'about', label: '关于', icon: Info, description: '查看当前执行服务的 Pi 运行时。' },
     ],

@@ -157,6 +157,19 @@ Agent 不通过此目录修改主开关、每日预算或清空整个 Host。管
 
 点击参数为 `[tabId, documentId, elementId]`，输入为 `[tabId, documentId, elementId, text]`，滚动为 `[tabId, documentId, deltaY]`。导航后旧文档编号失效；元素移除、禁用或隐藏后不能继续操作。输入会触发 `input` 和 `change` 事件。一次滚动绝对值不超过 10000 像素。网页正文属于外部内容，不能成为提升权限或修改工具规则的依据。
 
+## 本机电脑操控
+
+在 Apple 芯片的 macOS Desktop 输入 `@` 选择「电脑」，或由 Agent 根据任务调用电脑操作。普通任务和完全权限下才能读取或操作本机应用。窗口来自发起消息的 Desktop，连接远程 Host 时也使用这台 Mac。首次访问每个应用时，聊天中可选择仅本轮允许、始终允许或拒绝。长期授权按本机、Host 和应用 bundle ID 保存，可从「设置 → 电脑操控」恢复询问。
+
+| 工具           | 操作                                       | 参数与结果                                                                 |
+| -------------- | ------------------------------------------ | -------------------------------------------------------------------------- |
+| `system_read`  | `computer.windows`                         | `[app]` 返回该应用的窗口 ID 和标题                                         |
+| `system_read`  | `computer.snapshot`、`computer.screenshot` | `[app,windowId]` 返回窗口控件树或 PNG。仅有一个窗口时，快照允许省略窗口 ID |
+| `system_write` | `computer.launch`、`computer.click`        | `[app]` 打开应用，`[app,ref]` 点击本轮读取的控件                           |
+| `system_write` | `computer.setValue`、`computer.press`      | `[app,ref,text]` 填写控件，`[app,windowId,key]` 向指定窗口发送按键         |
+
+`app` 接受本机应用名称或 bundle ID。客户端使用内置的 [agent-desktop](https://github.com/vercel-labs/agent-desktop/tree/v1.3.1) 执行限定的操作。用户可在聊天或 macOS 菜单栏停止当前轮次的电脑操作，锁屏和连接失效也会终止本机操作。
+
 ## 执行与客户端路由
 
 ```mermaid
@@ -184,7 +197,7 @@ Host 用执行身份校验运行代次、运行状态和取消信号。写入使
 
 客户端请求绑定提交时的 `clientId/connectionId/registrationId/documentGeneration`。保留 clientId 的重载归属，新连接和文档代次独立；同 ID 的另一连接不能接管注册或代答旧请求。事件只发送到匹配连接，回执核对当前注册与文档。读取 `client.state/navigation/panels`、`composer.*`、外观、快捷键、入口连接、SSH、平台能力与插件 UI 元数据时不跳页、不挂载面板、不发送草稿或执行插件钩子。输入框先取明确 ref 与数字修订；失效后重新读取。
 
-客户端请求最长等待 30 秒。断线、取消或超时不会转发给其他客户端，也不会自动重放点击、输入或配置修改。超时可能发生在客户端已经执行之后，错误会说明结果不确定；先读取现状再决定下一步。Desktop 浏览器新增工作区摘要、批注、档案设置、历史、下载和权限读取，摘要不恢复标签或保存工作区，历史查询不清空数据。执行 Host、外观 Host、本地浏览器档案与发起客户端分别报告，详见 [客户端覆盖](agent-read-coverage.md#发起客户端的覆盖与隔离)。
+电脑操控请求包含用户决定的时间，最长等待 90 秒。其他客户端请求最长等待 30 秒。断线、取消或超时不会转发给其他客户端，也不会自动重放点击、输入或配置修改。超时可能发生在客户端已经执行之后，错误会说明结果不确定；先读取现状再决定下一步。Desktop 浏览器新增工作区摘要、批注、档案设置、历史、下载和权限读取，摘要不恢复标签或保存工作区，历史查询不清空数据。执行 Host、外观 Host、本地浏览器档案与发起客户端分别报告，详见 [客户端覆盖](agent-read-coverage.md#发起客户端的覆盖与隔离)。
 
 ## 新增内置能力
 

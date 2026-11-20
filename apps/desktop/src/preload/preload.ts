@@ -67,6 +67,28 @@ ipcRenderer.on('platform:lifecycle-cancel', (_event, request: PlatformPrepareReq
 })
 const platform: PlatformAdapter = {
   browser,
+  ...(process.platform === 'darwin' && process.arch === 'arm64'
+    ? {
+        computer: {
+          state: () => ipcRenderer.invoke('computer:state'),
+          enable: (enabled) => ipcRenderer.invoke('computer:enable', enabled),
+          revoke: (hostId, appId) => ipcRenderer.invoke('computer:revoke', hostId, appId),
+          permission: (kind) => ipcRenderer.invoke('computer:permission', kind),
+          authorize: (request) => ipcRenderer.invoke('computer:authorize', request),
+          execute: (request) => ipcRenderer.invoke('computer:execute', request),
+          release: (id, run) => ipcRenderer.invoke('computer:release', id, run),
+          respond: (id, value) => ipcRenderer.invoke('computer:respond', id, value),
+          stop: (id) => ipcRenderer.invoke('computer:stop', id),
+          onChange: (listener) => {
+            const notify = () => listener()
+            ipcRenderer.on('computer:changed', notify)
+            return () => {
+              ipcRenderer.removeListener('computer:changed', notify)
+            }
+          },
+        },
+      }
+    : {}),
   lifecycle: {
     onPrepare: (handler) => {
       if (prepareHandler) throw new Error('当前窗口已注册界面准备处理器')

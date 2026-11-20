@@ -1,4 +1,5 @@
 import { setTimeout, clearTimeout } from 'node:timers'
+import { computerOperations } from '@pi-meme/contracts/computer-use'
 import { randomUUID } from 'node:crypto'
 import type { SessionRef } from '@pi-meme/contracts/app-host'
 import type {
@@ -26,6 +27,7 @@ const readErrorCodes = new Set<ReadErrorCode>([
 ])
 
 const allowed = new Set([
+  ...computerOperations.map((op) => op.name),
   ...clientReadDefinitions.map((definition) => definition.name),
   ...visualizationClientOperationDefinitions.map((definition) => definition.name),
   'appearance.get',
@@ -117,10 +119,36 @@ export class SystemClientBridge {
       throw new Error('客户端读取错误码无效')
     pending.finish(reply.result, reply.error, code as ReadErrorCode | undefined)
   }
-  request(clientId: string | undefined, session: SessionRef, operation: string, args: unknown[], signal: AbortSignal) {
+  endComputer(clientId: string, session: SessionRef, identity: SystemClientIdentity, executionId: string) {
+    if (this.matches(clientId, identity))
+      this.publish(clientId, {
+        ...identity,
+        id: randomUUID(),
+        operation: 'computer.end',
+        args: [],
+        session,
+        executionId,
+        deadline: Date.now() + 30000,
+      })
+  }
+  isPending(clientId: string, id: string, identity: SystemClientIdentity) {
+    const pending = this.pending.get(id)
+    return Boolean(
+      pending && pending.clientId === clientId && same(pending.identity, identity) && this.matches(clientId, identity),
+    )
+  }
+  request(
+    clientId: string | undefined,
+    session: SessionRef,
+    operation: string,
+    args: unknown[],
+    signal: AbortSignal,
+    executionId?: string,
+  ) {
     signal.throwIfAborted()
     const identity = this.identity(clientId)
     if (!clientId || !identity || !this.supports(clientId, operation)) throw new Error('发起客户端未连接或不支持此操作')
+    const timeout = executionId ? 90_000 : 30_000
     const id = randomUUID()
     return new Promise<unknown>((resolve, reject) => {
       let settled = false
@@ -139,14 +167,24 @@ export class SystemClientBridge {
       }
       timer = setTimeout(
         finish,
-        30_000,
+        timeout,
         undefined,
         '客户端操作超时，结果不确定；请先查询状态，不要直接重试写操作',
         'timeout',
       )
       this.pending.set(id, { clientId, identity, finish })
       signal.addEventListener('abort', abort, { once: true })
-      if (!this.publish(clientId, { id, operation, args, session, ...identity, deadline: Date.now() + 30_000 }))
+      if (
+        !this.publish(clientId, {
+          id,
+          operation,
+          args,
+          session,
+          ...identity,
+          executionId,
+          deadline: Date.now() + timeout,
+        })
+      )
         finish(undefined, '发起客户端已离线', 'disconnected')
     })
   }

@@ -7,7 +7,7 @@ import { useCommandCompletion } from './use-command-completion'
 import { FileSuggestions } from './file-suggestions'
 import { CommandSuggestions } from './command-suggestions'
 import { SessionNamePanel } from './session-name-panel'
-import { completionQuery, fileReferences } from './completion-query'
+import { completionQuery, composerReferences } from './completion-query'
 import { skillMarker } from '@pi-meme/contracts/skills'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { editorCaret, editorSelection, readEditorText, setEditorCaret, setEditorSelection } from './rich-draft'
@@ -100,6 +100,9 @@ export function ComposerEditor({
     commandCompletion,
     fileCompletion,
     fileMatches,
+    computerMatch,
+    projectFiles,
+    completeComputer,
     fileQuery,
     fileError,
     filesLoading,
@@ -286,6 +289,9 @@ export function ComposerEditor({
       {fileCompletion && (
         <FileSuggestions
           matches={fileMatches}
+          computerMatch={computerMatch}
+          projectFiles={projectFiles}
+          onComputer={completeComputer}
           query={fileQuery ?? ''}
           loading={filesLoading}
           error={fileError}
@@ -326,7 +332,7 @@ export function ComposerEditor({
         aria-expanded={fileCompletion || commandCompletion}
         aria-controls={fileCompletion || commandCompletion ? 'composer-suggestions' : undefined}
         aria-activedescendant={
-          suggestionIndex >= 0 && (fileMatches.length || matches.length)
+          suggestionIndex >= 0 && (computerMatch || fileMatches.length || matches.length)
             ? `composer-option-${suggestionIndex}`
             : undefined
         }
@@ -363,7 +369,7 @@ export function ComposerEditor({
             }
           }
           const tokenIndex = event.key === 'Backspace' ? caret - 1 : event.key === 'Delete' ? caret : -1
-          const file = fileReferences(draft).find((reference) =>
+          const file = composerReferences(draft).find((reference) =>
             event.key === 'Backspace' ? reference.end === caret : event.key === 'Delete' && reference.start === caret,
           )
           if (window.getSelection()?.isCollapsed && file) {
