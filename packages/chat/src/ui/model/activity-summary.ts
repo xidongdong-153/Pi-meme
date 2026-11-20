@@ -1,5 +1,5 @@
 import type { ActivityItem, RenderSegment } from './types'
-import { parseToolMeta, type ToolKind } from './tool-details'
+import { parseComputerTool, parseToolMeta, type ToolKind } from './tool-details'
 import { getThinkingLabel } from './thinking-labels'
 
 export function groupAdjacentActivities(items: ActivityItem[], finalText = ''): RenderSegment[] {
@@ -55,6 +55,7 @@ const activityActions: Record<ToolKind | 'thinking', string> = {
   image: '查看图片',
   'image-generation': '生成图片',
   search: '搜索内容',
+  computer: '操作电脑',
   generic: '使用工具',
   thinking: '思考',
 }
@@ -64,6 +65,9 @@ function activityAction(item: ActivityItem): string {
   if (item.type !== 'thinking' && item.type !== 'narration') {
     if (item.name === 'request_user_input') return '向你提问'
     if (item.name === 'codemode') return '执行脚本'
+  }
+  if (meta.kind === 'computer') {
+    return parseComputerTool(item)?.isWrite ? '操作电脑' : '查看电脑'
   }
   if (meta.kind === 'image-generation' && meta.summary === '已编辑图片') return '编辑图片'
   return activityActions[meta.kind]
@@ -142,7 +146,7 @@ export function summarizeActivities(
       status: failed ? 'error' : 'complete',
     }
   }
-  const target = ['文件', '图片'].find((value) => parts.every((part) => part.endsWith(value)))
+  const target = ['文件', '图片', '电脑'].find((value) => parts.every((part) => part.endsWith(value)))
   const phrases = target ? parts.map((part) => part.slice(0, -target.length)) : parts
   const summary =
     parts.length > 3
@@ -172,6 +176,8 @@ export function runningActivityLabel(items: ActivityItem[]): string {
       if (meta.kind === 'edit') return `${meta.summary.replace('已编辑', '正在编辑').replace('已修改', '正在修改')}…`
       if (meta.kind === 'write') return `${meta.summary.replace('已创建', '正在创建')}…`
       if (meta.kind === 'search') return `${meta.summary.replace(/^已在/u, '正在')}…`
+      if (meta.kind === 'computer')
+        return `${meta.summary.replace(/^已(?:在|向)?/u, (m) => (m === '已' ? '正在' : `正在${m.slice(1)}`))}…`
       return item.name ? `正在执行 ${item.name}…` : '正在执行工具…'
     }
   }

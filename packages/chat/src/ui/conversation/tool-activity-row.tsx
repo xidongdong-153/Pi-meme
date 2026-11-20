@@ -4,7 +4,7 @@ import { PluginToolCard } from '@pi-meme/ui/components/plugin-tool-card'
 import { PluginMessageActions } from '@pi-meme/ui/components/plugin-message-actions'
 import type { ActivityItem } from '../model/types'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { BookOpen, ChevronDown, Images, Pencil, Search, Sparkles, SquareTerminal, Wrench } from 'lucide-react'
+import { BookOpen, ChevronDown, Images, Monitor, Pencil, Search, Sparkles, SquareTerminal, Wrench } from 'lucide-react'
 import {
   extractDiff,
   extractFilePatch,
@@ -12,6 +12,7 @@ import {
   fileChangeStats,
   formatDetailValue,
   isCommandExecution,
+  parseComputerTool,
   parseToolMeta,
 } from '../model/tool-details'
 import { FileToolDiff } from './file-tool-diff'
@@ -21,6 +22,7 @@ import { ImageThumbnail } from '../content/message-image'
 import { imageSource } from '../content/image-viewer'
 import { toolMessageActionAnchor } from '../model/tool-message-action-anchor'
 import { ToolExecutionDetails } from './tool-execution-details'
+import { ComputerToolDetails } from './computer-tool-details'
 import { RetainedDisclosure } from './retained-disclosure'
 import { ActivityDuration } from './activity-duration'
 
@@ -49,6 +51,7 @@ function ToolActivityRowContent({
   const isError = item.status === 'error'
 
   const meta = React.useMemo(() => parseToolMeta(item), [item])
+  const computerInfo = React.useMemo(() => parseComputerTool(item), [item])
   const fileChange = React.useMemo(
     () =>
       !isRunning && !isError && (meta.kind === 'edit' || meta.kind === 'write')
@@ -65,6 +68,7 @@ function ToolActivityRowContent({
     image: Images,
     'image-generation': Images,
     search: Search,
+    computer: Monitor,
     generic: Wrench,
     thinking: Sparkles,
   }[meta.kind]
@@ -106,6 +110,7 @@ function ToolActivityRowContent({
   )
   const hasDetail =
     images.length > 0 ||
+    computerInfo !== undefined ||
     (isError
       ? Boolean(rawText || item.children?.length)
       : isFileMutation
@@ -221,16 +226,27 @@ function ToolActivityRowContent({
               hasOpened && <MemoFileToolDiff patch={filePatch} path={meta.fullPath} />
             ) : (
               <div className="min-w-0">
-                {(!imageOnly || isError) && (
-                  <ToolExecutionDetails
-                    code={isExecution ? (script ?? command) : undefined}
-                    output={isExecution ? rawText : diff || rawText}
-                    isScript={script !== undefined}
+                {computerInfo ? (
+                  <ComputerToolDetails
+                    info={computerInfo}
+                    result={item.result}
                     isRunning={isRunning}
                     isPaused={isPaused}
-                  >
-                    {diffContent}
-                  </ToolExecutionDetails>
+                    isError={isError}
+                    hasImages={images.length > 0}
+                  />
+                ) : (
+                  (!imageOnly || isError) && (
+                    <ToolExecutionDetails
+                      code={isExecution ? (script ?? command) : undefined}
+                      output={isExecution ? rawText : diff || rawText}
+                      isScript={script !== undefined}
+                      isRunning={isRunning}
+                      isPaused={isPaused}
+                    >
+                      {diffContent}
+                    </ToolExecutionDetails>
+                  )
                 )}
                 {item.children?.map((child) => (
                   <NestedToolActivity

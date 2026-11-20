@@ -5,7 +5,7 @@ import { activeDuration } from '../model/active-duration'
 import type { ActivityItem } from '../model/types'
 import { isCommandExecution } from '../model/tool-details'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { BookOpen, ChevronDown, Images, Pencil, Search, Sparkles, SquareTerminal, Wrench } from 'lucide-react'
+import { BookOpen, ChevronDown, Images, Monitor, Pencil, Search, Sparkles, SquareTerminal, Wrench } from 'lucide-react'
 import {
   currentActivity,
   groupAdjacentActivities,
@@ -28,6 +28,7 @@ const activityIcons = {
   image: Images,
   'image-generation': Images,
   search: Search,
+  computer: Monitor,
   generic: Wrench,
   thinking: Sparkles,
 }

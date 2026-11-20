@@ -1,6 +1,7 @@
 import type { ActivityItem } from './types'
 
-export type ToolKind = 'command' | 'read' | 'write' | 'edit' | 'search' | 'image' | 'image-generation' | 'generic'
+export type ToolKind =
+  'command' | 'read' | 'write' | 'edit' | 'search' | 'image' | 'image-generation' | 'computer' | 'generic'
 
 const commandExecutionNames = new Set([
   'bash',
@@ -133,6 +134,99 @@ export function formatDetailValue(value: unknown): string {
   return String(value)
 }
 
+export type ComputerToolInfo = {
+  operation: string
+  action: string
+  app: string
+  windowId?: string
+  ref?: string
+  text?: string
+  key?: string
+  isWrite: boolean
+}
+
+const computerWriteActions = new Set(['launch', 'click', 'setValue', 'press'])
+
+export function parseComputerTool(item: ActivityItem): ComputerToolInfo | undefined {
+  if (item.type === 'thinking' || item.type === 'narration') return
+  const name = (item.name || '').toLowerCase()
+  if (name !== 'system_read' && name !== 'system_write') return
+  const args = item.args as Record<string, unknown> | undefined
+  const operation = typeof args?.operation === 'string' ? args.operation : ''
+  if (!operation.startsWith('computer.')) return
+  const action = operation.slice('computer.'.length)
+  const opArgs = Array.isArray(args?.args) ? args.args : []
+  const app = typeof opArgs[0] === 'string' ? opArgs[0] : ''
+  const second = typeof opArgs[1] === 'string' ? opArgs[1] : undefined
+  const third = typeof opArgs[2] === 'string' ? opArgs[2] : undefined
+  return {
+    operation,
+    action,
+    app,
+    windowId: action === 'snapshot' || action === 'screenshot' || action === 'press' ? second : undefined,
+    ref: action === 'click' || action === 'setValue' ? second : undefined,
+    text: action === 'setValue' ? third : undefined,
+    key: action === 'press' ? third : undefined,
+    isWrite: computerWriteActions.has(action),
+  }
+}
+
+export function parseComputerResult(result: unknown): {
+  parsed: unknown
+  rawText: string
+  error?: { code?: string; message?: string }
+} {
+  const rawText = formatDetailValue(result)
+  let parsed: unknown = result
+  if (rawText) {
+    try {
+      parsed = JSON.parse(rawText)
+    } catch {
+      parsed = rawText
+    }
+  }
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const record = parsed as Record<string, unknown>
+    if (record.error && typeof record.error === 'object') {
+      const err = record.error as Record<string, unknown>
+      return {
+        parsed,
+        rawText,
+        error: {
+          code: typeof err.code === 'string' ? err.code : undefined,
+          message: typeof err.message === 'string' ? err.message : undefined,
+        },
+      }
+    }
+  }
+  return { parsed, rawText }
+}
+
+function computerSummary(info: ComputerToolInfo, result: unknown): string {
+  const app = info.app || '应用'
+  switch (info.action) {
+    case 'windows': {
+      const { parsed } = parseComputerResult(result)
+      const count = Array.isArray(parsed) ? parsed.length : undefined
+      return count !== undefined ? `已查看 ${app} 的 ${count} 个窗口` : `已查看 ${app} 的窗口`
+    }
+    case 'snapshot':
+      return `已读取 ${app} 的界面控件`
+    case 'screenshot':
+      return `已截取 ${app} 的窗口`
+    case 'launch':
+      return `已打开 ${app}`
+    case 'click':
+      return `已点击 ${app} 中的控件`
+    case 'setValue':
+      return `已在 ${app} 中填写内容`
+    case 'press':
+      return info.key ? `已向 ${app} 发送按键 ${info.key}` : `已向 ${app} 发送按键`
+    default:
+      return info.app ? `已操作 ${info.app}` : '已操作电脑'
+  }
+}
+
 export function parseToolMeta(item: ActivityItem): {
   kind: ToolKind | 'thinking'
   summary: string
@@ -156,6 +250,13 @@ export function parseToolMeta(item: ActivityItem): {
   const args = item.args as Record<string, unknown> | undefined
 
   if (name === 'request_user_input') return { kind: 'generic', summary: '已向用户提问' }
+  const computer = parseComputerTool(item)
+  if (computer) {
+    return {
+      kind: 'computer',
+      summary: computerSummary(computer, item.result),
+    }
+  }
   if (name === 'image_gen') {
     const editing = Boolean(
       (Array.isArray(args?.referenced_image_paths) && args.referenced_image_paths.length) ||
