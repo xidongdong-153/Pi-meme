@@ -1,4 +1,5 @@
 import type { ActivityItem } from './types'
+import type { ComputerSnapshotSurface } from '@pi-meme/contracts/computer-use'
 
 export type ToolKind =
   'command' | 'read' | 'write' | 'edit' | 'search' | 'image' | 'image-generation' | 'computer' | 'generic'
@@ -139,6 +140,7 @@ export type ComputerToolInfo = {
   action: string
   app: string
   windowId?: string
+  surface?: ComputerSnapshotSurface
   ref?: string
   text?: string
   key?: string
@@ -146,6 +148,24 @@ export type ComputerToolInfo = {
 }
 
 const computerWriteActions = new Set(['launch', 'click', 'setValue', 'press'])
+const computerSurfaceLabels = {
+  window: '界面控件',
+  menubar: '应用菜单栏',
+  menu: '原生菜单',
+  sheet: '窗口对话框',
+} satisfies Record<ComputerSnapshotSurface, string>
+
+export function computerSurfaceLabel(surface: ComputerSnapshotSurface | undefined) {
+  return computerSurfaceLabels[surface ?? 'window']
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+}
+
+function resultString(value: unknown) {
+  return typeof value === 'string' && value ? value : undefined
+}
 
 export function parseComputerTool(item: ActivityItem): ComputerToolInfo | undefined {
   if (item.type === 'thinking' || item.type === 'narration') return
@@ -157,13 +177,21 @@ export function parseComputerTool(item: ActivityItem): ComputerToolInfo | undefi
   const action = operation.slice('computer.'.length)
   const opArgs = Array.isArray(args?.args) ? args.args : []
   const app = typeof opArgs[0] === 'string' ? opArgs[0] : ''
-  const second = typeof opArgs[1] === 'string' ? opArgs[1] : undefined
+  const second = resultString(opArgs[1])
   const third = typeof opArgs[2] === 'string' ? opArgs[2] : undefined
+  const snapshotOptions = action === 'snapshot' ? objectRecord(opArgs[1]) : undefined
+  const surface = resultString(snapshotOptions?.surface)
+  const windowAction = action === 'click' ? objectRecord(opArgs[2]) : undefined
   return {
     operation,
     action,
     app,
-    windowId: action === 'snapshot' || action === 'screenshot' || action === 'press' ? second : undefined,
+    windowId:
+      action === 'snapshot' || action === 'screenshot' || action === 'press'
+        ? (second ?? resultString(snapshotOptions?.windowId))
+        : resultString(windowAction?.windowId),
+    surface:
+      surface && Object.hasOwn(computerSurfaceLabels, surface) ? (surface as ComputerSnapshotSurface) : undefined,
     ref: action === 'click' || action === 'setValue' ? second : undefined,
     text: action === 'setValue' ? third : undefined,
     key: action === 'press' ? third : undefined,
@@ -171,11 +199,7 @@ export function parseComputerTool(item: ActivityItem): ComputerToolInfo | undefi
   }
 }
 
-export function parseComputerResult(result: unknown): {
-  parsed: unknown
-  rawText: string
-  error?: { code?: string; message?: string }
-} {
+export function parseComputerResult(result: unknown) {
   const rawText = formatDetailValue(result)
   let parsed: unknown = result
   if (rawText) {
@@ -185,25 +209,37 @@ export function parseComputerResult(result: unknown): {
       parsed = rawText
     }
   }
-  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-    const record = parsed as Record<string, unknown>
-    if (record.error && typeof record.error === 'object') {
-      const err = record.error as Record<string, unknown>
-      return {
-        parsed,
-        rawText,
-        error: {
-          code: typeof err.code === 'string' ? err.code : undefined,
-          message: typeof err.message === 'string' ? err.message : undefined,
-        },
-      }
-    }
+  const record = objectRecord(parsed)
+  const err = objectRecord(record?.error)
+  const details = objectRecord(err?.details)
+  const disposition = objectRecord(record?.disposition)
+  const resolvedTarget = objectRecord(record?.resolvedTarget)
+  return {
+    parsed,
+    rawText,
+    delivery: resultString(details?.delivery ?? disposition?.delivery),
+    retry: resultString(details?.retry ?? disposition?.retry),
+    target: resultString(resolvedTarget?.name),
+    error: err
+      ? {
+          code: resultString(err.code),
+          message: resultString(err.message),
+          nativeCode: resultString(details?.nativeCode),
+          phase: resultString(details?.phase),
+          recovery: resultString(details?.recovery),
+        }
+      : undefined,
   }
-  return { parsed, rawText }
 }
 
 function computerSummary(info: ComputerToolInfo, result: unknown): string {
   const app = info.app || '应用'
+  if (info.isWrite && result) {
+    const { delivery, error } = parseComputerResult(result)
+    if (error) return `${app} 的操作失败`
+    if (delivery === 'delivered_unverified' || delivery === 'delivery_uncertain') return `${app} 的操作结果待确认`
+    if (delivery === 'not_delivered') return `${app} 的操作未送达`
+  }
   switch (info.action) {
     case 'windows': {
       const { parsed } = parseComputerResult(result)
@@ -211,11 +247,11 @@ function computerSummary(info: ComputerToolInfo, result: unknown): string {
       return count !== undefined ? `已查看 ${app} 的 ${count} 个窗口` : `已查看 ${app} 的窗口`
     }
     case 'snapshot':
-      return `已读取 ${app} 的界面控件`
+      return `已读取 ${app} 的${computerSurfaceLabel(info.surface)}`
     case 'screenshot':
       return `已截取 ${app} 的窗口`
     case 'launch':
-      return `已打开 ${app}`
+      return objectRecord(parseComputerResult(result).parsed)?.window ? `已打开 ${app} 的窗口` : `已启动 ${app}`
     case 'click':
       return `已点击 ${app} 中的控件`
     case 'setValue':

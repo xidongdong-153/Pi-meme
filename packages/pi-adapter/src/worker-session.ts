@@ -282,14 +282,19 @@ export function createWorkerSession(
             .catch((cause: unknown) => {
               if (worker === current && !controller.signal.aborted) {
                 const read = request.kind === 'system' && !request.systemRequest?.write
+                const operation = request.systemRequest?.operation
+                const computer =
+                  request.kind === 'system' && typeof operation === 'string' && operation.startsWith('computer.')
+                const structured = read || computer
+                const failure = cause instanceof SystemReadError ? cause : undefined
                 current.postMessage({
                   hostReply: request.id,
-                  error: read
-                    ? cause instanceof SystemReadError
-                      ? cause.message
-                      : '读取失败；未返回内部错误正文'
+                  error: structured
+                    ? (failure?.message ?? (read ? '读取失败；未返回内部错误正文' : '电脑操作失败，请先回读界面'))
                     : String(cause),
-                  ...(read ? { errorCode: cause instanceof SystemReadError ? cause.code : 'internal-error' } : {}),
+                  ...(structured
+                    ? { errorCode: failure?.code ?? 'internal-error', errorDetails: failure?.details }
+                    : {}),
                 })
               }
             })

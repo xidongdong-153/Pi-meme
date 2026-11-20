@@ -1,7 +1,16 @@
-import type { ReadErrorCode } from './system-read'
+import type { ReadErrorCode, SystemReadErrorDetails } from './system-read'
 import type { SystemClientRequest, SystemOperation } from './system-tools'
 
+export const computerSnapshotSurfaces = ['window', 'menubar', 'menu', 'sheet'] as const
+export type ComputerSnapshotSurface = (typeof computerSnapshotSurfaces)[number]
+export type ComputerSnapshotOptions = { surface: ComputerSnapshotSurface; windowId?: string }
+export const computerWindowActions = ['close', 'minimize', 'fullscreen', 'zoom'] as const
+export type ComputerWindowAction = (typeof computerWindowActions)[number]
+
 const text = (maxLength: number) => ({ type: 'string', minLength: 1, maxLength })
+function options(properties: Record<string, unknown>, required: string[] = []) {
+  return { type: 'object', properties, required, additionalProperties: false }
+}
 const app = text(180)
 const windowId = text(80)
 const ref = text(100)
@@ -13,7 +22,12 @@ const outputSchemas: Record<string, Record<string, unknown>> = {
   snapshot: {
     type: 'object',
     required: ['app', 'snapshot_id', 'tree'],
-    properties: { app, snapshot_id: { type: 'string' }, tree: { type: 'object' } },
+    properties: {
+      app,
+      snapshot_id: { type: 'string' },
+      surface: { enum: computerSnapshotSurfaces },
+      tree: { type: 'object' },
+    },
   },
   screenshot: {
     type: 'object',
@@ -47,25 +61,42 @@ export const computerOperations = [
   ]),
   operation(
     'snapshot',
-    '读取指定应用窗口的控件和引用，窗口歧义时先列出窗口',
-    '[app,windowId?]',
+    '读取窗口控件或应用原生菜单的引用。menubar 已提供明确且支持 Click 的目标项时可直接点击。缺少可用项时再展开所属菜单并读 menu。菜单可在无普通窗口时读取',
+    '[app,windowId?] 或 [app,{surface:"window"|"menubar"|"menu"|"sheet",windowId?}]',
     false,
-    [app, windowId],
+    [app, { anyOf: [windowId, options({ surface: { enum: computerSnapshotSurfaces }, windowId }, ['surface'])] }],
     1,
   ),
   operation('screenshot', '读取已授权应用单个窗口的 PNG 图片', '[app,windowId]', false, [app, windowId]),
-  operation('launch', '打开指定的已安装应用', '[app]', true, [app]),
-  operation('click', '点击该应用本轮快照中的控件，完成后再读取确认', '[app,ref]', true, [app, ref]),
+  operation(
+    'launch',
+    '打开指定的已安装应用。activate 为 true 时请求显示窗口，并等待窗口出现',
+    '[app,{activate?}?]',
+    true,
+    [app, options({ activate: { type: 'boolean' } })],
+    1,
+  ),
+  operation(
+    'click',
+    '点击当前快照中声明 Click 的控件，随后回读确认。关闭、最小化、全屏或缩放窗口须明确提供窗口及动作',
+    '[app,ref,{windowId,windowAction:"close"|"minimize"|"fullscreen"|"zoom"}?]',
+    true,
+    [app, ref, options({ windowId, windowAction: { enum: computerWindowActions } }, ['windowId', 'windowAction'])],
+    2,
+  ),
   operation('setValue', '填写该应用本轮快照中的可编辑控件', '[app,ref,text]', true, [
     app,
     ref,
     { type: 'string', maxLength: 16000 },
   ]),
-  operation('press', '向指定应用的窗口发送组合键，如 return 或 cmd+s', '[app,windowId,key]', true, [
-    app,
-    windowId,
-    text(80),
-  ]),
+  operation(
+    'press',
+    '向指定应用的窗口发送组合键，如 cmd+, 或 cmd+comma。focus 为 true 时先激活同一窗口并验证焦点',
+    '[app,windowId,key,{focus?}?]',
+    true,
+    [app, windowId, text(80), options({ focus: { type: 'boolean' } })],
+    3,
+  ),
 ]
 
 export type ComputerState = {
@@ -78,7 +109,8 @@ export type ComputerState = {
 }
 
 export type ComputerPermission = 'accessibility' | 'screen'
-export type ComputerReply = { ok: true; result: unknown } | { ok: false; code: ReadErrorCode; message: string }
+export type ComputerReply =
+  { ok: true; result: unknown } | { ok: false; code: ReadErrorCode; message: string; details?: SystemReadErrorDetails }
 export type ComputerPlatform = {
   state: () => Promise<ComputerState>
   enable: (enabled: boolean) => Promise<void>

@@ -1,4 +1,5 @@
 import type {
+  AppHostCapabilities,
   HostApi,
   HostControlResponse,
   EventSubscription,
@@ -40,6 +41,22 @@ import { visualizationClientOperationDefinitions } from '@pi-meme/contracts/visu
 import { SystemReadError } from '@pi-meme/contracts/system-read'
 import type { PluginClient } from './plugin-client'
 import { createResourceClient, type ResourceClient } from './resource-client'
+
+type SystemClient = {
+  handler: Parameters<NonNullable<DesktopBridge['registerSystemClient']>>[0]
+  onInvalidated?: (registrationId: string) => void
+  operations: string[]
+}
+
+type SystemRegistration = {
+  identity: SystemClientIdentity
+  controller: AbortController
+  features?: AppHostCapabilities['features']
+  confirmedOperations?: string[]
+  pending?: Promise<void>
+}
+
+const visualizationOperations = new Set(visualizationClientOperationDefinitions.map(({ name }) => name))
 
 export type ClientOptions = {
   connection: HostConnection
@@ -153,13 +170,10 @@ export class HostClient {
   private readonly servicesListeners = new Set<() => void>()
   private readonly pluginListeners = new Set<() => void>()
   private readonly appearanceListeners = new Set<() => void>()
-  private systemHandler?: Parameters<NonNullable<DesktopBridge['registerSystemClient']>>[1]
-  private onSystemInvalidated?: (registrationId: string) => void
-  private systemRegistration?: symbol
-  private systemOperations: string[] = []
+  private systemClient?: SystemClient
+  private systemRegistration?: SystemRegistration
   private connectionId = crypto.randomUUID()
   private readonly documentGeneration = crypto.getRandomValues(new Uint32Array(1))[0] + 1
-  private systemIdentity?: SystemClientIdentity
   private socket?: WebSocket
   private reconnectTimer?: ReturnType<typeof setTimeout>
   private reconnectAttempts = 0
@@ -944,7 +958,7 @@ export class HostClient {
       if (!isCurrent()) return
       this.reconnectAttempts = 0
       this.publishTransportConnection()
-      if (this.systemHandler) void this.registerSystemCapabilities().catch((cause) => this.reportError(String(cause)))
+      this.syncSystemCapabilities()
       void this.resynchronize()
     })
     socket.addEventListener('message', (message) => {
@@ -1145,13 +1159,14 @@ export class HostClient {
         break
       case 'system-request': {
         const request = envelope.value
-        const identity = this.systemIdentity
-        const handler = this.systemHandler
+        const registration = this.systemRegistration
+        const identity = registration?.identity
+        const client = this.systemClient
         const current = () =>
           Boolean(
             identity &&
-            identity === this.systemIdentity &&
-            handler === this.systemHandler &&
+            registration === this.systemRegistration &&
+            client === this.systemClient &&
             request.connectionId === identity.connectionId &&
             request.registrationId === identity.registrationId &&
             request.documentGeneration === identity.documentGeneration &&
@@ -1166,8 +1181,8 @@ export class HostClient {
               throw new SystemReadError('timeout', '客户端操作已过期')
           }
           assertActive()
-          if (!handler) throw new SystemReadError('not-supported', '客户端操作不可用')
-          return handler(request, {
+          if (!client) throw new SystemReadError('not-supported', '客户端操作不可用')
+          return client.handler(request, {
             assertActive,
             confirmPending: async () => {
               assertActive()
@@ -1191,8 +1206,9 @@ export class HostClient {
                       {
                         id: request.id,
                         ...identity,
-                        error: String(cause),
+                        error: cause instanceof SystemReadError ? cause.message : String(cause),
                         errorCode: cause instanceof Error && 'code' in cause ? cause.code : undefined,
+                        errorDetails: cause instanceof SystemReadError ? cause.details : undefined,
                       },
                     ],
                     null,
@@ -1236,8 +1252,7 @@ export class HostClient {
     this.suspend()
     this.closed = true
     this.publishTransportConnection()
-    this.systemHandler = undefined
-    this.systemOperations = []
+    this.systemClient = undefined
     for (const subscription of [...this.controlSubscriptions]) subscription.close()
     clearTimeout(this.reconnectTimer)
     this.socket?.close()
@@ -1255,45 +1270,86 @@ export class HostClient {
   }
 
   private resetSystemIdentity() {
-    const identity = this.systemIdentity
-    this.systemIdentity = undefined
-    if (identity) this.onSystemInvalidated?.(identity.registrationId)
+    const registration = this.systemRegistration
+    if (!registration) return
+    this.systemRegistration = undefined
+    registration.controller.abort(new SystemReadError('disconnected', '电脑操控连接已断开，请重新发送'))
+    this.systemClient?.onInvalidated?.(registration.identity.registrationId)
   }
 
-  private async registerSystemCapabilities() {
-    const handler = this.systemHandler
-    const registrationOwner = this.systemRegistration
-    const connectionId = this.connectionId
-    if (this.closed || !handler || !this.transportConnected) return
-    const capabilities = await this.host.capabilities()
-    if (!capabilities.features.includes('system-tools')) return
-    if (
-      handler !== this.systemHandler ||
-      registrationOwner !== this.systemRegistration ||
-      connectionId !== this.connectionId ||
-      !this.transportConnected
-    )
+  private syncSystemCapabilities() {
+    if (!this.transportConnected || (!this.systemClient && !this.systemRegistration)) return
+    const registration = (this.systemRegistration ??= {
+      identity: {
+        connectionId: this.connectionId,
+        registrationId: crypto.randomUUID(),
+        documentGeneration: this.documentGeneration,
+      },
+      controller: new AbortController(),
+    })
+    if (registration.pending) return { registration, pending: registration.pending }
+    const current = () => this.systemRegistration === registration && this.transportConnected
+    // 同一连接串行提交完整目录，更新操作时沿用既有身份和在途请求。
+    const pending = Promise.resolve().then(async () => {
+      try {
+        if (!current()) return
+        const features = (registration.features ??= (await this.host.capabilities()).features)
+        if (!features.includes('system-tools')) return
+        while (current()) {
+          const operations = (this.systemClient?.operations ?? []).filter(
+            (name) =>
+              (!visualizationOperations.has(name) || features.includes('visualize-runtime')) &&
+              (!name.startsWith('computer.') || features.includes('computer-use')),
+          )
+          const confirmed = registration.confirmedOperations
+          if (confirmed?.length === operations.length && operations.every((name, index) => name === confirmed[index]))
+            return
+          const update: SystemClientRegistration = { ...registration.identity, operations }
+          await this.rpc('system:register', [update], null, registration.controller.signal)
+          registration.confirmedOperations = operations
+        }
+      } catch (cause) {
+        registration.confirmedOperations = undefined
+        if (current()) throw cause
+      } finally {
+        registration.pending = undefined
+      }
+    })
+    registration.pending = pending
+    void pending.catch((cause) => this.reportError(`客户端能力注册失败：${String(cause)}`))
+    return { registration, pending }
+  }
+
+  private async confirmComputerRegistration(signal: AbortSignal) {
+    signal.throwIfAborted()
+    const client = this.systemClient
+    const operation = 'computer.windows'
+    if (!client?.operations.includes(operation)) throw new SystemReadError('not-supported', '当前客户端不支持电脑操控')
+    const registration = this.systemRegistration
+    if (this.transportConnected && !registration?.pending && registration?.confirmedOperations?.includes(operation))
       return
-    if (this.systemIdentity?.connectionId === connectionId) return
-    const identity: SystemClientIdentity = {
-      connectionId,
-      registrationId: crypto.randomUUID(),
-      documentGeneration: this.documentGeneration,
-    }
-    this.systemIdentity = identity
-    const visualizationNames = new Set(visualizationClientOperationDefinitions.map((definition) => definition.name))
-    const operations = this.systemOperations.filter(
-      (name) =>
-        (!visualizationNames.has(name) || capabilities.features.includes('visualize-runtime')) &&
-        (!name.startsWith('computer.') || capabilities.features.includes('computer-use')),
-    )
-    const registration: SystemClientRegistration = { ...identity, operations }
+    const sync = this.syncSystemCapabilities()
+    if (!sync) throw new SystemReadError('disconnected', '电脑操控连接尚未就绪，请连接后重试')
+    const deadline = AbortSignal.timeout(5000)
+    const wait = AbortSignal.any([signal, deadline, sync.registration.controller.signal])
     try {
-      await this.rpc('system:register', [registration], null)
+      wait.throwIfAborted()
+      await new Promise<void>((resolve, reject) => {
+        const abort = () => reject(wait.reason)
+        wait.addEventListener('abort', abort, { once: true })
+        void sync.pending.then(resolve, reject).finally(() => wait.removeEventListener('abort', abort))
+      })
     } catch (cause) {
-      if (this.systemIdentity === identity) this.resetSystemIdentity()
-      throw cause
+      if (deadline.aborted) throw new SystemReadError('timeout', '等待 Host 确认电脑操控超时，请重试')
+      if (wait.aborted) throw wait.reason
+      throw new Error('Host 尚未确认电脑操控注册，请重试', { cause })
     }
+    wait.throwIfAborted()
+    if (!this.transportConnected || this.systemRegistration !== sync.registration || this.systemClient !== client)
+      throw new SystemReadError('disconnected', '电脑操控连接已变化，请重新发送')
+    if (!client.operations.includes(operation)) throw new SystemReadError('not-supported', '当前客户端不支持电脑操控')
+    if (!sync.registration.confirmedOperations?.includes(operation))
+      throw new SystemReadError('not-supported', '当前 Host 不支持电脑操控，请更新 Host 后重试')
   }
 
   private async directory() {
@@ -1379,30 +1435,27 @@ export class HostClient {
       return { ...result, snapshot: settingsSnapshot(result.snapshot) }
     }
     return {
-      registerSystemClient: (operations, handler, onInvalidated) => {
-        const registrationOwner = Symbol('system-client-registration')
-        this.systemRegistration = registrationOwner
-        const previousIdentity = this.systemIdentity
-        this.resetSystemIdentity()
-        if (previousIdentity && this.transportConnected)
-          void this.rpc('system:unregister', [previousIdentity], null).catch(() => {})
-        this.onSystemInvalidated = onInvalidated
-        this.systemHandler = handler
-        this.systemOperations = operations
-        void this.registerSystemCapabilities().catch((cause) => this.reportError(String(cause)))
-        return () => {
-          if (this.systemRegistration === registrationOwner) {
-            const identity = this.systemIdentity
-            this.systemRegistration = undefined
-            this.systemHandler = undefined
-            this.systemOperations = []
-            this.resetSystemIdentity()
-            this.onSystemInvalidated = undefined
-            if (identity && this.transportConnected)
-              void this.rpc('system:unregister', [identity], null).catch(() => {})
-          }
+      registerSystemClient: (handler, onInvalidated) => {
+        const registrationId = this.systemRegistration?.identity.registrationId
+        if (registrationId) this.systemClient?.onInvalidated?.(registrationId)
+        const client: SystemClient = { handler, onInvalidated, operations: [] }
+        this.systemClient = client
+        return {
+          updateOperations: (operations) => {
+            if (this.systemClient !== client) return
+            client.operations = operations
+            this.syncSystemCapabilities()
+          },
+          dispose: () => {
+            if (this.systemClient !== client) return
+            this.systemClient = undefined
+            const registrationId = this.systemRegistration?.identity.registrationId
+            if (registrationId) onInvalidated?.(registrationId)
+            this.syncSystemCapabilities()
+          },
         }
       },
+      confirmComputerRegistration: (signal) => this.confirmComputerRegistration(signal),
       scopeSession: (key) => this.createBridge(key),
       openTemporarySession: (key) => rpc('temporary-session:open', [{ sourceSessionKey: key }], key),
       getTemporarySession: () => rpc('temporary-session:get', [], null),

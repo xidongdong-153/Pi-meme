@@ -3,17 +3,29 @@ import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { AppWindow, Check, Code2, Copy, Search } from 'lucide-react'
 import * as React from 'react'
-import { parseComputerResult, type ComputerToolInfo } from '../model/tool-details'
+import { computerSurfaceLabel, parseComputerResult, type ComputerToolInfo } from '../model/tool-details'
 
 const actionLabels: Record<string, string> = {
   windows: '窗口列表',
-  snapshot: '界面控件',
   screenshot: '窗口截图',
   launch: '打开应用',
   click: '点击控件',
   setValue: '填写控件',
   press: '发送按键',
 }
+
+const phaseLabels = new Map([
+  ['target', '定位目标'],
+  ['focus', '窗口聚焦'],
+  ['observation', '读取界面'],
+  ['action', '执行动作'],
+])
+const deliveryLabels = new Map([
+  ['not_delivered', '动作未送达'],
+  ['delivered_unverified', '动作已送达，结果待确认'],
+  ['delivery_uncertain', '动作是否送达待确认'],
+  ['delivered_verified', '工具已核对动作结果'],
+])
 
 type FlatSnapshotNode = {
   key: string
@@ -24,6 +36,7 @@ type FlatSnapshotNode = {
   refId?: string
   disabled?: boolean
   focused?: boolean
+  windowAction?: string
   url?: string
 }
 
@@ -45,9 +58,21 @@ function flattenTree(node: unknown, depth = 0, out: FlatSnapshotNode[] = [], pre
   const url = readString(rec, 'url')
   const disabled = rec.disabled === true || rec.enabled === false
   const focused = rec.focused === true
+  const windowAction = readString(rec, 'window_action')
 
   if (label || value || refId || role !== 'element') {
-    out.push({ key: `${prefix}:${refId ?? out.length}`, depth, role, label, value, refId, disabled, focused, url })
+    out.push({
+      key: `${prefix}:${refId ?? out.length}`,
+      depth,
+      role,
+      label,
+      value,
+      refId,
+      disabled,
+      focused,
+      windowAction,
+      url,
+    })
   }
 
   if (Array.isArray(rec.children)) {
@@ -118,7 +143,7 @@ function ComputerToolDetailsContent({
   const [filter, setFilter] = React.useState('')
   const [copyState, setCopyState] = React.useState<'idle' | 'copied' | 'failed'>('idle')
 
-  const { parsed, rawText, error } = React.useMemo(() => parseComputerResult(result), [result])
+  const { parsed, rawText, error, delivery, retry, target } = React.useMemo(() => parseComputerResult(result), [result])
 
   const formattedRaw = React.useMemo(() => {
     if (!rawText) return ''
@@ -171,7 +196,12 @@ function ComputerToolDetailsContent({
     )
   }, [snapshotData, filter])
 
-  const actionLabel = actionLabels[info.action] ?? info.operation
+  const actionLabel =
+    info.action === 'snapshot' ? computerSurfaceLabel(info.surface) : (actionLabels[info.action] ?? info.operation)
+  const errorCode = error?.nativeCode ?? error?.code
+  const phase = phaseLabels.get(error?.phase ?? '')
+  const deliveryLabel = deliveryLabels.get(delivery ?? '')
+  const recovery = error?.recovery ?? (retry === 'unsafe' ? '请先回读界面确认结果' : undefined)
   const hasRaw = Boolean(formattedRaw)
   const copyFeedback = copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制原始数据'
 
@@ -239,11 +269,15 @@ function ComputerToolDetailsContent({
           {formattedRaw}
         </pre>
       ) : error || (isError && rawText) ? (
-        <div className="flex items-start gap-2 px-3 py-2.5 text-destructive">
-          {error?.code && (
-            <span className="shrink-0 rounded bg-destructive/10 px-1.5 py-0.5 font-mono text-[11px]">{error.code}</span>
+        <div className="space-y-1 px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-1.5 text-destructive">
+            {errorCode && <span className="font-mono text-[11px]">{errorCode}</span>}
+            {phase && <span>{phase}</span>}
+          </div>
+          <p className="text-destructive [overflow-wrap:anywhere]">{error?.message || rawText}</p>
+          {(deliveryLabel || recovery) && (
+            <p className="[overflow-wrap:anywhere]">{[deliveryLabel, recovery].filter(Boolean).join('。')}</p>
           )}
-          <span className="min-w-0 [overflow-wrap:anywhere]">{error?.message || rawText}</span>
         </div>
       ) : isRunning && !rawText && !hasImages ? (
         <div className="px-3 py-2.5">{isPaused ? '已暂停，等待继续执行…' : '正在与本机应用交互…'}</div>
@@ -312,6 +346,7 @@ function ComputerToolDetailsContent({
                       已禁用
                     </span>
                   )}
+                  {node.windowAction && <span className="shrink-0 font-sans text-muted-foreground">窗口操作</span>}
                   {node.focused && (
                     <span className="shrink-0 rounded bg-blue-500/15 px-1 py-px font-sans text-[10px] text-blue-500 dark:text-blue-400">
                       焦点
@@ -327,9 +362,12 @@ function ComputerToolDetailsContent({
         </div>
       ) : (
         <div className="flex flex-col gap-1.5 px-3 py-2.5">
+          {info.isWrite && deliveryLabel && <div>{deliveryLabel}</div>}
+          {info.isWrite && recovery && <div>{recovery}</div>}
           {info.ref && (
             <div className="flex items-center gap-2">
-              <span className="w-14 shrink-0 text-muted-foreground/80">控件引用</span>
+              <span className="w-14 shrink-0 text-muted-foreground/80">目标控件</span>
+              {target && <span className="min-w-0 truncate text-foreground/90">{target}</span>}
               <span className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[11px] text-foreground/90">
                 {info.ref}
               </span>
@@ -358,7 +396,7 @@ function ComputerToolDetailsContent({
               </pre>
             </div>
           )}
-          {!info.ref && !info.key && info.text === undefined && rawText && (
+          {!info.ref && !info.key && info.text === undefined && !deliveryLabel && rawText && (
             <pre className="max-h-[min(12rem,30dvh)] overflow-auto font-mono text-[11px] whitespace-pre-wrap [overflow-wrap:anywhere]">
               {formattedRaw}
             </pre>

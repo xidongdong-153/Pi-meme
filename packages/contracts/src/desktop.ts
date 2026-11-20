@@ -222,15 +222,14 @@ export interface ConnectionBridge {
   onEvent: (callback: (event: DesktopEvent) => void) => () => void
   onConnection: (callback: (connection: Connection) => void) => () => void
   onError: (callback: (error: DesktopError) => void) => () => void
-  /** 为独立会话绑定读取目标，不改变当前界面的会话选择。 */
   registerSystemClient?: (
-    operations: string[],
     handler: (
       request: import('./system-tools').SystemClientRequest,
       context: import('./system-tools').SystemClientExecutionContext,
     ) => Promise<unknown>,
     onInvalidated?: (registrationId: string) => void,
-  ) => () => void
+  ) => { updateOperations: (operations: string[]) => void; dispose: () => void }
+  /** 为独立会话绑定读取目标，不改变当前界面的会话选择。 */
   scopeSession?: (sessionKey: string) => DesktopBridge
   openTemporarySession?: (sourceSessionKey: string) => Promise<Snapshot>
   getTemporarySession?: () => Promise<Snapshot | null>
@@ -273,6 +272,7 @@ export interface WorkspaceBridge {
 
 /** 对话发送、队列、命令与中止。 */
 export interface ChatBridge {
+  confirmComputerRegistration?: (signal: AbortSignal) => Promise<void>
   uploadAttachment: (
     sessionKey: string,
     input: ChatFileUpload,

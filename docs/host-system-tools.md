@@ -161,14 +161,23 @@ Agent 不通过此目录修改主开关、每日预算或清空整个 Host。管
 
 在 Apple 芯片的 macOS Desktop 输入 `@` 选择「电脑」，或由 Agent 根据任务调用电脑操作。普通任务和完全权限下才能读取或操作本机应用。窗口来自发起消息的 Desktop，连接远程 Host 时也使用这台 Mac。首次访问每个应用时，聊天中可选择仅本轮允许、始终允许或拒绝。长期授权按本机、Host 和应用 bundle ID 保存，可从「设置 → 电脑操控」恢复询问。
 
-| 工具           | 操作                                       | 参数与结果                                                                 |
-| -------------- | ------------------------------------------ | -------------------------------------------------------------------------- |
-| `system_read`  | `computer.windows`                         | `[app]` 返回该应用的窗口 ID 和标题                                         |
-| `system_read`  | `computer.snapshot`、`computer.screenshot` | `[app,windowId]` 返回窗口控件树或 PNG。仅有一个窗口时，快照允许省略窗口 ID |
-| `system_write` | `computer.launch`、`computer.click`        | `[app]` 打开应用，`[app,ref]` 点击本轮读取的控件                           |
-| `system_write` | `computer.setValue`、`computer.press`      | `[app,ref,text]` 填写控件，`[app,windowId,key]` 向指定窗口发送按键         |
+| 工具           | 操作                  | 参数与结果                                                                                                        |
+| -------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `system_read`  | `computer.windows`    | `[app]` 返回该应用的窗口 ID 和标题                                                                                |
+| `system_read`  | `computer.snapshot`   | `[app,windowId?]` 读取窗口控件。也接受 `[app,{surface,windowId?}]`，可读取 `window`、`menubar`、`menu` 和 `sheet` |
+| `system_read`  | `computer.screenshot` | `[app,windowId]` 截取指定应用的单个窗口，返回 PNG                                                                 |
+| `system_write` | `computer.launch`     | `[app,{activate?}?]` 打开应用。`activate: true` 请求显示窗口并等待其出现                                          |
+| `system_write` | `computer.click`      | `[app,ref]` 点击当前快照中有名称且支持 `Click` 的控件。窗口管理控件的第三项须提供匹配的 `{windowId,windowAction}` |
+| `system_write` | `computer.setValue`   | `[app,ref,text]` 填写当前快照中的可编辑控件                                                                       |
+| `system_write` | `computer.press`      | `[app,windowId,key,{focus?}?]` 发送按键，接受 `cmd+,` 和 `cmd+comma`。`focus: true` 时先聚焦并验证同一窗口        |
 
 `app` 接受本机应用名称或 bundle ID。客户端使用内置的 [agent-desktop](https://github.com/vercel-labs/agent-desktop/tree/v1.3.1) 执行限定的操作。用户可在聊天或 macOS 菜单栏停止当前轮次的电脑操作，锁屏和连接失效也会终止本机操作。
+
+用 `system_read` 的 `capabilities` 操作传入 `args: [{"domain":"computer"}]` 即可查看电脑能力。打开应用设置时，先读 `menubar`。目标应用的菜单下已有明确匹配的设置项且 `available_actions` 包含 `Click` 时，直接点击该项的 `ref_id`。缺少可用项时再展开所属菜单并读取 `menu`。如果读取 `menu` 的错误原因为 `surface_absent`，重读一次 `menubar` 查找新的设置项引用。应用只有一个实例时，即使没有普通窗口也可读取其原生菜单。多个实例需要窗口 ID 来选择所属进程。
+
+点击设置项后，已知同一应用的窗口 ID 时直接读取该窗口的 `window` 快照，核实设置对话框、面板或页面。窗口 ID 未知、已失效或该窗口里没有设置界面时，再用 `computer.windows` 定位候选窗口并读取，必要时读取 `sheet`。
+
+控件引用绑定本轮和原生目标。执行操作后重新读取目标界面，再使用新返回的引用。`windowAction` 支持 `close`、`minimize`、`fullscreen` 和 `zoom`。动作结果保留原生送达状态。收到 `delivered_unverified` 或 `delivery_uncertain` 时，先回读当前界面确认实际效果。焦点未确认时停止发键并返回原生错误详情。
 
 ## 执行与客户端路由
 

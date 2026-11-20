@@ -24,12 +24,12 @@ export function useSystemClient(
   handleVisualization?: (request: SystemClientRequest, context: SystemClientExecutionContext) => Promise<unknown>,
 ) {
   const computer = desktopComputer()
-  const latestRead = useRef(readSnapshot)
-  latestRead.current = readSnapshot
-  const latestAppearance = useRef(readAppearance)
-  latestAppearance.current = readAppearance
-  const latestVisualization = useRef(handleVisualization)
-  latestVisualization.current = handleVisualization
+  const environment = { browser, computer, hostId, appearanceBridge, readSnapshot, readAppearance, handleVisualization }
+  const latest = useRef(environment)
+  latest.current = environment
+  const client = useRef<ReturnType<NonNullable<DesktopBridge['registerSystemClient']>>>(undefined)
+  const hasComputer = Boolean(computer)
+  const hasBrowser = Boolean(browser?.agent)
   const hasRead = Boolean(readSnapshot)
   const hasVisualization = Boolean(handleVisualization)
   const supportsProjectApps = Boolean(
@@ -60,160 +60,158 @@ export function useSystemClient(
     window.addEventListener('pi-meme:sessions-deleted', remove)
     return () => window.removeEventListener('pi-meme:sessions-deleted', remove)
   }, [browser, hostId])
-  useEffect(
-    () =>
-      bridge.registerSystemClient?.(
-        [
-          ...(computer ? computerOperations.map((op) => op.name) : []),
-          'appearance.get',
-          'appearance.save',
-          ...(hasVisualization ? [...visualizationClientOperations] : []),
-          ...clientReadDefinitions
-            .filter((definition) =>
-              definition.name === 'client.projectApps.list' && !supportsProjectApps
-                ? false
-                : definition.name.startsWith('browser.')
-                  ? Boolean(browser?.agent)
-                  : definition.name.startsWith('themes.') || definition.name === 'appearance.effective' || hasRead,
-            )
-            .map((definition) => definition.name),
-          ...(browser?.agent
-            ? [
-                'browser.list',
-                'browser.read',
-                'browser.screenshot',
-                'browser.open',
-                'browser.navigate',
-                'browser.click',
-                'browser.input',
-                'browser.scroll',
-                'browser.close',
-              ]
-            : []),
-        ],
-        async (request, context) => {
-          if (!hostId || request.session.hostId !== hostId) throw new Error('客户端请求的 Host 身份不匹配')
-          if (request.operation.startsWith('computer.')) {
-            if (!computer || !request.executionId)
-              throw new SystemReadError('not-supported', '当前客户端不支持电脑操控')
-            if (request.operation === 'computer.end')
-              return computer.release(request.registrationId, request.executionId)
+  useEffect(() => {
+    const registration = bridge.registerSystemClient?.(
+      async (request, context) => {
+        const { browser, computer, hostId, appearanceBridge, readSnapshot, handleVisualization } = latest.current
+        if (!hostId || request.session.hostId !== hostId) throw new Error('客户端请求的 Host 身份不匹配')
+        if (request.operation.startsWith('computer.')) {
+          if (!computer || !request.executionId) throw new SystemReadError('not-supported', '当前客户端不支持电脑操控')
+          if (request.operation === 'computer.end') return computer.release(request.registrationId, request.executionId)
+          await context.confirmPending()
+          const decision = await computer.authorize(request)
+          if (!decision.ok) throw new SystemReadError(decision.code, decision.message, decision.details)
+          try {
             await context.confirmPending()
-            const decision = await computer.authorize(request)
-            if (!decision.ok) throw new SystemReadError(decision.code, decision.message)
-            try {
-              await context.confirmPending()
-            } catch (cause) {
-              await computer.stop(request.executionId)
-              throw cause
-            }
-            const reply = await computer.execute(request)
-            if (!reply.ok) throw new SystemReadError(reply.code, reply.message)
-            return reply.result
+          } catch (cause) {
+            await computer.stop(request.executionId)
+            throw cause
           }
-          if (visualizationClientOperations.has(request.operation)) {
-            if (!latestVisualization.current)
-              throw new SystemReadError('not-supported', '当前客户端不支持可视化运行时 v2')
-            return latestVisualization.current(request, context)
+          const reply = await computer.execute(request)
+          if (!reply.ok) throw new SystemReadError(reply.code, reply.message, reply.details)
+          return reply.result
+        }
+        if (visualizationClientOperations.has(request.operation)) {
+          if (!handleVisualization) throw new SystemReadError('not-supported', '当前客户端不支持可视化运行时 v2')
+          return handleVisualization(request, context)
+        }
+        if (request.operation.startsWith('browser.')) {
+          if (!browser?.agent) throw new Error('当前客户端不支持 Desktop 网页操作')
+          const owner = JSON.stringify([request.session.hostId, request.session.sessionId])
+          const result = await browser.agent(owner, request.operation.slice(8), request.args)
+          if (result && typeof result === 'object' && 'type' in result && result.type === 'browser-agent-read-error') {
+            const failure = result as { type: 'browser-agent-read-error'; errorCode: ReadErrorCode; error: string }
+            throw new SystemReadError(failure.errorCode, failure.error)
           }
-          if (request.operation.startsWith('browser.')) {
-            if (!browser?.agent) throw new Error('当前客户端不支持 Desktop 网页操作')
-            const owner = JSON.stringify([request.session.hostId, request.session.sessionId])
-            const result = await browser.agent(owner, request.operation.slice(8), request.args)
-            if (
-              result &&
-              typeof result === 'object' &&
-              'type' in result &&
-              result.type === 'browser-agent-read-error'
-            ) {
-              const failure = result as { type: 'browser-agent-read-error'; errorCode: ReadErrorCode; error: string }
-              throw new SystemReadError(failure.errorCode, failure.error)
-            }
-            return result
-          }
-          if (
-            request.operation !== 'appearance.get' &&
-            request.operation !== 'appearance.save' &&
-            request.operation !== 'appearance.effective' &&
-            !request.operation.startsWith('themes.')
-          ) {
-            if (!latestRead.current) throw new Error('客户端界面快照尚不可用')
-            return latestRead.current(request)
-          }
-          const snapshot = await appearanceBridge.getSettings()
-          const appearance = migrateAppearance(snapshot.settings, snapshot.themes)
-          const revision = snapshot.appearanceRevision
-          if (!revision) throw new Error('外观 Host 不支持受控保存，请更新服务')
-          if (request.operation === 'appearance.get') return { appearance, revision }
-          const themeMetadata = (theme: Theme) => ({
-            id: theme.id,
-            name: theme.name,
-            appearance: theme.appearance,
-            colors: theme.colors,
-            fonts: theme.fonts,
-            fontStyles: theme.fontStyles,
-            tokens: theme.tokens,
-            background: theme.background
-              ? { ...theme.background, url: theme.background.url ? systemMetadataUrl(theme.background.url) : undefined }
-              : undefined,
-          })
-          if (request.operation === 'themes.list')
-            return {
-              appearanceRevision: revision,
-              ...clientReadList(
-                snapshot.themes.map(({ id, name, appearance }) => ({ id, name, appearance })),
-                request.args[0],
-                'themes.list',
-              ),
-            }
-          if (request.operation === 'themes.get') {
-            if (typeof request.args[0] !== 'string') throw new Error('主题标识无效')
-            const theme = snapshot.themes.find((theme) => theme.id === request.args[0])
-            if (!theme) throw new Error('外观 Host 中不存在此主题')
-            return { revision, theme: themeMetadata(theme) }
-          }
-          if (request.operation === 'appearance.effective') {
-            const actual = latestAppearance.current?.()
-            const systemDark = actual?.systemDark ?? window.matchMedia('(prefers-color-scheme: dark)').matches
-            const systemReducedMotion =
-              actual?.systemMotion ?? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-            const effectiveSnapshot = actual?.snapshot ?? snapshot
-            const effectiveAppearance = migrateAppearance(effectiveSnapshot.settings, effectiveSnapshot.themes)
-            const mode = actual?.previewMode ?? resolvedMode(effectiveAppearance, systemDark)
-            return {
-              appearanceRevision: revision,
-              revision: readRevision([effectiveAppearance, mode, systemReducedMotion]),
-              appearance: effectiveAppearance,
-              mode,
-              systemDark,
-              systemReducedMotion,
-              pending: actual?.pending ?? 0,
-              preview: Boolean(actual?.previewMode),
-              reducedMotion:
-                effectiveAppearance.reducedMotion === 'system'
-                  ? systemReducedMotion
-                  : effectiveAppearance.reducedMotion === 'on',
-              theme: themeMetadata(resolveTheme(effectiveAppearance, effectiveSnapshot.themes, mode)),
-            }
-          }
-          if (request.operation !== 'appearance.save') throw new Error('客户端操作不支持')
-          if (typeof request.args[1] !== 'string') throw new Error('保存外观必须携带读取时的修订')
-          const patch = request.args[0]
-          if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('外观修改参数无效')
-          const result = await appearanceBridge.saveAppearance({
-            expectedRevision: request.args[1],
-            operation: { type: 'patch', patch: patch as AppearancePatch },
-          })
-          if (result.status === 'conflict') throw new Error('外观已变化，请重新读取；本次修改未覆盖最新配置')
+          return result
+        }
+        if (
+          request.operation !== 'appearance.get' &&
+          request.operation !== 'appearance.save' &&
+          request.operation !== 'appearance.effective' &&
+          !request.operation.startsWith('themes.')
+        ) {
+          if (!readSnapshot) throw new Error('客户端界面快照尚不可用')
+          return readSnapshot(request)
+        }
+        const snapshot = await appearanceBridge.getSettings()
+        const appearance = migrateAppearance(snapshot.settings, snapshot.themes)
+        const revision = snapshot.appearanceRevision
+        if (!revision) throw new Error('外观 Host 不支持受控保存，请更新服务')
+        if (request.operation === 'appearance.get') return { appearance, revision }
+        const themeMetadata = (theme: Theme) => ({
+          id: theme.id,
+          name: theme.name,
+          appearance: theme.appearance,
+          colors: theme.colors,
+          fonts: theme.fonts,
+          fontStyles: theme.fontStyles,
+          tokens: theme.tokens,
+          background: theme.background
+            ? { ...theme.background, url: theme.background.url ? systemMetadataUrl(theme.background.url) : undefined }
+            : undefined,
+        })
+        if (request.operation === 'themes.list')
           return {
-            appearance: migrateAppearance(result.snapshot.settings, result.snapshot.themes),
-            revision: result.snapshot.appearanceRevision,
+            appearanceRevision: revision,
+            ...clientReadList(
+              snapshot.themes.map(({ id, name, appearance }) => ({ id, name, appearance })),
+              request.args[0],
+              'themes.list',
+            ),
           }
-        },
-        (registrationId) => {
-          void computer?.release(registrationId).catch(() => {})
-        },
-      ),
-    [bridge, browser, computer, hostId, appearanceBridge, hasRead, hasVisualization, supportsProjectApps],
-  )
+        if (request.operation === 'themes.get') {
+          if (typeof request.args[0] !== 'string') throw new Error('主题标识无效')
+          const theme = snapshot.themes.find((theme) => theme.id === request.args[0])
+          if (!theme) throw new Error('外观 Host 中不存在此主题')
+          return { revision, theme: themeMetadata(theme) }
+        }
+        if (request.operation === 'appearance.effective') {
+          const actual = latest.current.readAppearance?.()
+          const systemDark = actual?.systemDark ?? window.matchMedia('(prefers-color-scheme: dark)').matches
+          const systemReducedMotion =
+            actual?.systemMotion ?? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          const effectiveSnapshot = actual?.snapshot ?? snapshot
+          const effectiveAppearance = migrateAppearance(effectiveSnapshot.settings, effectiveSnapshot.themes)
+          const mode = actual?.previewMode ?? resolvedMode(effectiveAppearance, systemDark)
+          return {
+            appearanceRevision: revision,
+            revision: readRevision([effectiveAppearance, mode, systemReducedMotion]),
+            appearance: effectiveAppearance,
+            mode,
+            systemDark,
+            systemReducedMotion,
+            pending: actual?.pending ?? 0,
+            preview: Boolean(actual?.previewMode),
+            reducedMotion:
+              effectiveAppearance.reducedMotion === 'system'
+                ? systemReducedMotion
+                : effectiveAppearance.reducedMotion === 'on',
+            theme: themeMetadata(resolveTheme(effectiveAppearance, effectiveSnapshot.themes, mode)),
+          }
+        }
+        if (request.operation !== 'appearance.save') throw new Error('客户端操作不支持')
+        if (typeof request.args[1] !== 'string') throw new Error('保存外观必须携带读取时的修订')
+        const patch = request.args[0]
+        if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('外观修改参数无效')
+        const result = await appearanceBridge.saveAppearance({
+          expectedRevision: request.args[1],
+          operation: { type: 'patch', patch: patch as AppearancePatch },
+        })
+        if (result.status === 'conflict') throw new Error('外观已变化，请重新读取；本次修改未覆盖最新配置')
+        return {
+          appearance: migrateAppearance(result.snapshot.settings, result.snapshot.themes),
+          revision: result.snapshot.appearanceRevision,
+        }
+      },
+      (registrationId) => {
+        void latest.current.computer?.release(registrationId).catch(() => {})
+      },
+    )
+    client.current = registration
+    return () => {
+      client.current = undefined
+      registration?.dispose()
+    }
+  }, [bridge])
+  useEffect(() => {
+    client.current?.updateOperations([
+      ...(hasComputer ? computerOperations.map((op) => op.name) : []),
+      'appearance.get',
+      'appearance.save',
+      ...(hasVisualization ? [...visualizationClientOperations] : []),
+      ...clientReadDefinitions
+        .filter((definition) =>
+          definition.name === 'client.projectApps.list' && !supportsProjectApps
+            ? false
+            : definition.name.startsWith('browser.')
+              ? hasBrowser
+              : definition.name.startsWith('themes.') || definition.name === 'appearance.effective' || hasRead,
+        )
+        .map((definition) => definition.name),
+      ...(hasBrowser
+        ? [
+            'browser.list',
+            'browser.read',
+            'browser.screenshot',
+            'browser.open',
+            'browser.navigate',
+            'browser.click',
+            'browser.input',
+            'browser.scroll',
+            'browser.close',
+          ]
+        : []),
+    ])
+  }, [bridge, hasBrowser, hasComputer, hasRead, hasVisualization, supportsProjectApps])
 }

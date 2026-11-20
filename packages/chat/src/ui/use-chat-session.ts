@@ -7,6 +7,7 @@ import { ChatStream } from './model/chat-stream'
 import { messageAttachmentParts } from './model/message-attachments'
 import type { ChatState } from './model/types'
 import { prepareComposerMessage } from './composer/plan-input'
+import { composerReferences } from './composer/completion-query'
 import { SessionMode } from './composer/session-mode'
 import {
   normalizePlanMessage,
@@ -987,6 +988,25 @@ export function useChatSession(options: ChatSessionOptions) {
             : { composer: source, records: [] }
         if (!prepared || controller.signal.aborted || source.revision !== composerStore.getSnapshot().revision)
           return false
+        if (!controlOnly && composerReferences(prepared.composer.draft).some((reference) => reference.computer)) {
+          const { bridge, currentSessionKey, currentGeneration } = optionsRef.current
+          const sessionKey = currentSessionKey()
+          const generation = currentGeneration()
+          const isCurrent = () =>
+            mounted.current &&
+            !controller.signal.aborted &&
+            optionsRef.current.bridge === bridge &&
+            optionsRef.current.currentSessionKey() === sessionKey &&
+            optionsRef.current.currentGeneration() === generation
+          try {
+            if (!bridge.confirmComputerRegistration) throw new Error('当前客户端不支持电脑操控')
+            await bridge.confirmComputerRegistration(controller.signal)
+          } catch (cause) {
+            if (isCurrent()) optionsRef.current.onError(cause instanceof Error ? cause.message : String(cause))
+            return false
+          }
+          if (!isCurrent()) return false
+        }
         unsubscribe()
         preparingSubmission.current = false
         ownsPreparation = false

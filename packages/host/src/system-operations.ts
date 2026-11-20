@@ -682,7 +682,21 @@ export function createSystemOperations(context: SystemOperationContext) {
       throw new SystemReadError('not-supported', '读取操作不存在，请先查询 capabilities')
     const state = availability(entry.definition)
     if (!state.available) throw new SystemReadError(state.reason ?? 'not-supported', '此读取能力在当前上下文不可用')
-    validateReadArguments(entry.definition.inputSchema, args)
+    try {
+      validateReadArguments(entry.definition.inputSchema, args)
+    } catch (cause) {
+      if (name === 'capabilities')
+        throw new SystemReadError(
+          'invalid-input',
+          'capabilities 接受一个查询对象，例如 args: [{"domain":"computer"}]。翻页时保留原筛选，将 nextCursor 原样传到同一个对象的 cursor 字段。',
+        )
+      if (name === 'capabilities.describe')
+        throw new SystemReadError(
+          'invalid-input',
+          'capabilities.describe 接受完整操作名，例如 args: ["computer.snapshot"]',
+        )
+      throw cause
+    }
     return entry.run(args, { idempotencyKey: '' })
   }
   register(
@@ -695,7 +709,7 @@ export function createSystemOperations(context: SystemOperationContext) {
   )
   register(
     'capabilities.describe',
-    '读取单项操作的参数、结果、范围与限制',
+    '按完整操作名读取参数、结果、范围与限制，例如 computer.snapshot',
     '[operationName]',
     false,
     'host',
@@ -732,7 +746,7 @@ export function createSystemOperations(context: SystemOperationContext) {
   )
   register(
     'capabilities',
-    '分页读取当前执行可发现的操作目录与可用原因',
+    '分页读取操作与可用原因。电脑操作可传 {domain:"computer"}，翻页将 nextCursor 传给 cursor，并保留原筛选',
     '[{domain?,scope?,write?,query?,cursor?,offset?,limit?}?]',
     false,
     'host',
@@ -791,7 +805,10 @@ export function createSystemOperations(context: SystemOperationContext) {
       const operation = operations.get(request.operation)
       if (!operation) throw new SystemReadError('not-supported', '操作不存在，请先查询 capabilities')
       if (operation.definition.write !== request.write)
-        throw new SystemReadError('invalid-input', '请使用与操作读写性质一致的工具')
+        throw new SystemReadError(
+          'invalid-input',
+          `请通过 ${operation.definition.write ? 'system_write' : 'system_read'} 调用 ${operation.definition.name}`,
+        )
       if (request.write) {
         if (!context.canWrite) throw new SystemReadError('permission-denied', '工作台写操作需要普通模式和完全权限')
         return operation.run(request.args, { idempotencyKey: request.callId })

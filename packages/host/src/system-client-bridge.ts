@@ -10,7 +10,12 @@ import type {
 } from '@pi-meme/contracts/system-tools'
 import { clientReadDefinitions } from '@pi-meme/contracts/system-client-reads'
 import { visualizationClientOperationDefinitions } from '@pi-meme/contracts/visualize'
-import { SystemReadError, type ReadErrorCode } from '@pi-meme/contracts/system-read'
+import {
+  readRecord,
+  SystemReadError,
+  type ReadErrorCode,
+  type SystemReadErrorDetails,
+} from '@pi-meme/contracts/system-read'
 
 const readErrorCodes = new Set<ReadErrorCode>([
   'invalid-input',
@@ -67,7 +72,12 @@ export class SystemClientBridge {
     {
       clientId: string
       identity: SystemClientIdentity
-      finish: (result?: unknown, error?: string, errorCode?: ReadErrorCode) => void
+      finish: (
+        result?: unknown,
+        error?: string,
+        errorCode?: ReadErrorCode,
+        errorDetails?: SystemReadErrorDetails,
+      ) => void
     }
   >()
   constructor(private readonly publish: (clientId: string, request: SystemClientRequest) => boolean) {}
@@ -117,7 +127,20 @@ export class SystemClientBridge {
     const code = (reply as SystemClientReply & { errorCode?: unknown }).errorCode
     if (code !== undefined && (typeof code !== 'string' || !readErrorCodes.has(code as ReadErrorCode)))
       throw new Error('客户端读取错误码无效')
-    pending.finish(reply.result, reply.error, code as ReadErrorCode | undefined)
+    if (reply.errorDetails !== undefined) {
+      const details = readRecord(
+        reply.errorDetails,
+        ['nativeCode', 'phase', 'reason', 'delivery', 'retry', 'recovery'],
+        '客户端错误详情',
+      )
+      if (
+        !code ||
+        !reply.error ||
+        Object.values(details).some((value) => typeof value !== 'string' || value.length > 500)
+      )
+        throw new Error('客户端错误详情无效')
+    }
+    pending.finish(reply.result, reply.error, code as ReadErrorCode | undefined, reply.errorDetails)
   }
   endComputer(clientId: string, session: SessionRef, identity: SystemClientIdentity, executionId: string) {
     if (this.matches(clientId, identity))
@@ -153,13 +176,18 @@ export class SystemClientBridge {
     return new Promise<unknown>((resolve, reject) => {
       let settled = false
       let timer: ReturnType<typeof setTimeout>
-      const finish = (result?: unknown, error?: string, errorCode?: ReadErrorCode) => {
+      const finish = (
+        result?: unknown,
+        error?: string,
+        errorCode?: ReadErrorCode,
+        errorDetails?: SystemReadErrorDetails,
+      ) => {
         if (settled) return
         settled = true
         clearTimeout(timer)
         signal.removeEventListener('abort', abort)
         this.pending.delete(id)
-        if (error) reject(errorCode ? new SystemReadError(errorCode, error) : new Error(error))
+        if (error) reject(errorCode ? new SystemReadError(errorCode, error, errorDetails) : new Error(error))
         else resolve(result)
       }
       function abort() {

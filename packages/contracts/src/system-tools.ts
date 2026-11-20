@@ -1,4 +1,5 @@
 import type { SessionRef } from './app-host'
+import type { ReadErrorCode, SystemReadErrorDetails } from './system-read'
 
 export type SystemToolRequest = { operation: string; args: unknown[]; write: boolean; callId: string }
 export type SystemOperation = {
@@ -37,5 +38,6 @@ export type SystemClientReply = SystemClientIdentity & {
   id: string
   result?: unknown
   error?: string
-  errorCode?: import('./system-read').ReadErrorCode
+  errorCode?: ReadErrorCode
+  errorDetails?: SystemReadErrorDetails
 }

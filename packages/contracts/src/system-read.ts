@@ -30,10 +30,20 @@ export type ReadErrorCode =
   | 'timeout'
   | 'internal-error'
 
+export type SystemReadErrorDetails = {
+  nativeCode?: string
+  phase?: string
+  reason?: string
+  delivery?: 'not_delivered' | 'delivered_unverified' | 'delivered_verified' | 'delivery_uncertain'
+  retry?: 'safe' | 'unsafe'
+  recovery?: string
+}
+
 export class SystemReadError extends Error {
   constructor(
     readonly code: ReadErrorCode,
     message: string,
+    readonly details?: SystemReadErrorDetails,
   ) {
     super(message)
     this.name = 'SystemReadError'

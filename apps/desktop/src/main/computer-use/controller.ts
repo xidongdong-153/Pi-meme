@@ -4,7 +4,7 @@ import path from 'node:path'
 import { computerOperations, type ComputerState, type ComputerReply } from '@pi-meme/contracts/computer-use'
 import { validateReadArguments, SystemReadError } from '@pi-meme/contracts/system-read'
 import type { SystemClientRequest } from '@pi-meme/contracts/system-tools'
-import { operate, resolveApp } from './native'
+import { operate, resolveApp, type ComputerTargets } from './native'
 
 type Grant = ComputerState['grants'][number]
 type Settings = Pick<ComputerState, 'enabled' | 'grants'>
@@ -17,7 +17,7 @@ type Run = {
   controller: AbortController
   grants: Set<string>
   denied: Set<string>
-  refs: Map<string, string>
+  targets: ComputerTargets
 }
 
 export function registerComputerUse(
@@ -154,7 +154,7 @@ export function registerComputerUse(
           controller: new AbortController(),
           grants: new Set(),
           denied: new Set(),
-          refs: new Map(),
+          targets: { windows: new Map(), refs: new Map() },
         }
         tray = new Tray(nativeImage.createEmpty())
         tray.setTitle('电脑')
@@ -230,8 +230,9 @@ export function registerComputerUse(
         original.args,
         target,
         current.directory,
-        current.refs,
+        current.targets,
         current.controller.signal,
+        original.deadline,
       )
       current.controller.signal.throwIfAborted()
       return result
@@ -243,7 +244,8 @@ export function registerComputerUse(
     try {
       return { ok: true, result: await work }
     } catch (cause) {
-      if (cause instanceof SystemReadError) return { ok: false, code: cause.code, message: cause.message }
+      if (cause instanceof SystemReadError)
+        return { ok: false, code: cause.code, message: cause.message, details: cause.details }
       if (cause instanceof Error && cause.name === 'AbortError')
         return { ok: false, code: 'cancelled', message: '电脑操作已停止' }
       return { ok: false, code: 'internal-error', message: '本机执行失败，请检查电脑操控设置后重试' }
