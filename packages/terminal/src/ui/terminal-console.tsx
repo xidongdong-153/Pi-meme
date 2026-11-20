@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
-import { WebglAddon } from '@xterm/addon-webgl'
 import type { HostApi, TerminalSnapshot } from '@pi-meme/contracts/app-host'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
+import { watchTerminalAppearance } from './terminal-appearance'
+import { attachTerminalLinks, type TerminalLinkHint } from './terminal-links'
 
 export type TerminalOutput = { terminalId: string; data?: string; outputSequence?: number; exitCode?: number }
 
@@ -18,10 +20,11 @@ export function TerminalConsole({
   const container = useRef<HTMLDivElement>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [linkHint, setLinkHint] = useState<TerminalLinkHint | null>(null)
   useEffect(() => {
     if (!container.current) return
     const fit = new FitAddon()
-    const webgl = new WebglAddon()
+    let appearance: MutationObserver | undefined
     let disposed = false
     let ready = false
     let restoring = true
@@ -29,13 +32,12 @@ export function TerminalConsole({
     let dimensions = { cols: instance.cols, rows: instance.rows }
     let resizing = Promise.resolve()
     const buffered: TerminalOutput[] = []
-    const style = () => getComputedStyle(document.documentElement)
     const terminal = new Terminal({
       cols: instance.cols,
       rows: instance.rows,
-      fontFamily: style().getPropertyValue('--font-code').trim() || 'monospace',
-      fontSize: Number.parseFloat(style().getPropertyValue('--code-size')) || 13,
-      allowTransparency: true,
+      lineHeight: 1.15,
+      drawBoldTextInBrightColors: false,
+      minimumContrastRatio: 4.5,
       customGlyphs: true,
       rescaleOverlappingGlyphs: true,
       disableStdin: true,
@@ -55,24 +57,8 @@ export function TerminalConsole({
           if (!disposed) setError(String(cause))
         })
     }
-    const applyTheme = () => {
-      const colors = style()
-      terminal.options.theme = {
-        background: '#00000000',
-        foreground: colors.getPropertyValue('--color-text').trim(),
-        cursor: colors.getPropertyValue('--color-accent').trim(),
-        selectionBackground: colors.getPropertyValue('--color-elevated').trim(),
-      }
-      terminal.options.fontFamily = colors.getPropertyValue('--font-code').trim() || 'monospace'
-      terminal.options.fontSize = Number.parseFloat(colors.getPropertyValue('--code-size')) || 13
-    }
-    applyTheme()
-    const theme = new MutationObserver(() => {
-      applyTheme()
-      syncSize()
-    })
-    theme.observe(document.documentElement, { attributes: true })
     terminal.loadAddon(fit)
+    const detachLinks = attachTerminalLinks(terminal, container.current, setLinkHint)
     const writeOutput = (event: TerminalOutput) => {
       if (event.data && (event.outputSequence ?? 0) > outputSequence) {
         outputSequence = event.outputSequence!
@@ -91,10 +77,6 @@ export function TerminalConsole({
         if (!disposed) setError(String(cause))
       })
     })
-    const contextLoss = webgl.onContextLoss(() => {
-      webgl.dispose()
-      setError('终端图形渲染已失效，当前使用字体渲染。')
-    })
     const observer = new ResizeObserver(syncSize)
     observer.observe(container.current)
     setError('')
@@ -108,12 +90,7 @@ export function TerminalConsole({
         terminal.write(snapshot.output, () => {
           if (disposed || !container.current) return
           terminal.open(container.current)
-          try {
-            terminal.loadAddon(webgl)
-          } catch (cause) {
-            webgl.dispose()
-            setError(`终端图形渲染不可用：${String(cause)}`)
-          }
+          appearance = watchTerminalAppearance(terminal, syncSize)
           for (const event of buffered) writeOutput(event)
           buffered.length = 0
           ready = true
@@ -137,17 +114,34 @@ export function TerminalConsole({
     return () => {
       disposed = true
       observer.disconnect()
-      theme.disconnect()
+      appearance?.disconnect()
       input.dispose()
-      contextLoss.dispose()
+      detachLinks()
       outputListeners.delete(output)
       terminal.dispose()
-      webgl.dispose()
     }
   }, [host, instance, outputListeners])
   return (
     <div className="relative min-h-0 min-w-0 flex-1">
-      <div ref={container} className="h-full min-h-24 w-full [&_.xterm-viewport]:bg-transparent!" />
+      <div
+        ref={container}
+        className="h-full min-h-24 w-full [&_:is(.xterm-viewport,.xterm-scrollable-element)]:bg-transparent!"
+      />
+      {linkHint && (
+        <Tooltip open onOpenChange={(open) => !open && setLinkHint(null)} disableHoverableContent>
+          <TooltipTrigger asChild>
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute size-px"
+              style={{ left: linkHint.left, top: linkHint.top }}
+            />
+          </TooltipTrigger>
+          <TooltipContent sideOffset={10} hideWhenDetached>
+            打开链接（{linkHint.shortcut} + 单击）
+            {linkHint.destination && <span className="block break-all">{linkHint.destination}</span>}
+          </TooltipContent>
+        </Tooltip>
+      )}
       {loading && (
         <p role="status" className="absolute left-0 top-0 text-xs text-muted-foreground">
           正在连接终端…

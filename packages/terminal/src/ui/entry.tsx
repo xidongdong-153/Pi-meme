@@ -132,7 +132,7 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
       if (!current || current.exited || states.get(key)?.error) void open(root)
     }, [key, root, supported])
     return (
-      <section aria-label="终端工具" className="flex h-full min-h-0 flex-col p-3">
+      <section aria-label="终端工具" className="theme-workspace flex h-full min-h-0 flex-col bg-background p-3">
         {error && (
           <p role="alert" className="break-words text-xs text-destructive">
             {error}
