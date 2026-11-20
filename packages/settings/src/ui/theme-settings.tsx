@@ -284,10 +284,10 @@ export function ThemeSettings({
                       style={{
                         background:
                           entry === 'system'
-                            ? 'linear-gradient(90deg,#faf9fc 50%,#18181a 50%)'
+                            ? 'linear-gradient(90deg,#f4f0e8 50%,#0c0c0f 50%)'
                             : entry === 'light'
-                              ? '#faf9fc'
-                              : '#18181a',
+                              ? '#f4f0e8'
+                              : '#0c0c0f',
                       }}
                     >
                       <span className="w-4 border-r border-gray-500/30" />
