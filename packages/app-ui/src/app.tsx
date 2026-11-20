@@ -1984,7 +1984,7 @@ function AppContent({
       icon: <Folder />,
       location: 'right',
       scope: 'session',
-      render: (props) => <FilesPanel store={fileStore} target={props.target} />,
+      render: (props) => <FilesPanel store={fileStore} target={props.target} cwd={appSession?.cwd ?? cwd} />,
     },
     terminalPanel ?? {
       id: 'builtin:terminal',

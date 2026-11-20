@@ -1,32 +1,30 @@
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { ChevronRight, PanelLeft, RefreshCw, Save, Search } from 'lucide-react'
-import Markdown, { type Components } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { ChevronRight, Copy, PanelLeft, RefreshCw, Save, Search } from 'lucide-react'
 import type { FileEntry, WorkspaceRef } from '@pi-meme/contracts/app-host'
 import type { UiContributionProps } from '@pi-meme/plugin-sdk/ui'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { FileIcon } from '@pi-meme/ui/components/file-icon'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@pi-meme/ui/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@pi-meme/ui/components/ui/dropdown-menu'
 import { cn } from '@pi-meme/ui/lib/utils'
+import { FileMarkdown } from './file-markdown'
+import { absoluteFilePath, FileListPathMenu, type FilePathFormat, writePathToClipboard } from './file-path-menu'
 import { type FileStore, fileDirty } from './file-store'
 
 const FileEditor = lazy(() => import('./file-editor').then((module) => ({ default: module.FileEditor })))
-const markdownComponents: Components = {
-  a: ({ title, href, children }) => (
-    <TooltipHint content={title}>
-      <a href={href}>{children}</a>
-    </TooltipHint>
-  ),
-  img: ({ title, src, alt, width, height }) => (
-    <TooltipHint content={title}>
-      <img src={src} alt={alt} width={width} height={height} />
-    </TooltipHint>
-  ),
-}
 
-export function FilesPanel({ store, target }: Pick<UiContributionProps, 'target'> & { store: FileStore }) {
+export function FilesPanel({
+  store,
+  target,
+  cwd,
+}: Pick<UiContributionProps, 'target'> & { store: FileStore; cwd: string }) {
   const hostId = target.session?.hostId ?? target.project?.hostId ?? target.hostId
   const sessionId = target.session?.sessionId
   const projectId = target.project?.projectId
@@ -35,11 +33,12 @@ export function FilesPanel({ store, target }: Pick<UiContributionProps, 'target'
     [hostId, sessionId, projectId],
   )
   if (!root) return <p className="p-5 text-sm text-muted-foreground">请选择项目或会话。</p>
-  return <Browser key={JSON.stringify(root)} store={store} root={root} />
+  return <Browser key={JSON.stringify(root)} store={store} root={root} cwd={cwd} />
 }
-function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
+function Browser({ store, root, cwd }: { store: FileStore; root: WorkspaceRef; cwd: string }) {
   const state = useSyncExternalStore(store.subscribe, () => store.state(root))
   const [pending, setPending] = useState<string>()
+  const [copyNotice, setCopyNotice] = useState<{ message: string }>()
   const [editingPath, setEditingPath] = useState<string>()
   const preview = editingPath !== state.selected
   const [treeWidth, setTreeWidth] = useState(176)
@@ -66,6 +65,19 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
     window.addEventListener('keydown', save)
     return () => window.removeEventListener('keydown', save)
   }, [store, root])
+  useEffect(() => {
+    if (!copyNotice) return
+    const timer = setTimeout(setCopyNotice, 2400, undefined)
+    return () => clearTimeout(timer)
+  }, [copyNotice])
+  async function copyPath(path: string, format: FilePathFormat) {
+    try {
+      await writePathToClipboard(format === 'absolute' ? absoluteFilePath(cwd, path) : path)
+      setCopyNotice({ message: format === 'absolute' ? '已复制绝对路径' : '已复制相对路径' })
+    } catch {
+      setCopyNotice({ message: '复制失败，请检查剪贴板权限后重试。' })
+    }
+  }
   function choose(path: string) {
     if (dirty) setPending(path)
     else {
@@ -91,6 +103,25 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
             {dirty && <span className="ml-2 text-primary">未保存</span>}
           </span>
         </TooltipHint>
+        {state.selected && (
+          <DropdownMenu>
+            <TooltipHint content="复制文件路径">
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" aria-label="复制文件路径">
+                  <Copy className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipHint>
+            <DropdownMenuContent align="end" side="bottom">
+              <DropdownMenuItem disabled={!cwd} onSelect={() => void copyPath(state.selected, 'absolute')}>
+                复制绝对路径
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void copyPath(state.selected, 'relative')}>
+                复制相对路径
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         {state.preview?.kind === 'text' && store.canWrite(state) && (
           <Button size="sm" variant="ghost" onClick={() => setEditingPath(preview ? state.selected : undefined)}>
             {preview ? '编辑' : '预览'}
@@ -114,6 +145,11 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
           </Button>
         )}
       </div>
+      {copyNotice && (
+        <p role="status" className="shrink-0 px-3 py-1 text-muted-foreground">
+          {copyNotice.message}
+        </p>
+      )}
       {state.error && (
         <p role="alert" className="shrink-0 break-words border-b border-border px-3 py-2 text-destructive">
           {state.error}
@@ -148,13 +184,13 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
                 <RefreshCw className="size-3.5" />
               </Button>
             </div>
-            <div className="min-h-0 flex-1 overflow-auto py-1">
+            <FileListPathMenu onCopy={copyPath} hasAbsolutePath={Boolean(cwd)}>
               {state.query.trim() ? (
                 <>
                   {state.matches.map((entry) => (
                     <TooltipHint key={entry.relativePath} content={entry.relativePath}>
                       <button
-                        key={entry.relativePath}
+                        data-file-path={entry.relativePath}
                         type="button"
                         onClick={() => choose(entry.relativePath)}
                         className={cn(
@@ -192,7 +228,7 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
               ) : (
                 <Directory store={store} root={root} path="" choose={choose} depth={0} />
               )}
-            </div>
+            </FileListPathMenu>
           </div>
           {!state.treeHidden && (
             <div
@@ -243,11 +279,7 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
             </p>
           ) : state.preview?.kind === 'text' ? (
             markdown && preview ? (
-              <div className="file-markdown overflow-auto p-5 text-sm select-text">
-                <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                  {state.draft}
-                </Markdown>
-              </div>
+              <FileMarkdown>{state.draft}</FileMarkdown>
             ) : (
               <Suspense
                 fallback={
@@ -376,6 +408,7 @@ function Entry({
       <TooltipHint content={entry.relativePath}>
         <button
           type="button"
+          data-file-path={entry.relativePath}
           aria-label={`${directory ? '目录' : '打开文件'}：${entry.relativePath}`}
           aria-expanded={directory ? expanded : undefined}
           aria-current={!directory && state.selected === entry.relativePath ? 'true' : undefined}
