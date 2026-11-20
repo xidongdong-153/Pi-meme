@@ -1,7 +1,6 @@
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Copy } from 'lucide-react'
-import type { SessionRef } from '@pi-meme/contracts/app-host'
 import type {
   ContextBodyState,
   ContextPartKind,
@@ -10,6 +9,7 @@ import type {
   ContextRequest,
   ContextTextItem,
   ContextWindowApi,
+  ContextWindowTarget,
 } from '@pi-meme/contracts/context-window'
 import { DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { fmtK, itemName, partNames } from './layout'
@@ -50,7 +50,7 @@ export function ItemLabel({ item, kind }: { item: ContextPromptItem; kind: Conte
 }
 type PieceProps = {
   api: ContextWindowApi
-  session: SessionRef
+  session: ContextWindowTarget
   requestId: string
   payloadRevision: number
   kind: ContextPartKind | 'reply'
@@ -223,7 +223,7 @@ function TextItem({
   initialOpen,
 }: {
   api: ContextWindowApi
-  session: SessionRef
+  session: ContextWindowTarget
   requestId: string
   payloadRevision: number
   kind: ContextPartKind
@@ -309,7 +309,7 @@ export default function ContextTextDialog({
   onClose,
 }: {
   api: ContextWindowApi
-  session: SessionRef
+  session: ContextWindowTarget
   request: ContextRequest
   kind: ContextPartKind
   pick?: ContextPromptItem

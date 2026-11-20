@@ -12,13 +12,13 @@ import {
   type RefObject,
 } from 'react'
 import { ChevronDown } from 'lucide-react'
-import type { SessionRef } from '@pi-meme/contracts/app-host'
 import {
   contextPartKinds,
   type ContextPartKind,
   type ContextPromptItem,
   type ContextRequest,
   type ContextWindowApi,
+  type ContextWindowTarget,
 } from '@pi-meme/contracts/context-window'
 import { cellsOf, fmtK, headroom, health, itemName, partNames, pct, tilesOf } from './layout'
 import { Dialog, DialogContent, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
@@ -29,7 +29,7 @@ import './context-window.css'
 const ContextTextDialog = lazy(() => import('./context-text-dialog'))
 export type ContextWindowPanelProps = {
   api: ContextWindowApi
-  session: SessionRef
+  session: ContextWindowTarget
   visible: boolean
   reducedMotion?: boolean
   sessionName?: string
@@ -920,7 +920,9 @@ function SessionPanel({
                     : '此请求暂不支持解析上下文。'))
                 : pinned
                   ? '此请求的上下文不可用。'
-                  : '此会话尚无上下文快照。'}
+                  : session.agentId
+                    ? '此子代理尚无上下文快照。'
+                    : '此会话尚无上下文快照。'}
           </p>
           {pinned ? (
             <button className="text" onClick={live}>
@@ -981,15 +983,22 @@ function SessionPanel({
 export const ContextWindowPanel = memo(
   (props: ContextWindowPanelProps) => {
     const session = useMemo(
-      () => ({ hostId: props.session.hostId, sessionId: props.session.sessionId }),
-      [props.session.hostId, props.session.sessionId],
+      () => ({ hostId: props.session.hostId, sessionId: props.session.sessionId, agentId: props.session.agentId }),
+      [props.session.hostId, props.session.sessionId, props.session.agentId],
     )
-    return <SessionPanel key={`${session.hostId}:${session.sessionId}`} {...props} session={session} />
+    return (
+      <SessionPanel
+        key={JSON.stringify([session.hostId, session.sessionId, session.agentId])}
+        {...props}
+        session={session}
+      />
+    )
   },
   (previous, next) =>
     previous.api === next.api &&
     previous.session.hostId === next.session.hostId &&
     previous.session.sessionId === next.session.sessionId &&
+    previous.session.agentId === next.session.agentId &&
     previous.visible === next.visible &&
     previous.reducedMotion === next.reducedMotion &&
     previous.sessionName === next.sessionName &&

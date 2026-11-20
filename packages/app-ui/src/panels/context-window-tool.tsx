@@ -1,6 +1,18 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { ChevronDown, GitFork, MessagesSquare } from 'lucide-react'
 import type { HostApi, SessionRef } from '@pi-meme/contracts/app-host'
-import type { ContextRequest, ContextWindowApi } from '@pi-meme/contracts/context-window'
+import type { AgentSummary } from '@pi-meme/contracts/collaboration'
+import type { ContextRequest, ContextWindowAgent, ContextWindowApi } from '@pi-meme/contracts/context-window'
+import { Button } from '@pi-meme/ui/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@pi-meme/ui/components/ui/dropdown-menu'
+import { formatAgentName } from '@pi-meme/ui/lib/agent-name'
+import { agentStatusLabel } from './subagents-panel'
 import { ContextWindowPanel } from '@pi-meme/context-window/ui/context-window-panel'
 import type { PanelDataFact } from '../layout/panel-availability'
 import { panelsRetiredEvent } from '../layout/panel-layout'
@@ -81,6 +93,8 @@ export function ContextWindowTool({
   visible,
   reducedMotion,
   sessionName,
+  agents,
+  capturedAgents,
 }: {
   host: HostApi
   api: ContextWindowApi
@@ -88,12 +102,91 @@ export function ContextWindowTool({
   visible: boolean
   reducedMotion?: boolean
   sessionName?: string
+  agents: AgentSummary[]
+  capturedAgents?: ContextWindowAgent[]
 }) {
+  const [agentId, setAgentId] = useState<string>()
+  const choices = useMemo(() => {
+    if (!capturedAgents) return []
+    const options = new Map<string, ContextWindowAgent & { status?: string }>()
+    for (const agent of agents)
+      options.set(agent.agentId, { agentId: agent.agentId, name: agent.name, status: agentStatusLabel(agent) })
+    for (const agent of capturedAgents) if (!options.has(agent.agentId)) options.set(agent.agentId, agent)
+    return [...options.values()]
+  }, [agents, capturedAgents])
+  const selected = choices.find((agent) => agent.agentId === agentId)
   const onChange = useCallback(
     (listener: () => void) => subscribe(host, session.sessionId, listener),
     [host, session.sessionId],
   )
-  return <ContextWindowPanel {...{ api, session, visible, reducedMotion, sessionName, onChange }} />
+  return (
+    <>
+      {visible && choices.length > 0 && (
+        <div
+          role="group"
+          aria-label="查看对象"
+          className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2 text-xs"
+        >
+          <span className="text-muted-foreground">查看对象</span>
+          <div className="ml-auto flex min-w-0 max-w-full items-center gap-1">
+            <Button
+              size="xs"
+              variant={selected ? 'outline' : 'secondary'}
+              aria-pressed={!selected}
+              onClick={() => setAgentId(undefined)}
+            >
+              <MessagesSquare />
+              主会话
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="xs"
+                  variant={selected ? 'secondary' : 'outline'}
+                  className="min-w-0"
+                  aria-label={selected ? `切换子代理，当前为${formatAgentName(selected.name)}` : '选择子代理'}
+                >
+                  <GitFork />
+                  <span className="truncate">
+                    {selected ? formatAgentName(selected.name) : `子代理 · ${choices.length}`}
+                  </span>
+                  <ChevronDown />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                side="bottom"
+                align="end"
+                sideOffset={4}
+                className="max-w-[min(22rem,calc(100vw-1.5rem))]"
+                aria-label="选择子代理"
+              >
+                <DropdownMenuRadioGroup value={selected?.agentId ?? ''} onValueChange={setAgentId}>
+                  {choices.map((agent) => (
+                    <DropdownMenuRadioItem
+                      key={agent.agentId}
+                      value={agent.agentId}
+                      textValue={formatAgentName(agent.name)}
+                    >
+                      <span className="truncate">{formatAgentName(agent.name)}</span>
+                      {agent.status && (
+                        <span className="ml-auto shrink-0 pl-2 text-muted-foreground">{agent.status}</span>
+                      )}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+      )}
+      <ContextWindowPanel
+        api={api}
+        session={{ ...session, agentId: selected?.agentId }}
+        sessionName={selected ? formatAgentName(selected.name) : sessionName}
+        {...{ visible, reducedMotion, onChange }}
+      />
+    </>
+  )
 }
 
 export function useSessionContextRequest(
@@ -107,6 +200,7 @@ export function useSessionContextRequest(
     api: ContextWindowApi
     owner: string
     request?: ContextRequest
+    subagents?: ContextWindowAgent[]
     fact: PanelDataFact
   }>()
   const [retryRevision, setRetryRevision] = useState(0)
@@ -129,22 +223,19 @@ export function useSessionContextRequest(
         const page = await api.list(session, { limit: 1 })
         if (!stopped && requestEpoch === epoch) {
           const request = page.requests[0]
+          const revision = JSON.stringify([request?.id, request?.revision, page.subagents])
           setSnapshot((previous) =>
             previous?.api === api &&
             previous.owner === owner &&
             previous.fact.status === 'ready' &&
-            previous.request?.id === request?.id &&
-            previous.request?.revision === request?.revision
+            previous.fact.revision === revision
               ? previous
               : {
                   api,
                   owner,
                   request,
-                  fact: {
-                    status: 'ready',
-                    value: Boolean(request),
-                    revision: `${request?.id ?? ''}:${request?.revision ?? ''}`,
-                  },
+                  subagents: page.subagents,
+                  fact: { status: 'ready', value: Boolean(request || page.subagents?.length), revision },
                 },
           )
         }
@@ -158,6 +249,7 @@ export function useSessionContextRequest(
               api,
               owner,
               request: retained?.request,
+              subagents: retained?.subagents,
               fact: { status: 'error', value: retained?.fact.value, error },
             }
           })
@@ -186,5 +278,10 @@ export function useSessionContextRequest(
     }
   }, [host, api, session?.hostId, session?.sessionId, owner, active, retryRevision])
   const current = snapshot?.api === api && snapshot?.owner === owner ? snapshot : undefined
-  return { request: current?.request, fact: current?.fact ?? { status: 'unknown' as const }, retry }
+  return {
+    request: current?.request,
+    subagents: current?.subagents,
+    fact: current?.fact ?? { status: 'unknown' as const },
+    retry,
+  }
 }

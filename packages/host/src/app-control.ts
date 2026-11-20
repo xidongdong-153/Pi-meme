@@ -1,4 +1,5 @@
 import { validateVisualizationState } from '@pi-meme/contracts/visualize'
+import type { ContextWindowApi, ContextWindowTarget } from '@pi-meme/contracts/context-window'
 import { readSessionOperation } from './session-read-operations'
 import { readPage, readString, SystemReadError, type ReadQuery } from '@pi-meme/contracts/system-read'
 import type { GoalService } from '@pi-meme/goals/server/service'
@@ -58,7 +59,7 @@ import { ControlStore, ControlError, createControlStorePaths, type ControlStoreP
 type Options = {
   memory?: import('@pi-meme/contracts/memory').MemoryApi
   memorySettled?: (session: AppSession, key: string, aborted: boolean) => Promise<void>
-  contextWindow?: import('@pi-meme/contracts/context-window').ContextWindowApi
+  contextWindow?: ContextWindowApi
   prepareContextSession?: (session: AppSession) => void
   visualizations?: (sessionKey: string) => import('@pi-meme/visualize/server/store').VisualizationStore
   models?: import('@pi-meme/contracts/model-config').ModelsReadonlyApi
@@ -292,10 +293,10 @@ export async function createAppControl(options: Options) {
     }
     return session
   }
-  const prepareContextSession = (ref: SessionRef, callerClientId: string, reader?: SessionRef) => {
+  const prepareContextSession = (ref: ContextWindowTarget, callerClientId: string, reader?: SessionRef) => {
     // The Host binds this reader from the active execution; it is never supplied by a control request.
-    const ownExecution = reader?.hostId === ref.hostId && reader.sessionId === ref.sessionId
-    const session = getSession(ref, ownExecution ? undefined : callerClientId)
+    const session = getSession(ref, callerClientId, reader)
+    if (ref.agentId !== undefined) readString(ref.agentId, '子代理 ID', 256)
     options.prepareContextSession?.(session)
   }
   const assertActivityAccess = (ref: SessionRef, mode: unknown) => {

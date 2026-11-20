@@ -80,7 +80,7 @@ PNG 需要该版本已挂载、就绪且可见的预览，否则返回 `not-load
 
 ### 上下文窗口
 
-`contextWindow.*` 使用 `[query-or-requestId, SessionRef?]`，缺省目标为执行会话。`list/get` 返回请求摘要，`item/reply` 返回项目和 piece 元数据；只有 `piece/image` 显式读取正文或内联位图。列表最多100条、文本最多20000字符且序列化文本限48 KiB。所有方法都是会话范围只读操作，临时会话仍校验归属，不会打开或切换客户端面板。完整参数、估算与保留语义见[会话上下文窗口](context-window.md)。
+`contextWindow.*` 使用 `[query-or-requestId, {hostId,sessionId,agentId?}?]`，缺省目标为执行所在的主会话。读取子代理时使用主会话引用和子代理 ID，后续正文读取沿用相同目标。`list/get` 返回请求摘要，`item/reply` 返回项目和 piece 元数据；只有 `piece/image` 显式读取正文或内联位图。列表最多100条、文本最多20000字符且序列化文本限48 KiB。所有方法都是会话范围只读操作，临时会话仍校验归属，不会打开或切换客户端面板。完整参数、估算与保留语义见[会话上下文窗口](context-window.md)。
 
 ### Git 可用性摘要
 

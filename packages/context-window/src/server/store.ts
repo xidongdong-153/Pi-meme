@@ -7,6 +7,8 @@ import {
   contextCaptureLimits as limits,
   contextPartKinds,
   type ContextCapture,
+  type ContextWindowAgent,
+  type ContextWindowTarget,
   type ContextRequest,
   type ContextRequestPage,
   type ContextListQuery,
@@ -97,6 +99,10 @@ export class ContextWindowStore {
             Date.parse(value.time) < cutoff ||
             typeof value.api !== 'string' ||
             typeof value.model !== 'string' ||
+            (value.agent !== undefined &&
+              (typeof value.agent?.agentId !== 'string' ||
+                !value.agent.agentId ||
+                typeof value.agent.name !== 'string')) ||
             !['main', 'summary', 'cache_warm', 'hint', 'unknown'].includes(value.purpose) ||
             !['payload', 'complete', 'failed', 'aborted'].includes(value.phase) ||
             (value.prompt && !validPrompt(value.prompt))
@@ -126,12 +132,13 @@ export class ContextWindowStore {
     return JSON.stringify([sessionId, id])
   }
 
-  async capture(sessionId: string, event: ContextCapture) {
+  async capture(sessionId: string, event: ContextCapture, agent?: ContextWindowAgent) {
     if (this.deleted.has(sessionId)) return
     const session = await this.session(sessionId)
     if (this.deleted.has(sessionId)) return
     const previous = session.records.get(event.id)
-    if (previous && event.payloadRevision < previous.payloadRevision) return
+    if (previous && (previous.agent?.agentId !== agent?.agentId || event.payloadRevision < previous.payloadRevision))
+      return
     const key = this.key(sessionId, event.id)
     let body = this.bodies.get(key)
     const samePayload = previous?.payloadRevision === event.payloadRevision
@@ -201,10 +208,15 @@ export class ContextWindowStore {
     const counted = event.usage ? event.usage.input + event.usage.cacheRead + event.usage.cacheWrite : 0
     const record: ContextRequest = {
       id: event.id,
+      agent,
       revision: (previous?.revision ?? 0) + 1,
       payloadRevision: event.payloadRevision,
       sequence:
-        previous?.sequence ?? [...session.records.values()].reduce((max, item) => Math.max(max, item.sequence), 0) + 1,
+        previous?.sequence ??
+        [...session.records.values()].reduce(
+          (max, item) => (item.agent?.agentId === agent?.agentId ? Math.max(max, item.sequence) : max),
+          0,
+        ) + 1,
       time: previous?.time ?? event.time,
       generation: event.generation,
       nativeSessionId: event.nativeSessionId,
@@ -280,27 +292,37 @@ export class ContextWindowStore {
     }
   }
 
-  async list(sessionId: string, query: ContextListQuery = {}): Promise<ContextRequestPage> {
+  async list({ sessionId, agentId }: ContextWindowTarget, query: ContextListQuery = {}): Promise<ContextRequestPage> {
     const session = await this.session(sessionId)
-    const records = [...session.records.values()]
-      .filter((record) => query.includeAuxiliary || record.purpose === 'main')
-      .sort((a, b) => b.sequence - a.sequence)
+    const records: ContextRequest[] = []
+    const subagents = agentId === undefined ? new Map<string, ContextWindowAgent>() : undefined
+    for (const record of session.records.values()) {
+      if (record.agent && record.purpose === 'main') subagents?.set(record.agent.agentId, record.agent)
+      if (record.agent?.agentId === agentId && (query.includeAuxiliary || record.purpose === 'main'))
+        records.push(record)
+    }
+    records.sort((a, b) => b.sequence - a.sequence)
     const index = query.cursor ? records.findIndex((record) => record.id === query.cursor) + 1 : 0
     if (query.cursor && !index) throw new Error('请求分页游标已失效，请重新读取')
     const limit = bounded(query.limit, 50, 100)
     const selected = records.slice(index, index + limit)
     return {
       requests: selected.map((record) => this.visibleState(sessionId, record)),
+      subagents: subagents && [...subagents.values()],
       total: records.length,
       nextCursor: index + limit < records.length ? selected.at(-1)?.id : undefined,
     }
   }
 
-  async get(sessionId: string, id: string) {
-    const session = await this.session(sessionId)
+  private request(session: Session, id: string, agentId: string | undefined) {
     const record = session.records.get(id)
-    if (!record) throw new Error('此请求的上下文历史已不可用')
-    return this.visibleState(sessionId, record)
+    if (!record || record.agent?.agentId !== agentId) throw new Error('此请求的上下文历史已不可用')
+    return record
+  }
+
+  async get({ sessionId, agentId }: ContextWindowTarget, id: string) {
+    const session = await this.session(sessionId)
+    return this.visibleState(sessionId, this.request(session, id, agentId))
   }
 
   private visibleState(sessionId: string, record: ContextRequest): ContextRequest {
@@ -312,11 +334,9 @@ export class ContextWindowStore {
     }
   }
 
-  private async readBody(sessionId: string, requestId: string, payloadRevision?: number) {
+  private async readBody({ sessionId, agentId }: ContextWindowTarget, requestId: string, payloadRevision?: number) {
     const session = await this.session(sessionId)
-    const stored = session.records.get(requestId)
-    if (!stored) throw new Error('此请求的上下文历史已不可用')
-    const record = this.visibleState(sessionId, stored)
+    const record = this.visibleState(sessionId, this.request(session, requestId, agentId))
     if (payloadRevision !== undefined) {
       if (!Number.isSafeInteger(payloadRevision) || payloadRevision < 0) throw new Error('正文版本无效')
       if (record.payloadRevision !== payloadRevision) throw new Error('此请求正文已更新，请关闭后重新打开')
@@ -356,9 +376,9 @@ export class ContextWindowStore {
     }
   }
 
-  private async items(sessionId: string, query: ContextItemQuery) {
+  private async items(target: ContextWindowTarget, query: ContextItemQuery) {
     if (!contextPartKinds.includes(query.kind)) throw new Error('上下文分类无效')
-    const resolved = await this.readBody(sessionId, query.requestId, query.payloadRevision)
+    const resolved = await this.readBody(target, query.requestId, query.payloadRevision)
     let items = resolved.body?.body ? promptItems(resolved.record.api, resolved.body.body, query.kind) : []
     if (resolved.record.prompt?.counted && resolved.body?.body && items.length) {
       const estimated = inspectPrompt(resolved.record.api, resolved.body.body)?.tokens ?? 0
@@ -372,8 +392,8 @@ export class ContextWindowStore {
     return { ...resolved, items }
   }
 
-  async item(sessionId: string, query: ContextItemQuery): Promise<ContextItemPage> {
-    const result = await this.items(sessionId, query)
+  async item(target: ContextWindowTarget, query: ContextItemQuery): Promise<ContextItemPage> {
+    const result = await this.items(target, query)
     const offset = bounded(query.offset, 0, 1_000_000, true)
     const limit = bounded(query.limit, 100, 100)
     const items = query.itemId ? result.items.filter((item) => item.id === query.itemId) : result.items
@@ -388,8 +408,8 @@ export class ContextWindowStore {
     }
   }
 
-  async reply(sessionId: string, requestId: string): Promise<ContextReplyPage> {
-    const result = await this.readBody(sessionId, requestId)
+  async reply(target: ContextWindowTarget, requestId: string): Promise<ContextReplyPage> {
+    const result = await this.readBody(target, requestId)
     return {
       state: result.body?.reply
         ? result.record.replyCut
@@ -402,16 +422,16 @@ export class ContextWindowStore {
     }
   }
 
-  private async resolvePiece(sessionId: string, query: ContextPieceQuery) {
+  private async resolvePiece(target: ContextWindowTarget, query: ContextPieceQuery) {
     const index = bounded(query.pieceIndex, 0, 1_000_000, true)
     if (query.kind === 'reply') {
-      const result = await this.readBody(sessionId, query.requestId, query.payloadRevision)
+      const result = await this.readBody(target, query.requestId, query.payloadRevision)
       return {
         state: result.body?.reply ? result.from! : (result.state ?? result.record.replyState),
         piece: result.body?.reply?.[index],
       }
     }
-    const result = await this.items(sessionId, { ...query, kind: query.kind })
+    const result = await this.items(target, { ...query, kind: query.kind })
     if (!query.itemId) throw new Error('缺少上下文项目身份')
     const item = result.items.find((candidate) => candidate.id === query.itemId)
     return {
@@ -420,8 +440,8 @@ export class ContextWindowStore {
     }
   }
 
-  async piece(sessionId: string, query: ContextPieceQuery): Promise<ContextPiecePage> {
-    const { state, piece } = await this.resolvePiece(sessionId, query)
+  async piece(target: ContextWindowTarget, query: ContextPieceQuery): Promise<ContextPiecePage> {
+    const { state, piece } = await this.resolvePiece(target, query)
     if (!piece) return { state, total: 0 }
     const offset = bounded(query.offset, 0, 64 * 1024 * 1024, true)
     const limit = bounded(query.limit, limits.textCharacters, limits.textCharacters)
@@ -447,8 +467,11 @@ export class ContextWindowStore {
     }
   }
 
-  async image(sessionId: string, query: ContextPieceQuery): Promise<{ state: ContextBodyState; src?: string }> {
-    const { state, piece } = await this.resolvePiece(sessionId, query)
+  async image(
+    target: ContextWindowTarget,
+    query: ContextPieceQuery,
+  ): Promise<{ state: ContextBodyState; src?: string }> {
+    const { state, piece } = await this.resolvePiece(target, query)
     const src = piece?.src
     if (
       !src ||
@@ -472,18 +495,12 @@ export class ContextWindowStore {
     }
   }
 
-  async abortPending(sessionId: string) {
+  async abortPending(sessionId: string, requestId: string) {
     if (this.deleted.has(sessionId)) return
     const session = await this.session(sessionId)
-    for (const record of [...session.records.values()]) {
-      if (record.done) continue
-      await this.capture(sessionId, {
-        ...record,
-        payloadRevision: record.payloadRevision,
-        phase: 'aborted',
-        error: '会话运行已结束',
-      })
-    }
+    const record = session.records.get(requestId)
+    if (record && !record.done)
+      await this.capture(sessionId, { ...record, phase: 'aborted', error: '会话运行已结束' }, record.agent)
   }
 
   private async prune() {

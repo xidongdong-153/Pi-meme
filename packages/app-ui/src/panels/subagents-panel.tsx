@@ -23,6 +23,9 @@ const labels: Record<AgentStatus, string> = {
   interrupted: '已中断',
   stopped: '已停止',
 }
+export function agentStatusLabel(agent: AgentSummary) {
+  return agent.isPaused ? '已暂停' : labels[agent.status]
+}
 export function agentRunning(agent: AgentSummary) {
   return ['idle', 'starting', 'running', 'waiting_children', 'waiting_input'].includes(agent.status)
 }
@@ -98,7 +101,7 @@ const AgentConversation = memo(({ bridge, id, onBack, onOpenAgent, files, fileSe
     return (relativePath: string) => files.preview(ref, relativePath)
   }, [files, hostId, sessionId])
   const name = view.agent ? formatAgentName(view.agent.name) : '子代理'
-  const status = view.agent ? (view.agent.isPaused ? '已暂停' : labels[view.agent.status]) : '读取中'
+  const status = view.agent ? agentStatusLabel(view.agent) : '读取中'
   const model = view.agent?.model?.name || view.agent?.model?.id || '模型未知'
   const thinking = view.agent?.thinkingLevel ? THINKING_LEVEL_LABELS[view.agent.thinkingLevel] : '强度未知'
   return (

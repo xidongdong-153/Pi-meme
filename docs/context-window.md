@@ -10,7 +10,9 @@ paths:
 
 # 会话上下文窗口
 
-在聊天右侧工具目录中打开“上下文窗口”，或点击输入框上下文圆环浮层中的“查看上下文窗口”。工具目录要求会话已有正式记录且存在真实主请求摘要；新会话、只有草稿或没有捕获记录的旧会话不显示入口。有摘要但正文未留存时仍可查看摘要。面板绑定明确的 `SessionRef`，不使用另一个窗口的当前选择。旧 Host 未声明 `context-window` capability 时隐藏该入口。
+在聊天右侧工具目录中打开“上下文窗口”，或点击输入框上下文圆环浮层中的“查看上下文窗口”。主会话或其子代理已有真实主请求摘要，且聊天已有正式记录时，工具目录显示入口。有摘要但正文未留存时仍可查看摘要。面板绑定明确的 `SessionRef`，不使用另一个窗口的当前选择。旧 Host 未声明 `context-window` capability 时隐藏该入口。
+
+面板顶部的“查看对象”默认选择主会话。有子代理时，点击“子代理”可按名称和运行状态选择。用量、分类、正文、回复和历史曲线一起切换到该对象的最新可解析请求。历史子代理需要有实际采集记录才能显示用量。输入框圆环始终显示主会话用量。
 
 入口与输入框共用 `list({ limit: 1 })` 的摘要状态，订阅建立后补读，按 `context-window/resync` 事件和前台刷新更新。首次未知和查询失败不冒充空记录；同目标短暂失败保留最后确认值。已有标签不会因摘要归零或断线被关闭，确认能力撤销时才清理实例。
 
@@ -28,7 +30,7 @@ paths:
 - **缓存**：计量值与字段是否已知分开保存。当前 SDK 观察入口没有可靠的原始字段存在性；正的 `cacheRead` 可确认命中，归一化后的零仍保持 `unknown`，不解释成已知零命中率。
 - **历史**：仅展示启用本实现后采到的真实请求，不从旧 JSONL 重建或伪造快照。请求数表示运行时逻辑请求，不承诺等于服务商内部每一次重试。
 
-请求默认只列主对话。摘要、缓存预热、输入提示和未知来源通过 `includeAuxiliary` 显式查询。主请求使用当前原生会话、原始 payload hook、默认 stream 函数和 Context 身份联合判定；已确认主 Context 的复用归为预热。虚拟模型递归保留同一个私有调用标记，避免双重采集。
+列表默认只含所选对象的主请求。摘要、缓存预热、输入提示和未知来源通过 `includeAuxiliary` 显式查询。主请求使用当前原生会话、原始 payload hook、默认 stream 函数和 Context 身份联合判定；已确认主 Context 的复用归为预热。虚拟模型递归保留同一个私有调用标记，避免双重采集。
 
 ## 采集与存储
 
@@ -53,9 +55,9 @@ Worker 最多四条并发采集通道、128 个排队请求，活动与排队正
 
 ## 只读接口
 
-能力契约见 [context-window.ts](../packages/contracts/src/context-window.ts)，所有调用都先校验 Host、会话存在性、临时会话归属及关闭状态。Agent 读取自己的临时执行根时使用 Host 绑定的执行身份；显式读取其他临时会话仍校验原归属，客户端不能传入该执行身份。Desktop、Web 和远程转发使用同一 HostApi 与现有 HTTP/WebSocket 通路。
+能力契约见 [context-window.ts](../packages/contracts/src/context-window.ts)，所有调用都先校验 Host、会话存在性、临时会话归属及关闭状态。`ContextWindowTarget` 包含根会话的 `hostId`、`sessionId` 和可选的子代理 `agentId`。各对象的请求单独编号，分页和正文读取使用同一个目标。省略 `agentId` 时读取主会话，列表另附有主请求快照的 `subagents`（ID 和名称）。旧 Host 的列表缺省此字段，界面沿用主会话视图。Agent 读取自己的临时执行根时使用 Host 绑定的执行身份；显式读取其他临时会话仍校验原归属，客户端不能传入该执行身份。Desktop、Web 和远程转发使用同一 HostApi 与现有 HTTP/WebSocket 通路。
 
-| 方法                  | 参数（省略共同的第一个 `SessionRef`）                                 | 返回                                                                     |
+| 方法                  | 参数（省略共同的第一个 `ContextWindowTarget`）                        | 返回                                                                     |
 | --------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | `contextWindow.list`  | `{cursor?,limit?,includeAuxiliary?}`                                  | 摘要列表；每页最多 100 条，默认仅主请求                                  |
 | `contextWindow.get`   | `requestId`                                                           | 单个摘要与正文可用状态                                                   |
@@ -66,6 +68,6 @@ Worker 最多四条并发采集通道、128 个排队请求，活动与排队正
 
 `kind` 使用七分类；读取回复时 `piece/image` 可传 `reply`。项目 ID 是稳定编码的分类、tag、名称组合，不使用行号。摘要的 `revision` 随更新递增，`payloadRevision` 表示正文版本；分页可携带后者，版本改变时明确拒绝继续读取，避免拼接不同版本。界面在 payload 改变时关闭旧正文窗口。极小文本分页仍保留完整代理对，偏移以返回的 `nextOffset` 为准。`memory/archive/off/missing/cut/unread/too-large/pending` 表示可用位置或失败状态，不把不可用内容替换为空正文冒充成功。
 
-Agent 通过 [Host 内置工具](host-system-tools.md) 的同名 `contextWindow.*` 只读操作访问，`args` 为 `[query-or-requestId, SessionRef?]`。默认只读摘要，正文和图像必须显式调用对应方法；Plan 不因此获得写权限。
+Agent 通过 [Host 内置工具](host-system-tools.md) 的同名 `contextWindow.*` 只读操作访问，`args` 为 `[query-or-requestId, ContextWindowTarget?]`。默认只读摘要，正文和图像必须显式调用对应方法；Plan 不因此获得写权限。
 
 代码、样式、布局算法及模型图标衍生自 [Magpie](https://github.com/yetone/magpie)，保留 MIT 声明，见 [第三方许可](../THIRD_PARTY_NOTICES.md)。

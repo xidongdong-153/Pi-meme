@@ -13,6 +13,8 @@ import { SystemClientBridge } from './system-client-bridge'
 import { ImageLibraryStore } from '@pi-meme/image-generation/server/library-store'
 import { imageLibraryHistory } from './image-library-history'
 import { ContextWindowStore } from '@pi-meme/context-window/server/store'
+import type { ContextWindowAgent } from '@pi-meme/contracts/context-window'
+import type { SessionRef } from '@pi-meme/contracts/app-host'
 import { projectBranchVisualizations } from '@pi-meme/contracts/visualize'
 import { VisualizationStore } from '@pi-meme/visualize/server/store'
 import { ImageConfigStore } from '@pi-meme/image-generation/server/config-store'
@@ -570,7 +572,6 @@ export async function createHost(options: HostOptions = {}) {
     )
     await contextWindows.init()
     let contextCaptureBytes = 0
-    const contextCaptureTargets = new Map<string, import('@pi-meme/contracts/app-host').SessionRef>()
     const visualizations = new VisualizationStore(path.join(root, 'state/modules/%40pi-meme%2Fvisualize/artifacts'))
     const temporaryVisualizations = new Map<string, VisualizationStore>()
     const visualizationStore = (temporaryRoot?: string) => {
@@ -704,8 +705,9 @@ export async function createHost(options: HostOptions = {}) {
           : (parentSessionKey && temporaryPathsBySessionKey.get(parentSessionKey)) ||
             (sessionKey && temporaryPathsBySessionKey.get(sessionKey)) ||
             paths
-      const contextSessions = new Set<string>()
       const session = createWorkerSession(cwd, notify, effectivePaths, async (access, taskMode) => {
+        const contextCaptureTargets = new Map<string, { ref: SessionRef; agent?: ContextWindowAgent }>()
+        let contextCaptureClosed = false
         let snapshot =
           (parentSessionKey && workerSnapshots.get(parentSessionKey)) || (await resources.snapshotForExecution(cwd))
         let lease: ReturnType<PluginManager['acquire']> | undefined
@@ -916,18 +918,23 @@ export async function createHost(options: HostOptions = {}) {
             await goals.usage(run, entryId, usage, inputEntryId)
           },
           contextCapture: async (capture) => {
-            if (!appControl || closing || temporaryClosing.has(sessionKey)) return
-            let ref = contextCaptureTargets.get(capture.id)
-            const connection = session.connection()
-            if (!ref || capture.phase === 'payload') {
-              if (capture.generation !== connection.generation) return
+            if (!appControl || closing || contextCaptureClosed || temporaryClosing.has(sessionKey)) return
+            let target = contextCaptureTargets.get(capture.id)
+            if (!target || capture.phase === 'payload') {
+              if (capture.generation !== session.connection().generation) return
               const nativeId = session.getActiveSession().sessionId
               if (nativeId && nativeId !== capture.nativeSessionId) return
-              ref ??= await appControl.sessionForRuntime(sessionKey)
+              if (!target) {
+                const child = parentSessionKey ? collaboration.goalCaller(session) : undefined
+                const rootKey = child?.rootSessionKey ?? sessionKey
+                if (temporaryClosing.has(rootKey)) return
+                const { hostId, sessionId } = await appControl.sessionForRuntime(rootKey)
+                target = { ref: { hostId, sessionId }, agent: child && { agentId: child.agentId, name: child.name } }
+              }
             }
-            if (temporaryClosing.has(ref.sessionId)) return
-            if (capture.phase === 'payload') contextCaptureTargets.set(capture.id, ref)
-            contextSessions.add(ref.sessionId)
+            const { ref, agent } = target
+            if (contextCaptureClosed || temporaryClosing.has(ref.sessionId)) return
+            if (capture.phase === 'payload') contextCaptureTargets.set(capture.id, target)
             contextWindows.registerSession(ref.sessionId, effectivePaths.temporaryRoot)
             const bytes =
               Buffer.byteLength(capture.body ?? '') +
@@ -942,7 +949,7 @@ export async function createHost(options: HostOptions = {}) {
             const admittedBytes = capture.body || capture.reply ? bytes : 0
             contextCaptureBytes += admittedBytes
             try {
-              const record = await contextWindows.capture(ref.sessionId, capture)
+              const record = await contextWindows.capture(ref.sessionId, capture, agent)
               if (record && !temporaryClosing.has(ref.sessionId))
                 await appControl.publishContext(ref, { requestId: record.id, revision: record.revision })
             } finally {
@@ -1356,6 +1363,7 @@ export async function createHost(options: HostOptions = {}) {
           },
           resolvePlan: (reference, signal) => collaboration.resolvePlan(session, reference, signal),
           release: async () => {
+            contextCaptureClosed = true
             endComputerRun(sessionKey)
             try {
               await memoryCoordinator
@@ -1367,9 +1375,10 @@ export async function createHost(options: HostOptions = {}) {
                 await lease.release()
               }
             } finally {
-              await Promise.allSettled([...contextSessions].map((id) => contextWindows.abortPending(id)))
-              for (const [id, ref] of contextCaptureTargets)
-                if (contextSessions.has(ref.sessionId)) contextCaptureTargets.delete(id)
+              await Promise.allSettled(
+                [...contextCaptureTargets].map(([id, { ref }]) => contextWindows.abortPending(ref.sessionId, id)),
+              )
+              contextCaptureTargets.clear()
               releaseResource()
               workerPluginBridges.delete(sessionKey)
               workerSnapshots.delete(sessionKey)
@@ -2487,14 +2496,7 @@ export async function createHost(options: HostOptions = {}) {
         if (session.temporary && !temporaryRoot) throw new Error('临时会话上下文存储尚未就绪')
         contextWindows.registerSession(session.sessionId, temporaryRoot)
       },
-      contextWindow: {
-        list: (ref, query) => contextWindows.list(ref.sessionId, query),
-        get: (ref, id) => contextWindows.get(ref.sessionId, id),
-        item: (ref, query) => contextWindows.item(ref.sessionId, query),
-        reply: (ref, id) => contextWindows.reply(ref.sessionId, id),
-        piece: (ref, query) => contextWindows.piece(ref.sessionId, query),
-        image: (ref, query) => contextWindows.image(ref.sessionId, query),
-      },
+      contextWindow: contextWindows,
       visualizations: (key) => visualizationStore(temporaryPathsBySessionKey.get(key)?.temporaryRoot),
       models: { list: () => modelService.list() },
       imageLibrary: {

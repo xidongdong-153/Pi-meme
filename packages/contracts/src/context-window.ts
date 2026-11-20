@@ -50,8 +50,11 @@ export type ContextRuntimeCapture = {
   servedModel?: string
 }
 export type ContextCapture = ContextRuntimeCapture & { prompt?: ContextPrompt }
+export type ContextWindowAgent = { agentId: string; name: string }
+export type ContextWindowTarget = SessionRef & { agentId?: string }
 export type ContextRequest = {
   id: string
+  agent?: ContextWindowAgent
   revision: number
   payloadRevision: number
   sequence: number
@@ -77,7 +80,13 @@ export type ContextRequest = {
   error?: string
   parserVersion: number
 }
-export type ContextRequestPage = { requests: ContextRequest[]; total: number; nextCursor?: string }
+export type ContextRequestPage = {
+  requests: ContextRequest[]
+  total: number
+  nextCursor?: string
+  /** 主会话查询同时返回有主请求快照的子代理。旧 Host 不提供此字段。 */
+  subagents?: ContextWindowAgent[]
+}
 export type ContextListQuery = { cursor?: string; limit?: number; includeAuxiliary?: boolean }
 export type ContextItemQuery = {
   requestId: string
@@ -118,12 +127,12 @@ export type ContextPiecePage = {
 }
 export type ContextImageQuery = Omit<ContextPieceQuery, 'offset' | 'limit'>
 export type ContextWindowApi = {
-  list: (session: SessionRef, query?: ContextListQuery) => Promise<ContextRequestPage>
-  get: (session: SessionRef, requestId: string) => Promise<ContextRequest>
-  item: (session: SessionRef, query: ContextItemQuery) => Promise<ContextItemPage>
-  reply: (session: SessionRef, requestId: string) => Promise<ContextReplyPage>
-  piece: (session: SessionRef, query: ContextPieceQuery) => Promise<ContextPiecePage>
-  image: (session: SessionRef, query: ContextImageQuery) => Promise<{ state: ContextBodyState; src?: string }>
+  list: (target: ContextWindowTarget, query?: ContextListQuery) => Promise<ContextRequestPage>
+  get: (target: ContextWindowTarget, requestId: string) => Promise<ContextRequest>
+  item: (target: ContextWindowTarget, query: ContextItemQuery) => Promise<ContextItemPage>
+  reply: (target: ContextWindowTarget, requestId: string) => Promise<ContextReplyPage>
+  piece: (target: ContextWindowTarget, query: ContextPieceQuery) => Promise<ContextPiecePage>
+  image: (target: ContextWindowTarget, query: ContextImageQuery) => Promise<{ state: ContextBodyState; src?: string }>
 }
 
 export const contextCaptureLimits = {

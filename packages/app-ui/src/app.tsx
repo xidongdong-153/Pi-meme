@@ -606,6 +606,10 @@ function AppContent({
   const chatVisible = route.kind === 'chat'
   const contextState = useSessionContextRequest(host, contextApi, appSession, active && chatVisible)
   const contextRequest = contextState.request
+  const subagents = useMemo(
+    () => chat.chat.agents?.filter((agent) => agent.parentAgentId && agent.rootSessionKey === runtimeSessionKey) ?? [],
+    [chat.chat.agents, runtimeSessionKey],
+  )
   const [toolsVisible, setToolsVisible] = useState(false)
   const gitAvailability = useGitAvailability({
     host,
@@ -1333,7 +1337,7 @@ function AppContent({
           context={contextRequest}
           stats={chat.sessionStats}
           generationMetrics={generationMetrics}
-          onOpenContext={contextRequest ? () => openTool('builtin:context-window') : undefined}
+          onOpenContext={contextState.fact.value ? () => openTool('builtin:context-window') : undefined}
         />
       ) : null,
     model: (
@@ -1727,12 +1731,7 @@ function AppContent({
       value: activities.state.known ? activities.count > 0 : undefined,
       error: activities.state.error || (!activities.state.connected ? '服务未连接' : undefined),
     },
-    agents: {
-      status: 'ready',
-      value: Boolean(
-        chat.chat.agents?.some((agent) => agent.parentAgentId && agent.rootSessionKey === runtimeSessionKey),
-      ),
-    },
+    agents: { status: 'ready', value: subagents.length > 0 },
     plans: { status: 'ready', value: chat.planDocuments.length > 0 },
     sources: { status: 'ready', value: historyPanels.sources },
     visualizations: { status: visualize.status, value: visualize.available, error: visualize.error },
@@ -1839,9 +1838,12 @@ function AppContent({
             render: (props: UiContributionProps) =>
               props.target.session ? (
                 <ContextWindowTool
+                  key={JSON.stringify([props.target.session.hostId, props.target.session.sessionId])}
                   host={host}
                   api={contextApi}
                   session={props.target.session}
+                  agents={subagents}
+                  capturedAgents={contextState.subagents}
                   visible={props.visible === true}
                   reducedMotion={appearance.snapshot?.settings.appearance?.reducedMotion === 'on'}
                   sessionName={appSession?.name}

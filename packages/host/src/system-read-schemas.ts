@@ -138,11 +138,12 @@ export function systemReadInputSchema(name: string): SystemOperation['inputSchem
   if (name === 'results.read') return tuple([record({ id: text(), ...piece }, ['id', 'revision'])], 1)
   if (name.startsWith('contextWindow.')) {
     const action = name.slice('contextWindow.'.length)
-    if (['get', 'reply'].includes(action)) return tuple([text(), session], 1)
+    const target = record({ hostId: text(128), sessionId: text(256), agentId: text(256) }, ['hostId', 'sessionId'])
+    if (['get', 'reply'].includes(action)) return tuple([text(), target], 1)
     if (action === 'list')
       return tuple([
         record({ cursor: text(4096), limit: integer(100, 1), includeAuxiliary: { type: 'boolean' } }),
-        session,
+        target,
       ])
     const properties: Record<string, unknown> = {
       requestId: text(),
@@ -153,7 +154,7 @@ export function systemReadInputSchema(name: string): SystemOperation['inputSchem
         ? { offset: integer(), limit: integer(100, 1) }
         : { pieceIndex: integer(), ...(action === 'piece' ? { offset: integer(), limit: integer(20000, 1) } : {}) }),
     }
-    return tuple([record(properties, ['requestId', 'kind', ...(action === 'item' ? [] : ['pieceIndex'])]), session], 1)
+    return tuple([record(properties, ['requestId', 'kind', ...(action === 'item' ? [] : ['pieceIndex'])]), target], 1)
   }
   return undefined
 }

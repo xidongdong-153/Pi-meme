@@ -298,7 +298,7 @@ try {
 
 ## 会话上下文窗口
 
-`capabilities().features` 包含 `context-window` 时提供可选的 `contextWindow`。`list/get` 读取真实请求摘要，`item/reply` 返回正文索引元数据，`piece/image` 显式读取分页文本或受限内联位图。首个参数始终是明确的 `SessionRef`，复用临时会话授权及删除校验。`context-window` 控制事件只携带请求 ID 和修订，客户端重新读取摘要，不在事件中传输正文。读取、缓存未知值、容量来源和归档限制见[会话上下文窗口](context-window.md)，契约见[context-window.ts](../packages/contracts/src/context-window.ts)。
+`capabilities().features` 包含 `context-window` 时提供可选的 `contextWindow`。`list/get` 读取真实请求摘要，`item/reply` 返回正文索引元数据，`piece/image` 显式读取分页文本或受限内联位图。首个参数使用主会话的 `SessionRef`，可附 `agentId` 查看指定子代理。主会话的 `list` 响应附带有快照的子代理列表 `subagents`。所有读取复用根会话的临时会话授权及删除校验。`context-window` 控制事件只携带请求 ID 和修订，客户端重新读取摘要，不在事件中传输正文。读取、缓存未知值、容量来源和归档限制见[会话上下文窗口](context-window.md)，契约见[context-window.ts](../packages/contracts/src/context-window.ts)。
 
 ## 图像库
 

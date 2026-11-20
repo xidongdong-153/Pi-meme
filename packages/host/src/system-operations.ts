@@ -287,17 +287,18 @@ export function createSystemOperations(context: SystemOperationContext) {
   if (api.contextWindow) {
     for (const name of ['list', 'get', 'item', 'reply', 'piece', 'image'] as const) {
       const parameters = {
-        list: '[{cursor?,limit?:1..100,includeAuxiliary?}?,SessionRef?]',
-        get: '[requestId,SessionRef?]',
-        item: '[{requestId,payloadRevision?,kind,itemId?,offset?,limit?:1..100},SessionRef?]',
-        reply: '[requestId,SessionRef?]',
-        piece: '[{requestId,payloadRevision?,kind,itemId?,pieceIndex,offset?,limit?:1..20000},SessionRef?]',
-        image: '[{requestId,payloadRevision?,kind,itemId?,pieceIndex},SessionRef?]',
+        list: '[{cursor?,limit?:1..100,includeAuxiliary?}?,{hostId,sessionId,agentId?}?]',
+        get: '[requestId,{hostId,sessionId,agentId?}?]',
+        item: '[{requestId,payloadRevision?,kind,itemId?,offset?,limit?:1..100},{hostId,sessionId,agentId?}?]',
+        reply: '[requestId,{hostId,sessionId,agentId?}?]',
+        piece:
+          '[{requestId,payloadRevision?,kind,itemId?,pieceIndex,offset?,limit?:1..20000},{hostId,sessionId,agentId?}?]',
+        image: '[{requestId,payloadRevision?,kind,itemId?,pieceIndex},{hostId,sessionId,agentId?}?]',
       }
       register(
         `contextWindow.${name}`,
         name === 'list' || name === 'get'
-          ? '读取实际模型请求的上下文摘要，不含正文；默认仅主请求'
+          ? '读取指定主会话或子代理的请求摘要，默认仅列主请求'
           : name === 'piece'
             ? '显式分页读取上下文正文，每页最多20000字符且JSON文本不超过48KiB'
             : name === 'image'
