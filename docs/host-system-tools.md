@@ -1,5 +1,5 @@
 ---
-description: 'Agent 操作 Host 内置工具的入口、权限、客户端路由与新增能力接入方式'
+description: 'Agent 操作 Host 内置工具的入口、权限、客户端路由、电脑操控与接入方式'
 status: implemented
 paths:
   - packages/host/src/system-operations.ts
@@ -7,6 +7,7 @@ paths:
   - packages/pi-adapter/src/system-tools.ts
   - packages/app-ui/src/session/use-system-client.ts
   - packages/host/src/memory-system.ts
+  - apps/desktop/src/main/computer-use/controller.ts
 ---
 
 # Host 内置工具与 Agent
@@ -159,7 +160,11 @@ Agent 不通过此目录修改主开关、每日预算或清空整个 Host。管
 
 ## 本机电脑操控
 
-在 Apple 芯片的 macOS Desktop 输入 `@` 选择「电脑」，或由 Agent 根据任务调用电脑操作。普通任务和完全权限下才能读取或操作本机应用。窗口来自发起消息的 Desktop，连接远程 Host 时也使用这台 Mac。首次访问每个应用时，聊天中可选择仅本轮允许、始终允许或拒绝。长期授权按本机、Host 和应用 bundle ID 保存，可从「设置 → 电脑操控」恢复询问。
+当前仅支持 Apple 芯片的 macOS Desktop。 [Desktop 注册入口](../apps/desktop/src/main/computer-use/controller.ts)
+
+Windows Desktop 的电脑操控实现与验证均列入后续规划。
+
+在聊天输入 `@` 选择「电脑」，或由 Agent 根据任务调用电脑操作。普通任务和完全权限下才能读取或操作本机应用。窗口来自发起消息的 Desktop，连接远程 Host 时也使用这台 Mac。首次访问每个应用时，聊天中可选择仅本轮允许、始终允许或拒绝。长期授权按本机、Host 和应用 bundle ID 保存，可从「设置 → 电脑操控」恢复询问。
 
 | 工具           | 操作                  | 参数与结果                                                                                                        |
 | -------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------- |

@@ -87,7 +87,7 @@ ID 与标题以 [settings-page.tsx](../packages/app-ui/src/settings/settings-pag
 | `plugins` 插件              | `plugins.list/get/status/dependencies/permissions/session/diagnostics/defaults`、`client.plugins.ui.list` | 安装、授权、依赖、项目状态、本轮代次、已加载 UI 元数据分别读取；不执行私有渲染或任意插件业务 |
 | `mcp` MCP                   | `mcp.get/status/tools`                                                                                    | 保存配置与本轮加载信息；没有工具捕获时为 unknown，不为了查询建立 MCP 连接                    |
 | `browser` 浏览器            | `browser.settings.get/history.list/downloads.list/downloads.get/permissions.list/data.status`             | 发起 Desktop 的本地浏览器档案；Web/无客户端不支持，Cookie/网站存储正文为 not-inspected       |
-| `computer` 电脑操控         | `computer.windows/snapshot/screenshot`                                                                    | 发起 Desktop 的已授权应用。开关、系统权限和长期授权由用户在本机设置管理                      |
+| `computer` 电脑操控         | `computer.windows/snapshot/screenshot`                                                                    | Apple 芯片的 macOS Desktop 上已授权的应用。开关、系统权限和长期授权由用户在本机设置管理      |
 | `host` 远程                 | `client.connections.list/status`、`client.ssh.capabilities/list`                                          | 入口缓存连接与 SSH 管理能力；不重连、不探测、不返回 token/身份文件                           |
 | `about` 关于                | `host.runtime/modules/diagnostics`、`host.capabilities`                                                   | 执行 Host、已有 Pi 运行时、装配模块与安全诊断；不以客户端所选其他服务替代                    |
 
