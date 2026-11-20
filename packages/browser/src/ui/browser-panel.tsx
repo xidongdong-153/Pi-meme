@@ -14,7 +14,6 @@ import {
   RefreshCw,
   Search,
   Settings,
-  Square,
   X,
   ZoomIn,
   ZoomOut,
@@ -365,7 +364,7 @@ export function BrowserPanel({
               className="rounded-full hover:bg-transparent hover:opacity-75"
               onClick={() => void command({ type: tab.loading ? 'stop' : 'reload' })}
             >
-              {tab.loading ? <Square className="size-3.5" /> : <RefreshCw className="size-3.5" />}
+              <RefreshCw className="size-3.5" />
             </Button>
           </TooltipHint>
         </div>
