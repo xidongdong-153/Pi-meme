@@ -124,11 +124,6 @@ export function ModelPickerPopover({
   const currentLevelLabel = THINKING_LEVEL_LABELS[activeLevel] || '中'
   const isMax = activeLevel === 'max'
   const isUltra = activeLevel === 'ultra'
-  const accentClassName = isUltra
-    ? 'model-thinking-ultra-accent'
-    : isMax
-      ? 'model-thinking-max-accent'
-      : 'text-blue-500'
 
   const modelKey = (m: PiModel) => `${m.provider}:${m.id}`
   const choices = React.useMemo(() => {
@@ -322,8 +317,9 @@ export function ModelPickerPopover({
             disabled={disabled}
             aria-busy={busy || undefined}
             aria-label="选择模型与思考强度"
+            data-thinking-level={activeLevel}
             className={cn(
-              'inline-flex min-w-0 max-w-full whitespace-nowrap items-center justify-center select-none cursor-pointer transition-colors rounded-full',
+              'model-thinking-theme inline-flex min-w-0 max-w-full whitespace-nowrap items-center justify-center select-none cursor-pointer transition-colors rounded-full',
               'bg-secondary/60 hover:bg-secondary text-foreground/90 hover:text-foreground',
               'size-7 p-0 @min-[500px]:h-7 @min-[500px]:w-auto @min-[500px]:px-2.5 @min-[500px]:text-xs @min-[500px]:font-normal @min-[500px]:gap-1.5',
               disabled && 'cursor-not-allowed opacity-60',
@@ -331,13 +327,13 @@ export function ModelPickerPopover({
             )}
           >
             {/* 窄视口或窄容器：仅显示大脑图标（参考 GPT） */}
-            <Brain className="size-4 shrink-0 @min-[500px]:hidden text-foreground/80" />
+            <Brain className="model-thinking-accent size-4 shrink-0 @min-[500px]:hidden" />
 
             {/* 宽容器：稳定显示模型名称、思考强度与下拉箭头，结构稳定不突变 */}
             <div className="hidden min-w-0 @min-[500px]:inline-flex items-center gap-1.5">
               <div className="flex min-w-0 items-center gap-1 max-w-[160px]">
                 <span className="min-w-0 truncate">{displayName}</span>
-                <span className="min-w-[2em] text-center text-muted-foreground shrink-0 text-[0.6875rem]">
+                <span className="model-thinking-accent min-w-[2em] text-center font-medium shrink-0 text-[0.6875rem]">
                   {currentLevelLabel}
                 </span>
               </div>
@@ -361,15 +357,18 @@ export function ModelPickerPopover({
       >
         {view === 'thinking' ? (
           /* 图 1：思考强度配置面板 */
-          <div className="model-thinking-panel flex flex-col gap-3 select-none" data-thinking-level={activeLevel}>
+          <div
+            className="model-thinking-panel model-thinking-theme flex flex-col gap-3 select-none"
+            data-thinking-level={activeLevel}
+          >
             {/* 顶栏：中间高亮强度文字与模型入口，右侧重置按钮 */}
             <div className="flex items-center justify-between px-1">
               <div className="flex size-6 items-center justify-center">
-                {isUltra && <Zap aria-hidden="true" className="model-thinking-ultra-accent size-3.5" />}
+                {isUltra && <Zap aria-hidden="true" className="model-thinking-accent size-3.5" />}
               </div>
               <div className="flex flex-col items-center">
                 <TooltipHint content={isUltra ? ULTRA_DESCRIPTION : isMax ? 'Max · 模型原生最大思考强度' : undefined}>
-                  <span className={cn('text-sm font-semibold tracking-wide leading-tight', accentClassName)}>
+                  <span className="model-thinking-accent model-thinking-title text-sm font-semibold tracking-wide leading-tight">
                     {currentLevelLabel}
                   </span>
                 </TooltipHint>
@@ -421,15 +420,15 @@ export function ModelPickerPopover({
                   gestureRef.current = null
                   setDragRatio(null)
                 }}
-                className="relative flex items-center w-full py-1.5 cursor-pointer touch-none select-none outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 rounded-full"
+                className="relative flex items-center w-full py-1.5 cursor-pointer touch-none select-none outline-none focus-visible:ring-2 rounded-full"
               >
                 {/* 轨道层：高 24px，圆球两侧各留 12px。 */}
-                <div className="relative h-6 w-full rounded-full bg-white/10 flex items-center">
+                <div className="relative h-6 w-full rounded-full bg-foreground/10 flex items-center">
                   {/* 填充条和圆球共用右边界，只对填充宽度做动画。 */}
                   <div
                     className={cn(
                       'absolute left-0 top-0 bottom-0 rounded-l-full',
-                      activeLevels.length > 1 && 'bg-blue-600',
+                      activeLevels.length > 1 && 'model-thinking-track-fill',
                       isDragging
                         ? 'transition-none'
                         : 'transition-[width] duration-150 ease-out motion-reduce:transition-none',
@@ -479,7 +478,7 @@ export function ModelPickerPopover({
                         }}
                         className={cn(
                           'absolute top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 size-1 rounded-full pointer-events-none transition-colors duration-150',
-                          isUltra ? 'opacity-0' : isPassed ? 'bg-white/80' : 'bg-white/25',
+                          isUltra ? 'opacity-0' : isPassed ? 'bg-white/80' : 'bg-foreground/25',
                         )}
                       />
                     )
