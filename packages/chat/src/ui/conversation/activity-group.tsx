@@ -17,7 +17,7 @@ import { ThinkingActivityRow } from './thinking-activity-row'
 import { ToolActivityRow } from './tool-activity-row'
 import { PluginMessageActionsGroup } from '@pi-meme/ui/components/plugin-message-actions'
 import { toolMessageActionAnchor } from '../model/tool-message-action-anchor'
-import { RetainedDisclosure, usePresentationActive } from './retained-disclosure'
+import { RetainedDisclosure } from './retained-disclosure'
 import { ActivityDuration } from './activity-duration'
 
 const activityIcons = {
@@ -187,8 +187,8 @@ function ActivityDisclosureContent({
           <span
             aria-hidden="true"
             className={cn(
-              'mt-[0.16em] inline-flex size-[1.4em] shrink-0 items-center justify-center opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none group-hover/activity-toggle:opacity-100 group-focus-visible/activity-toggle:opacity-100',
-              !open && '-rotate-90',
+              'mt-[0.16em] inline-flex size-[1.4em] shrink-0 items-center justify-center transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none group-hover/activity-toggle:opacity-100 group-focus-visible/activity-toggle:opacity-100',
+              !open && '-rotate-90 opacity-0',
             )}
           >
             <ChevronDown className="size-3.5" />
@@ -202,13 +202,17 @@ function ActivityDisclosureContent({
         aria-hidden={!open}
         inert={!open}
         className={cn(
-          'grid transition-[grid-template-rows,opacity] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)]',
+          'grid transition-[grid-template-rows,opacity] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
           open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
         )}
       >
         <div className="min-h-0 overflow-hidden">
           {hasOpened && (
-            <ActivityDetails>
+            <div
+              role="group"
+              aria-label="活动详情列表"
+              className="mt-1 ml-[0.7em] space-y-1 border-l border-border/60 py-1 pl-3 [&_pre]:whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere]"
+            >
               {items.map((item) =>
                 item.type !== 'narration' ? (
                   <ActivityRow
@@ -221,51 +225,10 @@ function ActivityDisclosureContent({
                   />
                 ) : null,
               )}
-            </ActivityDetails>
+            </div>
           )}
         </div>
       </RetainedDisclosure>
-    </div>
-  )
-}
-
-function ActivityDetails({ children }: { children: React.ReactNode }) {
-  const active = usePresentationActive()
-  const [hasOverflowAbove, setHasOverflowAbove] = React.useState(false)
-  const [hasOverflowBelow, setHasOverflowBelow] = React.useState(false)
-  const detailsRef = React.useRef<HTMLDivElement>(null)
-  const detailsContentRef = React.useRef<HTMLDivElement>(null)
-
-  React.useLayoutEffect(() => {
-    const element = detailsRef.current
-    const content = detailsContentRef.current
-    if (!active || !element || !content) return
-    const measure = () => {
-      setHasOverflowAbove(element.scrollTop > 1)
-      setHasOverflowBelow(element.scrollHeight - element.clientHeight - element.scrollTop > 1)
-    }
-    measure()
-    element.addEventListener('scroll', measure, { passive: true })
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
-    observer?.observe(element)
-    observer?.observe(content)
-    return () => {
-      element.removeEventListener('scroll', measure)
-      observer?.disconnect()
-    }
-  }, [active])
-
-  return (
-    <div
-      ref={detailsRef}
-      aria-label="活动详情列表"
-      data-overflow-top={hasOverflowAbove}
-      data-overflow-bottom={hasOverflowBelow}
-      className="scroll-fade mt-1 max-h-[min(16rem,40dvh)] overflow-y-auto overscroll-y-contain pr-2 py-1 [&_pre]:max-h-none [&_pre]:overflow-visible [&_pre]:whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere]"
-    >
-      <div ref={detailsContentRef} className="space-y-1">
-        {children}
-      </div>
     </div>
   )
 }
