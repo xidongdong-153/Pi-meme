@@ -58,7 +58,7 @@
 .model-thinking-theme[data-thinking-level='ultra'] {
   --thinking-accent: #c49aff;
   --thinking-fill: linear-gradient(100deg, #3c50e8 0%, #7956ed 36%, #b783f5 64%, #8650e4 100%);
-  --thinking-fill-shadow: inset 0 1px 0 #e8d6ff40, inset 0 -1px 0 #40219730;
+  --thinking-fill-shadow: inset 0 1px 0 #e8d6ff40, inset 0 -1px 0 #40219730, 0 0 12px rgb(139 92 246 / 0.32);
   --thinking-ring: rgb(167 139 250 / 0.5);
 }
 
@@ -95,6 +95,7 @@
 
 :root[data-appearance='light'] .model-thinking-theme[data-thinking-level='ultra'] {
   --thinking-accent: #7c3aed;
+  --thinking-fill-shadow: inset 0 1px 0 #f3e8ff55, inset 0 -1px 0 #40219728, 0 0 8px rgb(124 58 237 / 0.24);
 }
 
 .model-thinking-accent {
@@ -110,6 +111,20 @@
 
 :root[data-appearance='light'] .model-thinking-panel[data-thinking-level='max'] .model-thinking-title {
   background: linear-gradient(95deg, #be123c 0%, #e11d48 55%, #d97706 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.model-thinking-panel[data-thinking-level='ultra'] .model-thinking-title {
+  background: linear-gradient(95deg, #818cf8 0%, #c084fc 52%, #e879f9 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+:root[data-appearance='light'] .model-thinking-panel[data-thinking-level='ultra'] .model-thinking-title {
+  background: linear-gradient(95deg, #4338ca 0%, #7c3aed 55%, #a21caf 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -144,15 +159,27 @@
   background: linear-gradient(90deg, transparent, rgb(255 247 230 / 0.62), transparent);
   opacity: 0.42;
   transform: translateX(110%);
-  animation: model-thinking-max-glide 5.2s ease-in-out infinite;
+  animation: model-thinking-glide 5.2s ease-in-out infinite;
 }
 
 .model-thinking-ultra-fill {
   background: var(--thinking-fill);
 }
 
+.model-thinking-ultra-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 -50%;
+  width: 58%;
+  background: linear-gradient(90deg, transparent, rgb(243 232 255 / 0.65), transparent);
+  opacity: 0.45;
+  transform: translateX(110%);
+  animation: model-thinking-glide 4.4s ease-in-out infinite;
+}
+
 .model-thinking-ultra-particle {
   position: absolute;
+  z-index: 1;
   border-radius: 50%;
   background: #f2e6ff;
   box-shadow: 0 0 3px #f2dcff70;
@@ -160,7 +187,7 @@
   animation: model-thinking-ultra-reaction 2s ease-in-out infinite;
 }
 
-@keyframes model-thinking-max-glide {
+@keyframes model-thinking-glide {
   0%,
   15% {
     transform: translateX(0);
@@ -200,18 +227,21 @@
 
 @media (prefers-reduced-motion: reduce) {
   .model-thinking-ultra-particle,
-  .model-thinking-max-fill::after {
+  .model-thinking-max-fill::after,
+  .model-thinking-ultra-fill::after {
     animation: none;
   }
 }
 
 :root[data-reduced-motion='true'] .model-thinking-ultra-particle,
-:root[data-reduced-motion='true'] .model-thinking-max-fill::after {
+:root[data-reduced-motion='true'] .model-thinking-max-fill::after,
+:root[data-reduced-motion='true'] .model-thinking-ultra-fill::after {
   animation: none;
 }
 
 /* Portal 退场期间不继续播放特效。关闭后由 Popover 卸载，隐藏聊天也会立即卸载。 */
 [data-state='closed'] .model-thinking-ultra-particle,
-[data-state='closed'] .model-thinking-max-fill::after {
+[data-state='closed'] .model-thinking-max-fill::after,
+[data-state='closed'] .model-thinking-ultra-fill::after {
   animation-play-state: paused;
 }
