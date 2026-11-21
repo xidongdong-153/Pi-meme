@@ -3,6 +3,7 @@ import type { Snapshot } from '@pi-meme/contracts/desktop'
 import type { SessionHistoryData } from '@pi-meme/contracts/sessions'
 import type { SystemOperation } from '@pi-meme/contracts/system-tools'
 import { projectUiMessage } from '@pi-meme/contracts/plugin-ui-message'
+import { latestTaskProgress } from '@pi-meme/contracts/task-progress'
 import {
   readInteger,
   readPage,
@@ -45,6 +46,7 @@ const definitions = [
   ],
   ['agents.mailbox', '分页读取协作邮件，不消费邮件', '[{agentId?,...分页}?,SessionRef?]'],
   ['plans.history', '分页读取当前分支保存的计划版本', '[query?,SessionRef?]'],
+  ['taskProgress.list', '分页读取当前分支各任务最近成功保存的步骤清单', '[query?,SessionRef?]'],
   ['plans.get', '按版本分片读取保存计划', '[{id,version,offset?,limit?,revision?},SessionRef?]'],
   ['git.turnChangeSummaries', '分页读取指定原生用户轮次的文件变更摘要', '[{entryIds,...分页},SessionRef?]'],
   [
@@ -109,6 +111,7 @@ const operationFields: Record<string, string[]> = {
   'agents.events': [...pageFields, 'agentId'],
   'agents.mailbox': [...pageFields, 'agentId'],
   'plans.history': pageFields,
+  'taskProgress.list': pageFields,
   'plans.get': [...pageFields, 'id', 'version'],
   'git.turnChangeSummaries': [...pageFields, 'entryIds'],
   'git.turnFile': [...pageFields, 'entryId', 'path', 'part'],
@@ -696,6 +699,7 @@ export async function readSessionOperation(
     }
   }
   if (operation === 'sessions.events') return page(publicEvents(snapshot.events ?? []))
+  if (operation === 'taskProgress.list') return page([...latestTaskProgress(snapshot.messages).values()], revision)
   if (operation === 'sessions.stats')
     return {
       stats: publicStats(snapshot.stats),

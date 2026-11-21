@@ -26,6 +26,8 @@ import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 import type { PluginRuntimeRequest } from '@pi-meme/contracts/plugin-call'
 import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
 
+export type WorkerAdmission = { goalRun?: GoalRun; taskProgressEnabled: boolean }
+
 export type WorkerOptions = {
   memory?: MemoryRuntimeBridge
   contextCapture?: (capture: ContextCapture) => Promise<void>
@@ -40,7 +42,7 @@ export type WorkerOptions = {
     expected?: GoalControl,
     sourceClientId?: string,
     selectedModel?: { provider: string; id: string },
-  ) => Promise<void | GoalRun>
+  ) => Promise<WorkerAdmission>
   collaboration?: (
     request: CollaborationRequest,
     signal: AbortSignal,

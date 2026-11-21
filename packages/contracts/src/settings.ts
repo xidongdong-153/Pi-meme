@@ -105,6 +105,7 @@ export type DesktopSettings = {
   defaultAccessMode?: AgentAccessMode
   showComposerHint?: boolean
   showContextUsage?: boolean
+  taskProgressEnabled?: boolean
   contextWindowArchive?: boolean
 }
 export type SettingsSnapshot = {
@@ -168,5 +169,10 @@ export type AppearanceMigrationResult = {
   status: 'applied' | 'already-migrated' | 'host-authoritative' | 'conflict'
   snapshot: SettingsSnapshot
 }
+export type GeneralSessionSettings = Pick<
+  DesktopSettings,
+  'showComposerHint' | 'showContextUsage' | 'contextWindowArchive' | 'taskProgressEnabled'
+>
+
 export type RuntimeSettingsPatch = Omit<DesktopSettings, 'appearance' | 'appearanceStorage' | 'themeId'>
 export type InstalledFont = { family: string; styles: FontStyle[]; monospace: boolean }

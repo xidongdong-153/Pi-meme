@@ -33,6 +33,7 @@ const reservedTools = new Set([
   'save_visualization',
   'read_visualization',
   'save_plan',
+  'update_plan',
   'get_goal',
   'update_goal',
   'request_user_input',

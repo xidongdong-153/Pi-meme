@@ -134,6 +134,7 @@ export class SettingsStore {
     subagentsEnabled: true,
     enabledSubagents: [],
     showComposerHint: true,
+    taskProgressEnabled: true,
     showContextUsage: true,
     contextWindowArchive: false,
     appearance: defaultAppearance(),
@@ -310,6 +311,7 @@ export class SettingsStore {
         subagentsEnabled: Boolean(value.subagentsEnabled),
         enabledSubagents: normalizeEnabledSubagents(value.enabledSubagents ?? []),
         showComposerHint: value.showComposerHint ?? true,
+        taskProgressEnabled: value.taskProgressEnabled ?? true,
         showContextUsage: value.showContextUsage ?? true,
         contextWindowArchive: value.contextWindowArchive ?? false,
         sidebar: value.sidebar ?? defaultSidebarPreferences(),
@@ -369,7 +371,7 @@ export class SettingsStore {
         settings.defaultAgentPlugins.some((id) => typeof id !== 'string' || !id.trim()))
     )
       throw new Error('默认 Agent 插件列表无效')
-    for (const key of ['codemodeEnabled', 'mcpEnabled', 'subagentsEnabled'] as const) {
+    for (const key of ['codemodeEnabled', 'mcpEnabled', 'subagentsEnabled', 'taskProgressEnabled'] as const) {
       if (settings[key] !== undefined && typeof settings[key] !== 'boolean') throw new Error('工具执行开关必须是布尔值')
     }
     for (const key of ['showComposerHint', 'showContextUsage'] as const) {
@@ -437,7 +439,12 @@ export class SettingsStore {
     return this.enqueue(() => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('编辑器显示设置无效')
       for (const [key, entry] of Object.entries(value)) {
-        if (key !== 'showComposerHint' && key !== 'showContextUsage' && key !== 'contextWindowArchive')
+        if (
+          key !== 'showComposerHint' &&
+          key !== 'showContextUsage' &&
+          key !== 'contextWindowArchive' &&
+          key !== 'taskProgressEnabled'
+        )
           throw new Error('编辑器显示设置包含未知字段')
         if (typeof entry !== 'boolean')
           throw new Error(
@@ -599,6 +606,7 @@ export class SettingsStore {
       ),
       defaultAccessMode: value.defaultAccessMode ?? this.settings.defaultAccessMode,
       showComposerHint: value.showComposerHint ?? this.settings.showComposerHint ?? true,
+      taskProgressEnabled: value.taskProgressEnabled ?? this.settings.taskProgressEnabled ?? true,
       showContextUsage: value.showContextUsage ?? this.settings.showContextUsage ?? true,
       contextWindowArchive: value.contextWindowArchive ?? this.settings.contextWindowArchive ?? false,
       pinnedPaths: Array.isArray(value.pinnedPaths)

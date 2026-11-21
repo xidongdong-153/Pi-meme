@@ -31,6 +31,7 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 | 上下文窗口   | `contextWindow.list`、`get`、`item`、`reply`、`piece`、`image`              | 只读；默认摘要，正文和图片显式分页读取                                                                  |
 | 文件         | `files.list`、`read`、`preview`、`search`                                   | `files.write`，需文件修订                                                                               |
 | Git 与计划   | `git.availability`、`git.snapshot`、`git.diff`、`plans.list`                | Git 现有专用入口保持原权限                                                                              |
+| 任务进度     | `taskProgress.list` 分页读取当前分支的任务与步骤                            | 内置 `update_plan` 向当前执行会话提交完整清单，普通和 Plan 模式均可使用                                 |
 | 后台活动     | `activities.list`、`activities.logs`                                        | `activities.stop`                                                                                       |
 | 个人资料     | `profile.get`、`profile.avatar`                                             | `profile.save`，需修订                                                                                  |
 | 外观         | `appearance.get`                                                            | `appearance.save`，需修订，仅发起客户端                                                                 |

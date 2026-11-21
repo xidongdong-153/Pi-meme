@@ -1,4 +1,5 @@
 import { createSystemTools } from './system-tools'
+import type { WorkerAdmission } from './worker-session'
 import { SystemReadError, type ReadErrorCode, type SystemReadErrorDetails } from '@pi-meme/contracts/system-read'
 import { projectBranchVisualizations } from '@pi-meme/contracts/visualize'
 import type { VisualizationRequest, VisualizationDocument } from '@pi-meme/contracts/visualize'
@@ -53,6 +54,7 @@ export type SessionWorkerContext = {
     questions: import('@pi-meme/contracts/user-input').UserInputQuestion[],
     signal?: AbortSignal,
   ) => Promise<import('@pi-meme/contracts/user-input').UserInputResult>
+  taskProgressEnabled: () => boolean
   registerInteractionPolicy: (enabled: boolean) => void
   registerResourcePolicy: (value: RuntimePolicy['resourcePaths']) => void
   registerSandbox: (factory: RuntimePolicy['createSandbox']) => void
@@ -102,6 +104,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     if (deleted) mutate(key)
     return deleted
   }
+  let taskProgressEnabled = data.settings.taskProgressEnabled !== false
   let session: SdkSession
   function send(value: object): void {
     return port.postMessage({ ...value, connection: session.connection(), active: session.getActiveSession() })
@@ -124,12 +127,15 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     agentSources: data.agentEntries,
     externalTools: new Map(),
     pluginFailures: new Map(),
-    onAdmission: (message, mode, continuation, signal, origin, expected, sourceClientId, selectedModel) =>
-      hostRequest(
+    onAdmission: async (message, mode, continuation, signal, origin, expected, sourceClientId, selectedModel) => {
+      const admission = (await hostRequest(
         'admission',
         { message, mode, continuation, origin, expected, sourceClientId, selectedModel },
         signal,
-      ) as Promise<GoalRun | undefined>,
+      )) as WorkerAdmission | undefined
+      taskProgressEnabled = admission?.taskProgressEnabled ?? data.settings.taskProgressEnabled !== false
+      return admission?.goalRun
+    },
     onGoalGate: (tool) => hostRequest('goal', { goalRequest: { method: 'gate', tool }, goalRun: session.getGoalRun() }),
     onGoalUsage: (goalRun, entryId, usage, inputEntryId) =>
       hostRequest('goalUsage', { goalRun, entryId, usage, inputEntryId }) as Promise<void>,
@@ -244,6 +250,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
               signal,
             ) as Promise<PlanDocument>,
           requestUserInput: (questions, signal) => session.requestUserInput(questions, signal),
+          taskProgressEnabled: () => taskProgressEnabled,
           registerInteractionPolicy: (enabled) => {
             policy.uiEnabled = enabled
           },

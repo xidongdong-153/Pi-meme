@@ -11,6 +11,7 @@ export type SettingsHandlerContext = {
   pi: PiRuntime
   instructions?: InstructionsStore
   openPath?: (directory: string) => Promise<string>
+  onGeneralChanged?: () => void
   settings: SettingsStore
   chooseImport?: () => Promise<string | null>
   chooseExport?: (name: string) => Promise<string | null>
@@ -26,6 +27,7 @@ export function createSettingsHandlers({
   chooseImport,
   chooseExport,
   configureOptionalExtensions,
+  onGeneralChanged,
 }: SettingsHandlerContext) {
   return {
     'settings:instructions': () => {
@@ -55,7 +57,11 @@ export function createSettingsHandlers({
     'settings:appearance-migrate': (value: unknown) => settings.importLegacyAppearance(value),
     'settings:reload': () => settings.load(),
     'settings:subagent-defaults': (value: unknown) => settings.saveSubagentDefaults(value),
-    'settings:editor': (value: unknown) => settings.saveEditorSettings(value),
+    'settings:editor': async (value: unknown) => {
+      const snapshot = await settings.saveEditorSettings(value)
+      onGeneralChanged?.()
+      return snapshot
+    },
     'settings:sidebar': (value: unknown) => settings.saveSidebarPreferences(value),
     'settings:fonts': () => getInstalledFonts(),
     'settings:import-theme': async () => {

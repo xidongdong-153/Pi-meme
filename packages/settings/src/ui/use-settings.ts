@@ -3,6 +3,7 @@ import type { SettingsBridge } from '@pi-meme/contracts/desktop'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type {
   DesktopSettings,
+  GeneralSessionSettings,
   SettingsSnapshot,
   SubagentCatalogSnapshot,
   SubagentDefaults,
@@ -10,13 +11,14 @@ import type {
   Theme,
 } from '@pi-meme/contracts/settings'
 
-type EditorSettings = Required<Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage' | 'contextWindowArchive'>>
+type EditorSettings = Required<GeneralSessionSettings>
 
 function readEditorSettings(snapshot: SettingsSnapshot): EditorSettings {
   return {
     showComposerHint: snapshot.settings.showComposerHint !== false,
     showContextUsage: snapshot.settings.showContextUsage !== false,
     contextWindowArchive: snapshot.settings.contextWindowArchive === true,
+    taskProgressEnabled: snapshot.settings.taskProgressEnabled !== false,
   }
 }
 
@@ -175,6 +177,7 @@ export function useSettings(
         const runtime: Partial<DesktopSettings> = { ...value }
         delete runtime.showComposerHint
         delete runtime.showContextUsage
+        delete runtime.taskProgressEnabled
         delete runtime.contextWindowArchive
         delete runtime.appearance
         delete runtime.appearanceStorage
@@ -197,6 +200,7 @@ export function useSettings(
       showComposerHint: value.showComposerHint ?? current.showComposerHint,
       showContextUsage: value.showContextUsage ?? current.showContextUsage,
       contextWindowArchive: value.contextWindowArchive ?? current.contextWindowArchive,
+      taskProgressEnabled: value.taskProgressEnabled ?? current.taskProgressEnabled,
     }
     const revision = ++editorRevision.current
     const editorBridge = bridgeRef.current
@@ -205,7 +209,9 @@ export function useSettings(
     setError('')
     editorWrites.current = editorWrites.current.then(async () => {
       try {
-        confirmedEditor.current = readEditorSettings(await editorBridge.saveEditorSettings(next))
+        const saved = await editorBridge.saveEditorSettings(value)
+        if (editorBridge !== bridgeRef.current) return
+        confirmedEditor.current = readEditorSettings(saved)
         if (revision === editorRevision.current) {
           pendingEditor.current = null
           setEditorSettings(confirmedEditor.current)

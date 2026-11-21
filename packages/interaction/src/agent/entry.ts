@@ -2,11 +2,13 @@ import type { InteractionPluginContext } from '@pi-meme/plugin-sdk/agent'
 import type { InlineExtension } from '@earendil-works/pi-coding-agent'
 import { Type } from 'typebox'
 import { validateUserInputQuestions } from '@pi-meme/contracts/user-input'
+import { taskProgressExtension } from './task-progress'
 
 export function create(context: InteractionPluginContext): InlineExtension[] {
   context.registerInteractionPolicy(true)
   const text = (description: string) => Type.String({ minLength: 1, description })
   return [
+    taskProgressExtension(context.taskProgressEnabled),
     {
       name: 'pi-meme-user-input',
       factory: (pi) => {

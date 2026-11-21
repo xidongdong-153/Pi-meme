@@ -75,6 +75,7 @@ export function createRestrictedAgent(options: {
         'save_visualization',
         'read_visualization',
         'save_plan',
+        'update_plan',
         'spawn_agent',
         'send_message',
         'wait_agent',

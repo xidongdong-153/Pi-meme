@@ -1,5 +1,5 @@
 import type { ComponentProps, ReactNode } from 'react'
-import type { DesktopSettings } from '@pi-meme/contracts/settings'
+import type { DesktopSettings, GeneralSessionSettings } from '@pi-meme/contracts/settings'
 import { SettingsCard, SettingsGroup, SettingsRow } from '@pi-meme/ui/components/settings'
 import { Switch } from '@pi-meme/ui/components/ui/switch'
 import { cn } from '@pi-meme/ui/lib/utils'
@@ -13,7 +13,7 @@ export function GeneralSettings({
 }: {
   accessSettings: ReactNode
   settings?: DesktopSettings
-  onEditor: (value: Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage' | 'contextWindowArchive'>) => void
+  onEditor: (value: GeneralSessionSettings) => void
 } & ComponentProps<typeof StorageSettings>) {
   return (
     <div className="space-y-6">
@@ -71,6 +71,23 @@ export function GeneralSettings({
       </SettingsGroup>
       <SettingsGroup title="会话">
         <SettingsCard>
+          <SettingsRow className="flex-nowrap">
+            <div className="min-w-0">
+              <p className="font-medium">任务进度</p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                允许模型在多步任务中更新对话内的清单。更改从下一轮生效，已有清单可以回看。
+              </p>
+            </div>
+            <div className="h-6 w-11 shrink-0" aria-busy={!settings}>
+              {settings && (
+                <Switch
+                  label="任务进度"
+                  checked={settings.taskProgressEnabled !== false}
+                  onChange={(taskProgressEnabled) => onEditor({ taskProgressEnabled })}
+                />
+              )}
+            </div>
+          </SettingsRow>
           <SettingsRow className="flex-nowrap">
             <div className="min-w-0">
               <p className="font-medium">归档上下文正文</p>

@@ -312,6 +312,7 @@ function settingsProjection(value: unknown) {
   const source = row(value)
   return {
     showComposerHint: bool(source.showComposerHint) ?? true,
+    taskProgressEnabled: bool(source.taskProgressEnabled) ?? true,
     showContextUsage: bool(source.showContextUsage) ?? true,
     contextWindowArchive: bool(source.contextWindowArchive) ?? false,
     ...fields(source, ['preferredProjectApp']),

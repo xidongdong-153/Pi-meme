@@ -73,6 +73,7 @@ export const builtinAgentToolRequirements: Readonly<Record<string, AgentAccessMo
   save_visualization: 'read-only',
   read_visualization: 'read-only',
   save_plan: 'read-only',
+  update_plan: 'read-only',
   get_goal: 'read-only',
   update_goal: 'read-only',
 }

@@ -23,6 +23,8 @@ import { PluginMessageActions } from '@pi-meme/ui/components/plugin-message-acti
 import { collectImageGenerations, type TurnImageGeneration } from '../model/turn-image-generations'
 import { TurnImageGallery } from './turn-image-gallery'
 import { RetainedDisclosure } from './retained-disclosure'
+import { TaskProgressCard } from './task-progress-card'
+import type { TaskProgress } from '@pi-meme/contracts/task-progress'
 
 const emptyAgents: readonly AgentSummary[] = []
 export const AssistantTurnView = React.memo(AssistantTurnContent)
@@ -71,6 +73,8 @@ function AssistantTurnContent({
   reply,
   changes,
   imageGenerations,
+  progress,
+  interrupted,
 }: {
   turn: Extract<TurnChunk, { type: 'assistant_turn' }>
   isFinalReply?: boolean
@@ -89,6 +93,8 @@ function AssistantTurnContent({
   reply?: React.ReactNode
   changes?: React.ReactNode
   imageGenerations?: readonly TurnImageGeneration[]
+  progress?: TaskProgress
+  interrupted?: boolean
 }) {
   const generated = React.useMemo(
     () => imageGenerations ?? collectImageGenerations(turn.activities),
@@ -100,19 +106,27 @@ function AssistantTurnContent({
   )
   const hasReplyContent =
     !reply && isFinalReply && !turn.isLive && (Boolean(turn.finalText.trim()) || turn.images.length > 0)
-  const segments = React.useMemo(
-    () =>
-      insertTurnVisualizations(
-        groupAgentActivities(
-          turn.activities,
-          turn.finalText,
-          turn.collaboration,
-          hideAgentOperations,
-          turn.agentStatuses,
+  const segments = React.useMemo(() => {
+    const base = insertTurnVisualizations(
+      groupAgentActivities(
+        turn.activities.filter(
+          (item) =>
+            item.type === 'thinking' ||
+            item.type === 'narration' ||
+            item.name !== 'update_plan' ||
+            item.status === 'error',
         ),
+        turn.finalText,
+        turn.collaboration,
+        hideAgentOperations,
+        turn.agentStatuses,
       ),
-    [turn.activities, turn.finalText, turn.collaboration, hideAgentOperations, turn.agentStatuses],
-  )
+    )
+    if (!progress) return base
+    const index = base.findIndex((item) => item.type === 'text' && item.finalReply)
+    const insertion = index < 0 ? base.length : index
+    return [...base.slice(0, insertion), { type: 'task_progress' as const, progress }, ...base.slice(insertion)]
+  }, [turn.activities, turn.finalText, turn.collaboration, hideAgentOperations, turn.agentStatuses, progress])
   const visualizationKeys = React.useMemo(
     () =>
       new Set(
@@ -127,7 +141,10 @@ function AssistantTurnContent({
   const lastActivityIndex = segments.findLastIndex((segment) => segment.type === 'activity')
   const processId = React.useId()
   const processIds = segments.flatMap((segment, index) =>
-    (segment.type === 'text' && segment.finalReply) || segment.type === 'visualization' || segment.type === 'question'
+    (segment.type === 'text' && segment.finalReply) ||
+    segment.type === 'visualization' ||
+    segment.type === 'question' ||
+    segment.type === 'task_progress'
       ? []
       : [`${processId}-${index}`],
   )
@@ -183,6 +200,23 @@ function AssistantTurnContent({
             </div>
           )}
           {segments.map((segment, index) => {
+            if (segment.type === 'task_progress')
+              return (
+                <TaskProgressCard
+                  key={segment.progress.taskId}
+                  progress={segment.progress}
+                  live={turn.isLive}
+                  paused={isPaused}
+                  interrupted={Boolean(
+                    interrupted ||
+                    turn.errorMessage ||
+                    turn.sourceMessages?.some(
+                      (message) => message.role === 'assistant' && message.stopReason === 'aborted',
+                    ),
+                  )}
+                  onToggle={onActivityToggle}
+                />
+              )
             if (segment.type === 'visualization')
               return (
                 <div

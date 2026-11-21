@@ -66,7 +66,7 @@ import type {
   AppearanceMigrationResult,
   AppearanceSaveResult,
   AppearanceUpdate,
-  DesktopSettings,
+  GeneralSessionSettings,
   InstalledFont,
   RuntimeSettingsPatch,
   InstructionsSnapshot,
@@ -394,9 +394,7 @@ export interface SettingsBridge {
   reloadSubagents: () => Promise<SubagentCatalogSnapshot>
   saveSettings: (settings: RuntimeSettingsPatch) => Promise<SettingsSnapshot>
   saveSubagentDefaults: (patch: SubagentDefaultsPatch) => Promise<SubagentDefaults>
-  saveEditorSettings: (
-    settings: Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage' | 'contextWindowArchive'>,
-  ) => Promise<SettingsSnapshot>
+  saveEditorSettings: (settings: GeneralSessionSettings) => Promise<SettingsSnapshot>
   saveSidebarPreferences: (patch: SidebarPreferencesPatch) => Promise<SidebarPreferences>
   saveAppearance: (update: AppearanceUpdate, signal?: AbortSignal) => Promise<AppearanceSaveResult>
   getInstalledFonts: () => Promise<InstalledFont[]>

@@ -79,6 +79,7 @@ export type AgentPluginEntry = {
 }
 
 export type InteractionPluginContext = {
+  taskProgressEnabled: () => boolean
   registerInteractionPolicy: (enabled: boolean) => void
   requestUserInput: (questions: UserInputQuestion[], signal?: AbortSignal) => Promise<UserInputResult>
 }

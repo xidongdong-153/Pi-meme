@@ -29,6 +29,7 @@ import { TurnChangesCard } from './turn-changes'
 import { MarkdownFileSessionContext, MarkdownWorkingDirectoryContext } from '../content/markdown-link'
 import type { SessionRef } from '@pi-meme/contracts/app-host'
 import { groupTurnImageGenerations } from '../model/turn-image-generations'
+import { latestTaskProgress, type TaskProgress } from '@pi-meme/contracts/task-progress'
 
 function noSubscription() {
   return () => {}
@@ -201,6 +202,21 @@ export const Conversation = React.memo(
       }
     }, [chat, readOnly, agentOnly, agent, stableView, modelChanges, groupTurns])
     const outline = React.useMemo(() => (agentOnly ? [] : conversationOutline(turns)), [turns, agentOnly])
+    const progressByUser = React.useMemo(() => {
+      const result = new Map<string, TaskProgress>()
+      for (const progress of latestTaskProgress(stableView.messages).values())
+        result.set(progress.userEntryId, progress)
+      return result
+    }, [stableView.messages])
+    const progressTurns = React.useMemo(() => {
+      const owners = new Map<string, string>()
+      if (progressByUser.size)
+        for (const turn of turns) {
+          if (turn.type === 'assistant_turn' && turn.userEntryId && progressByUser.has(turn.userEntryId))
+            owners.set(turn.userEntryId, turn.key)
+        }
+      return owners
+    }, [turns, progressByUser])
     const plansByTool = React.useMemo(() => {
       const plans = new Map<string, PlanDocument>()
       for (const message of chat.messages) {
@@ -527,6 +543,12 @@ export const Conversation = React.memo(
                       turn={turn}
                       hideAgentOperations={!readOnly || agentOnly || turn.hideAgentOperations}
                       imageGenerations={imageGenerations.get(turn.key)}
+                      progress={
+                        turn.userEntryId && progressTurns.get(turn.userEntryId) === turn.key
+                          ? progressByUser.get(turn.userEntryId)
+                          : undefined
+                      }
+                      interrupted={Boolean(chat.stopped && turn === turns.at(-1))}
                       isFinalReply={finalReplyKeys.has(turn.key)}
                       retry={turn.isLive && chat.retry?.kind === 'model' ? chat.retry : undefined}
                       isPaused={Boolean(chat.paused && turn.isLive)}

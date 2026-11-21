@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type {
-  DesktopSettings,
+  GeneralSessionSettings,
   SettingsSnapshot,
   AppearanceOperation,
   InstalledFont,
@@ -29,7 +29,7 @@ export type SettingsPageProps = {
   onSaving: (saving: boolean) => void
   onMaintaining: (maintaining: boolean) => void
   accessSettings: ReactNode
-  onEditor: (value: Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage' | 'contextWindowArchive'>) => void
+  onEditor: (value: GeneralSessionSettings) => void
   onOperation: (operation: AppearanceOperation) => void
   status?: AppearanceSaveStatus
   frozen?: boolean

@@ -886,7 +886,7 @@ export async function createHost(options: HostOptions = {}) {
                 emit('error', { generation: 0, message: `记忆来源登记失败：${String(cause)}` })
               }
             }
-            return run
+            return { goalRun: run, taskProgressEnabled: settings.settings.taskProgressEnabled !== false }
           },
           goal: async (request, run, signal) => {
             if (signal.aborted) throw new Error('目标请求已取消')
@@ -2048,6 +2048,7 @@ export async function createHost(options: HostOptions = {}) {
       'host.models': { pi, models, agentDir: paths.agentDir, service: modelService },
       'host.settings': {
         pi,
+        onGeneralChanged: systemChanged,
         instructions,
         settings,
         handlers: settingsHandlers,
