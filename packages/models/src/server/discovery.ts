@@ -103,6 +103,17 @@ export async function discoverModels(
         if (typeof capabilities.image_input?.supported === 'boolean')
           model.input = capabilities.image_input.supported ? ['text', 'image'] : ['text']
       }
+      if (input.api === 'openai-responses' || input.api === 'openai-completions') {
+        if (Array.isArray(raw.service_tiers) || Array.isArray(raw.additional_speed_tiers)) {
+          const priority =
+            Array.isArray(raw.service_tiers) &&
+            raw.service_tiers.some(
+              (tier: unknown) => typeof tier === 'object' && tier !== null && 'id' in tier && tier.id === 'priority',
+            )
+          const legacyFast = Array.isArray(raw.additional_speed_tiers) && raw.additional_speed_tiers.includes('fast')
+          model.compat = { supportsFastMode: priority || legacyFast }
+        }
+      }
       if (!models.has(model.id)) models.set(model.id, model)
     }
     const cursor =

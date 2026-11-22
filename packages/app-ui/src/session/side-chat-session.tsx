@@ -201,6 +201,9 @@ export function SideChatSession({
       models={chat.models}
       currentModel={chat.selectedConfiguration.model}
       thinkingLevel={chat.selectedConfiguration.thinkingLevel}
+      serviceTier={chat.selectedConfiguration.serviceTier}
+      nextMessageSpeed={chat.chat.running || chat.chat.paused || chat.chat.queuePaused}
+      onSelectServiceTier={chat.selectServiceTier}
       disabled={chat.modelPickerDisabled || locked}
       busy={chat.modelSaving}
       active={Boolean(target)}
@@ -266,7 +269,7 @@ export function SideChatSession({
     stopped: chat.chat.stopped,
     queuePaused: chat.chat.queuePaused,
     activeMode: chat.chat.activeMode,
-    activeConfiguration: { model: chat.state?.model, thinkingLevel: chat.state?.thinkingLevel },
+    activeConfiguration: chat.activeConfiguration,
     editingQueue: chat.editingQueue !== null,
     onResume: () => void chat.resume(),
     onResumeQueue: () => void chat.resumeQueue(),

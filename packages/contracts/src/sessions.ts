@@ -1,4 +1,12 @@
-import type { PiMessage, PiModel, PiRecoveryState, PiSessionEntries, PiSessionStats, SessionThinkingLevel } from './pi'
+import type {
+  ModelServiceTiers,
+  PiMessage,
+  PiModel,
+  PiRecoveryState,
+  PiSessionEntries,
+  PiSessionStats,
+  SessionThinkingLevel,
+} from './pi'
 import type { ChatBranchAttachment } from './chat-attachments'
 import type { BranchSkillUsage } from './skills'
 import type { QueuedInput, PlanCheckpoint } from './plan'
@@ -111,6 +119,7 @@ export type SessionHistoryData = {
   parentSessionPath?: string
   model?: PiModel
   thinkingLevel?: SessionThinkingLevel
+  modelServiceTiers?: ModelServiceTiers
   stats?: PiSessionStats
   branchAttachments?: ChatBranchAttachment[]
 }

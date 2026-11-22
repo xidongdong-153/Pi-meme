@@ -8,7 +8,7 @@ import type { AgentAccessMode } from './agent-access'
 import type { AgentSummary } from './collaboration'
 import type { GitEnvironment, GitSnapshot, GitFileChange, Snapshot, WorkspaceDeletionResult } from './desktop'
 import type { GitReviewQuery, GitReviewSnapshot, GitReviewFileContent, GitReviewOptions } from './git-review'
-import type { SessionThinkingLevel } from './pi'
+import type { ServiceTier, SessionThinkingLevel } from './pi'
 import type { MessageOptions, PlanDocument, TaskMode } from './plan'
 import type { SessionHistoryData } from './sessions'
 import type { SkillReference } from './skills'
@@ -30,6 +30,7 @@ export type SessionConfiguration = {
   agentPlugins?: string[]
   model?: AppModel
   thinkingLevel?: SessionThinkingLevel
+  serviceTier?: ServiceTier
   accessMode?: AgentAccessMode
   mode?: TaskMode
 }

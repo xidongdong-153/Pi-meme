@@ -88,7 +88,12 @@ export type PiMessage = AgentSession['messages'][number] & {
   nestedInteractions?: PiNestedInteraction[]
   completedAt?: number
   /** 原生一对一消息条目；压缩和其他合成显示消息不设置此字段。 */
-  sourceEntry?: { id: string; type: 'message' | 'custom_message'; revision: string }
+  sourceEntry?: {
+    id: string
+    type: 'message' | 'custom_message'
+    revision: string
+    speed?: { provider: string; id: string; tier: ServiceTier }
+  }
 }
 type WithMessageMetadata<Event> = Event extends { message: PiMessage }
   ? Omit<Event, 'message'> & { message: PiMessage }
@@ -162,12 +167,42 @@ export function builtinCommand(message: string) {
 export function freshSessionCommandError(name: 'compact' | 'name') {
   return name === 'compact' ? '当前还是新会话，开始对话后才能压缩' : '当前还是新会话，开始对话后才能重命名'
 }
+export type ServiceTier = 'inherit' | 'standard' | 'fast'
+export type ModelServiceTiers = Record<string, Exclude<ServiceTier, 'inherit'>>
+
+export function isServiceTier(value: unknown): value is ServiceTier {
+  return value === 'inherit' || value === 'standard' || value === 'fast'
+}
+
+type ModelIdentity = { provider: string; id: string }
+
+export function validateServiceTier(model: PiModel | undefined, tier: unknown): asserts tier is ServiceTier {
+  if (!model || !isServiceTier(tier)) throw new Error('模型或速度选择无效')
+  if (tier !== 'inherit' && !model.supportsFastMode)
+    throw new Error('当前模型未提供速度切换，请选择「跟随默认」后重新发送')
+}
+
+export function modelServiceTier(model?: ModelIdentity, selections?: ModelServiceTiers): ServiceTier {
+  return (model && selections?.[JSON.stringify([model.provider, model.id])]) ?? 'inherit'
+}
+
+export function updateModelServiceTier(model: ModelIdentity, tier: ServiceTier, selections?: ModelServiceTiers) {
+  if (modelServiceTier(model, selections) === tier) return selections
+  const next = { ...selections }
+  const key = JSON.stringify([model.provider, model.id])
+  if (tier === 'inherit') delete next[key]
+  else next[key] = tier
+  return Object.keys(next).length ? next : undefined
+}
+
 export type PiModel = {
   provider: string
   id: string
   name?: string
   reasoning?: boolean
   thinkingLevels?: ThinkingLevel[]
+  supportsFastMode?: boolean
+  defaultServiceTier?: 'fast' | 'standard'
   api?: string
   contextWindow?: number
   maxTokens?: number
@@ -279,6 +314,7 @@ export type PiState = Pick<
   model?: PiModel
   modelSelectionRequired?: boolean
   thinkingLevel?: SessionThinkingLevel
+  modelServiceTiers?: ModelServiceTiers
 }
 type PiCoreEvent =
   | (WithMessageMetadata<
@@ -322,6 +358,7 @@ type PiCoreEvent =
   | { type: 'turn_changes_update'; entryId: string; revision: string }
   | { type: 'session_saved'; sessionFile: string }
   | { type: 'session_info_changed'; name?: string }
+  | { type: 'service_tier_update'; modelServiceTiers?: ModelServiceTiers }
   | { type: 'composer_hint'; text?: string }
 export type PiEvent = PiCoreEvent & {
   generationMetrics?: PiGenerationMetrics

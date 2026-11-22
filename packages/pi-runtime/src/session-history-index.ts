@@ -227,7 +227,7 @@ async function appendIndex(file: string, previous: Index, expected: string): Pro
   const sdk = await loadPiSdk()
   // 增量路径只接受普通线性追加，不含压缩或编辑，沿用 SDK 投影及模型设置。
   const projection = sdk.buildSessionProjection(entries)
-  const messages = projectStableMessageMetadata(entries, projection)
+  const messages = projectStableMessageMetadata(entries, projection, parent, previous.summary.model)
   let position = 0
   const added = projection.entries.flatMap(({ sourceEntry, messages: projected }) =>
     projected.map((_, part): Row => {
@@ -303,7 +303,7 @@ async function readIndex(file: string, background = false): Promise<Index | unde
   const target = indexFile(file)
   if (!target) return
   const expected = await signature(file)
-  const version = `7:${getPiVersion()}`
+  const version = `8:${getPiVersion()}`
   const retained = cache.get(file)
   if (retained?.signature === expected && retained.version === version) {
     remember(file, retained)

@@ -92,6 +92,20 @@ Ultra 同时为根会话提供主动并行委派提示：有合适的独立工�
 
 来源：[档位契约与映射](../packages/contracts/src/pi.ts)、[会话策略与委派提示](../packages/pi-runtime/src/session-thinking.ts)、[SDK 会话](../packages/pi-runtime/src/sdk/session.ts)、[模型选择器](../packages/models/src/ui/model-picker-popover.tsx) 和[安全分支](../packages/pi-runtime/src/safe-session-fork.ts)。
 
+## GPT 速度
+
+在主聊天或侧边聊天中打开模型选择器，点击思考滑块左上角的闪电，选择「跟随默认」「标准」或「Fast」。速度与思考强度分开保存。Fast 请求优先处理，可能增加 API 费用或订阅用量。
+
+| 选择     | OpenAI API 与已声明能力的兼容网关                                   | Codex 订阅                                    |
+| -------- | ------------------------------------------------------------------- | --------------------------------------------- |
+| 跟随默认 | 保留模型或网关的请求配置；未配置时省略 `service_tier`，由服务端决定 | 模型目录默认 Fast 时发送 `priority`，其余省略 |
+| 标准     | 发送 `service_tier: "default"`                                      | 省略 `service_tier`，覆盖模型默认 Fast        |
+| Fast     | 发送 `service_tier: "priority"`                                     | 发送 `service_tier: "priority"`               |
+
+选择按会话、分支和服务商下的模型 ID 记忆。切回同一模型时会恢复上次选择，切回「跟随默认」也会保存。新聊天从「跟随默认」开始。普通会话分叉继承分叉点的选择，派生子代理使用自己的配置。运行中切档作用于下一条输入，排队消息保留提交时的速度。速度不同的消息须单独执行。
+
+上下文窗口的「速度」可查看用户选择、发出的请求字段和服务端报告的档位。服务端未报告时显示「未报告」。Codex 订阅返回的 `auto` 或 `default` 无法确认实际处理档位。[OpenAI Fast 模式](https://developers.openai.com/api/docs/guides/fast-mode)
+
 ## 记忆与会话来源
 
 [内置记忆](memory.md)默认关闭。自动学习只接纳普通任务、完全权限、正式根会话的新用户轮次；临时会话、子代理、定时执行和内部续行不作为来源。Host 在轮次开始时签发票据，并在真实 `agent_settled` 后读取当前分支新增的原生条目，不扫描已有历史回填；复制或分叉旧消息不会自动取得新学习授权。

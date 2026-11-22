@@ -1,5 +1,5 @@
 import type { PiRuntime } from '@pi-meme/pi-runtime/runtime'
-import { isSessionThinkingLevel, type PiModel } from '@pi-meme/contracts/pi'
+import { isServiceTier, isSessionThinkingLevel, type PiModel } from '@pi-meme/contracts/pi'
 import { text } from '@pi-meme/contracts/ipc'
 import type { ModelConfigStore } from './config-store'
 import type { ModelService } from './model-service'
@@ -37,6 +37,14 @@ export function createModelHandlers({ pi, models, agentDir, service }: ModelHand
       text(model.provider)
       text(model.id)
       return pi.setModel(sessionKey, { provider: model.provider, id: model.id })
+    },
+    'pi:set-service-tier': (sessionKey: unknown, value: unknown, tier: unknown) => {
+      text(sessionKey)
+      const model = value as PiModel | null
+      if (!model || !isServiceTier(tier)) throw new Error('模型或速度选择无效')
+      text(model.provider)
+      text(model.id)
+      return pi.setServiceTier(sessionKey, { provider: model.provider, id: model.id }, tier)
     },
     'pi:set-thinking-level': (sessionKey: unknown, value: unknown) => {
       text(sessionKey)

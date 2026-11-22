@@ -205,6 +205,7 @@ export function applyEvent(
     case 'turn_changes_update':
     case 'session_saved':
     case 'session_info_changed':
+    case 'service_tier_update':
     case 'access_mode_changed':
       return state
     case 'goal_updated':

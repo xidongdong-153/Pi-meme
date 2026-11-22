@@ -138,6 +138,7 @@ const sessionWrites = new Set([
 
   'pi:set-model',
   'pi:set-thinking-level',
+  'pi:set-service-tier',
   'pi:extension-ui-response',
   'pi:edit-and-prompt',
   'pi:fork-reply',
@@ -3046,6 +3047,8 @@ export async function createHost(options: HostOptions = {}) {
                     ),
                   )
                 }
+                if (request.method === 'pi:set-service-tier' && key && !isTempTarget)
+                  await appControl!.sessionForRuntime(key)
                 if (deletion) {
                   const outcome = result as WorkspaceDeletionResult
                   if (outcome.selection && !outcome.selection.cancelled) {
@@ -3073,6 +3076,7 @@ export async function createHost(options: HostOptions = {}) {
                   isTempTarget &&
                   (request.method === 'pi:set-model' ||
                     request.method === 'pi:set-thinking-level' ||
+                    request.method === 'pi:set-service-tier' ||
                     request.method === 'pi:session-mode')
                 ) {
                   emit(

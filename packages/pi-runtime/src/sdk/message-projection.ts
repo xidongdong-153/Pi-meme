@@ -1,5 +1,12 @@
 import type { SessionEntry, SessionProjection } from '@earendil-works/pi-coding-agent'
-import type { PiMessage } from '@pi-meme/contracts/pi'
+import {
+  modelServiceTier,
+  updateModelServiceTier,
+  type ModelServiceTiers,
+  type PiMessage,
+  type PiModel,
+} from '@pi-meme/contracts/pi'
+import { readServiceTierEntry } from '../session-service-tier'
 import { createHash } from 'node:crypto'
 import { projectMessageSources } from './ui-source'
 import { loadPiSdk, type PiSdk } from './load'
@@ -82,6 +89,7 @@ export function projectStableMessageMetadata(
   entries: readonly SessionEntry[],
   projection: Pick<SessionProjection, 'entries'>,
   leafId: string | null = entries.at(-1)?.id ?? null,
+  initialModel?: Pick<PiModel, 'provider' | 'id'>,
 ): PiMessage[] {
   const edits = new Map<string, string>()
   const byId = new Map(entries.map((entry) => [entry.id, entry]))
@@ -91,6 +99,19 @@ export function projectStableMessageMetadata(
     seen.add(cursor.id)
     if (cursor.type === 'context_edit' && !edits.has(cursor.targetId)) edits.set(cursor.targetId, cursor.id)
     cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined
+  }
+  // Resolve the original user input on its native branch, including model switches and explicit resets.
+  const speeds = new Map<string, NonNullable<PiMessage['sourceEntry']>['speed']>()
+  let model = initialModel
+  let selections: ModelServiceTiers | undefined
+  for (const id of [...seen].reverse()) {
+    const entry = byId.get(id)!
+    if (entry.type === 'model_change') model = { provider: entry.provider, id: entry.modelId }
+    else if (entry.type === 'custom') {
+      const data = readServiceTierEntry(entry)
+      if (data) selections = updateModelServiceTier(data, data.tier, selections)
+    } else if (model && entry.type === 'message' && entry.message.role === 'user')
+      speeds.set(id, { ...model, tier: modelServiceTier(model, selections) })
   }
   const messages: PiMessage[] = projection.entries.flatMap(({ sourceEntry, messages }) => {
     const stable =
@@ -103,6 +124,7 @@ export function projectStableMessageMetadata(
             sourceEntry: {
               id: sourceEntry.id,
               type: sourceEntry.type as 'message' | 'custom_message',
+              ...(speeds.has(sourceEntry.id) ? { speed: speeds.get(sourceEntry.id) } : {}),
               revision: stableMessageRevision(sourceEntry, message, edits.get(sourceEntry.id)),
             },
           }

@@ -17,6 +17,14 @@ import {
   type ContextRuntimeCapture,
 } from '@pi-meme/contracts/context-window'
 
+import {
+  applyServiceTier,
+  modelSpeed,
+  responseServiceTier,
+  sentServiceTier,
+  type TurnServiceTier,
+} from './service-tier'
+
 const captureToken = Symbol('pi-meme-context-invocation')
 const capturePurpose = Symbol('pi-meme-context-purpose')
 type ModelRuntime = AgentSession['modelRuntime']
@@ -24,6 +32,7 @@ type StreamOptions = SimpleStreamOptions & { [captureToken]?: Invocation; [captu
 
 export type ContextObserverState = {
   enabled: boolean
+  turnServiceTier?: TurnServiceTier
   generation: number
   nativeSessionId: string
   inputLeafId?: string
@@ -382,7 +391,11 @@ export function observeModelRuntime(runtime: ModelRuntime, options: ContextObser
         [captureToken]: invocation,
         onPayload: async (payload: unknown, payloadModel: Model<Api>) => {
           const replacement = await originalPayload?.(payload, payloadModel)
-          if (!state.enabled || invocation.terminal) return replacement
+          const originalBody = replacement === undefined ? payload : replacement
+          const body =
+            purpose === 'main' ? applyServiceTier(originalBody, payloadModel, state.turnServiceTier) : originalBody
+          const result = body === originalBody ? replacement : body
+          if (!state.enabled || invocation.terminal) return result
           try {
             invocation.event = {
               ...invocation.event,
@@ -390,7 +403,14 @@ export function observeModelRuntime(runtime: ModelRuntime, options: ContextObser
               model: `${payloadModel.provider}/${payloadModel.id}`,
               window: payloadModel.contextWindow > 0 ? payloadModel.contextWindow : undefined,
               payloadRevision: invocation.event.payloadRevision + 1,
-              ...bodyText(replacement === undefined ? payload : replacement),
+              serviceTier:
+                purpose === 'main' &&
+                state.turnServiceTier?.provider === payloadModel.provider &&
+                state.turnServiceTier.id === payloadModel.id &&
+                modelSpeed(payloadModel).supportsFastMode
+                  ? sentServiceTier(body, state.turnServiceTier.tier)
+                  : undefined,
+              ...bodyText(body),
             }
             emit(invocation, { ...invocation.event })
             // The body belongs to the payload event, not the retained invocation or terminal IPC.
@@ -398,8 +418,19 @@ export function observeModelRuntime(runtime: ModelRuntime, options: ContextObser
           } catch {
             // The original hook's replacement (including undefined/null) must remain unchanged.
           }
-          return replacement
+          return result
         },
+        onProviderStreamEvent:
+          state.enabled && purpose === 'main' && state.turnServiceTier
+            ? (data: unknown, eventModel: Model<Api>) => {
+                const tier = invocation.event.serviceTier
+                if (tier) {
+                  const reported = responseServiceTier(data)
+                  if (reported) tier.reported = reported
+                }
+                return input?.onProviderStreamEvent?.(data, eventModel)
+              }
+            : input?.onProviderStreamEvent,
         onResponse: async (
           response: Parameters<NonNullable<SimpleStreamOptions['onResponse']>>[0],
           responseModel: Model<Api>,

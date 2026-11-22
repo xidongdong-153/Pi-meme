@@ -31,10 +31,25 @@ import type {
   SessionEntry,
 } from '@earendil-works/pi-coding-agent'
 import { effectiveAgentAccess, canUseExternalAgentTools, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import type {
+  PiEvent,
+  PiExtensionUIResponse,
+  PiImage,
+  PiModel,
+  PiPauseInterval,
+  PiRunInterval,
+  PiRetryState,
+  PiSlashCommand,
+  PiState,
+  SessionThinkingLevel,
+  ServiceTier,
+} from '@pi-meme/contracts/pi'
 import {
   builtinCommand,
   freshSessionCommandError,
   isSessionThinkingLevel,
+  modelServiceTier,
+  validateServiceTier,
   resolveModelThinkingLevel,
   resolveSessionThinkingLevel,
   thinkingLevels,
@@ -48,6 +63,7 @@ import {
   type PlanDocument,
   type PlanRef,
   type MessageOptions,
+  type MessageConfiguration,
   type QueuedInput,
   type TaskMode,
   type EditMessageOptions,
@@ -58,18 +74,6 @@ import type { ToolExecutionSettings } from '@pi-meme/contracts/settings'
 import type { SkillReference, SkillUsage } from '@pi-meme/contracts/skills'
 import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 import type { Connection, DesktopError, DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
-import type {
-  PiEvent,
-  PiExtensionUIResponse,
-  PiImage,
-  PiModel,
-  PiPauseInterval,
-  PiRunInterval,
-  PiRetryState,
-  PiSlashCommand,
-  PiState,
-  SessionThinkingLevel,
-} from '@pi-meme/contracts/pi'
 import { projectAgentConversation } from '../agent-conversation'
 import { projectBranchEntries } from '../session-tree-entries'
 import { projectBranchAttachments } from '../session-attachments'
@@ -95,6 +99,8 @@ import { GenerationMetricsTracker } from './generation-metrics'
 import { findSessionRecovery, recoveryEntryType, recoveryMessage } from './recovery'
 import { loadPiSdk, type PiSdk } from './load'
 import { createDesktopModelRuntime, projectModel } from './model-runtime'
+import { appendServiceTier, branchServiceTiers, restoreDraftServiceTiers } from '../session-service-tier'
+import type { TurnServiceTier } from './service-tier'
 import { contextCaptureOptions, type ContextObserverState } from './context-observer'
 import { withCompactionContextUsage } from './context-usage'
 import { createDesktopSettingsManager } from './settings'
@@ -174,6 +180,7 @@ export type RuntimePolicy = {
   createAccessExtension?: typeof createAgentAccessExtension
 }
 export class SdkSession {
+  private turnServiceTier?: TurnServiceTier
   private static readonly controlEntry = 'pi-meme-task-control'
   private contextCaptureBinding?: {
     session: AgentSession
@@ -192,6 +199,7 @@ export class SdkSession {
     const { session } = binding
     return {
       enabled: Boolean(this.policy.onContextCapture),
+      turnServiceTier: this.turnServiceTier,
       generation: this.generation,
       nativeSessionId: session.sessionId,
       inputLeafId: session.sessionManager.getLeafId() ?? undefined,
@@ -513,6 +521,7 @@ export class SdkSession {
       } else if (selected) {
         this.report('当前模型已不可用，请在聊天中重新选择模型')
       }
+      restoreDraftServiceTiers(this.session.sessionManager, restore?.modelServiceTiers)
       if (generation === this.generation) this.cachedModels = models
     } finally {
       if (this.status === 'ready') this.notify.connection(this.connection())
@@ -905,6 +914,7 @@ export class SdkSession {
     if (!runtime) return
     const generation = this.generation
     const session = runtime.session
+    this.turnServiceTier = undefined
     this.contextCaptureBinding = {
       session,
       onPayload: session.agent.onPayload,
@@ -1495,6 +1505,7 @@ export class SdkSession {
       },
       model: this.modelSelectionRequired ? this.modelRestore?.model : toModel(state.model),
       modelSelectionRequired: this.modelSelectionRequired,
+      modelServiceTiers: branchServiceTiers(this.session.sessionManager.getBranch()),
       thinkingLevel: state.thinkingLevel,
       isStreaming: state.isStreaming,
       isCompacting: state.isCompacting,
@@ -1719,6 +1730,7 @@ export class SdkSession {
         this.notify.event({ generation: this.generation, event: { type: 'stop_update', stopped: false } })
       this.activeMode = normalized.mode
       if (!command) {
+        if (options?.serviceTier !== undefined && options.serviceTier !== 'inherit') this.queueConfiguration(options)
         const selectedModel = options?.model ?? this.getState().model
         const run = await this.policy.onAdmission?.(
           message,
@@ -1774,6 +1786,18 @@ export class SdkSession {
           this.emitPause()
         }
         if (failureEntryId !== undefined) recovery = this.prepareRecovery(failureEntryId)
+        const model = toModel(this.session.model)
+        if (model && this.delegatedTask === undefined) {
+          const manager = this.session.sessionManager
+          const saved = modelServiceTier(model, branchServiceTiers(manager.getBranch()))
+          const tier = options?.serviceTier ?? saved
+          validateServiceTier(model, tier)
+          if (tier !== saved) {
+            const modelServiceTiers = appendServiceTier(manager, model, tier)
+            this.notify.event({ generation, event: { type: 'service_tier_update', modelServiceTiers } })
+          }
+          this.turnServiceTier = model.supportsFastMode ? { provider: model.provider, id: model.id, tier } : undefined
+        } else this.turnServiceTier = undefined
         this.goalRun = run || undefined
         this.goalInputEntryId = undefined
         this.goalAccounted.clear()
@@ -2034,6 +2058,37 @@ export class SdkSession {
     })
   }
 
+  private queueConfiguration(options?: MessageConfiguration): MessageConfiguration {
+    const requested = options?.model
+    const native = requested
+      ? this.session.modelRuntime
+          .getAvailableSnapshot()
+          .find((model) => model.provider === requested.provider && model.id === requested.id)
+      : this.session.model
+    if (requested && !native) throw new Error('模型已不可用，请重新选择模型')
+    const model = toModel(native)
+    const tier =
+      options?.serviceTier ?? modelServiceTier(model, branchServiceTiers(this.session.sessionManager.getBranch()))
+    if (model) validateServiceTier(model, tier)
+    return {
+      model,
+      thinkingLevel: options?.thinkingLevel ?? this.sessionThinkingLevel(),
+      serviceTier: model?.supportsFastMode || tier !== 'inherit' ? tier : undefined,
+    }
+  }
+
+  private differentTurnConfiguration(configuration?: MessageConfiguration) {
+    const current = this.session.model
+    return Boolean(
+      configuration &&
+      ((configuration.model &&
+        (configuration.model.provider !== current?.provider || configuration.model.id !== current?.id)) ||
+        (configuration.thinkingLevel !== undefined && configuration.thinkingLevel !== this.sessionThinkingLevel()) ||
+        (configuration.serviceTier !== undefined &&
+          configuration.serviceTier !== (this.turnServiceTier?.tier ?? 'inherit'))),
+    )
+  }
+
   private async enqueue(
     kind: 'steering' | 'followUp',
     message: string,
@@ -2063,10 +2118,7 @@ export class SdkSession {
       id: randomUUID(),
       text: normalized.text,
       mode: normalized.mode,
-      configuration:
-        options?.model || options?.thinkingLevel !== undefined
-          ? { model: options.model, thinkingLevel: options.thinkingLevel }
-          : undefined,
+      configuration: this.queueConfiguration(options),
       images,
       skills,
       clientProcessingAudit: options?.clientProcessingAudit,
@@ -2075,6 +2127,7 @@ export class SdkSession {
     if (
       options?.visualization ||
       kind === 'followUp' ||
+      this.differentTurnConfiguration(input.configuration) ||
       normalized.mode === 'plan' ||
       normalized.mode !== this.activeMode ||
       !this.running
@@ -2215,10 +2268,7 @@ export class SdkSession {
       Object.assign(input, {
         text: normalized.text,
         mode: normalized.mode,
-        configuration:
-          options?.model || options?.thinkingLevel !== undefined
-            ? { model: options.model, thinkingLevel: options.thinkingLevel }
-            : input.configuration,
+        configuration: this.queueConfiguration({ ...input.configuration, ...options }),
         images,
         skills,
         clientProcessingAudit: options?.clientProcessingAudit,
@@ -2271,16 +2321,8 @@ export class SdkSession {
       if (selected.input.editing) throw new Error('排队输入正在编辑')
       if (selected.input.mode !== (this.activeMode ?? this.mode))
         throw new Error('排队输入与当前任务模式不同，请先编辑或移除此输入')
-      const configuration = selected.input.configuration
-      const currentModel = this.getState().model
-      if (
-        this.running &&
-        configuration &&
-        ((configuration.model &&
-          (configuration.model.provider !== currentModel?.provider || configuration.model.id !== currentModel?.id)) ||
-          (configuration.thinkingLevel !== undefined && configuration.thinkingLevel !== this.getState().thinkingLevel))
-      )
-        throw new Error('模型或思考强度与当前任务不同，请保留排队')
+      if (this.running && this.differentTurnConfiguration(selected.input.configuration))
+        throw new Error('模型、思考强度或速度与当前任务不同，请保留排队')
       this.ownQueue[selected.kind].splice(selected.index, 1)
       if (!this.running) {
         this.ownQueue.steering.unshift(selected.input)
@@ -2743,6 +2785,18 @@ export class SdkSession {
     })
   }
 
+  setServiceTier(model: PiModel, tier: ServiceTier) {
+    return this.idle(() =>
+      this.call(() => {
+        const selected = toModel(this.session.model)
+        if (!selected || model.provider !== selected.provider || model.id !== selected.id)
+          throw new Error('当前模型已更换，请重新选择速度')
+        validateServiceTier(selected, tier)
+        appendServiceTier(this.session.sessionManager, selected, tier)
+      }),
+    )
+  }
+
   setThinkingLevel(level: SessionThinkingLevel) {
     return this.idle(() =>
       this.call(() => {
@@ -2790,7 +2844,9 @@ export class SdkSession {
           .find((entry) => entry.provider === options.model!.provider && entry.id === options.model!.id)
         if (!model) throw new Error('模型已不可用，请重新选择模型')
         if (!(await this.session.modelRuntime.checkAuth(model.provider))) throw new Error('模型凭据不可用，请重新登录')
-      }
+        if (options.serviceTier !== undefined) validateServiceTier(toModel(model), options.serviceTier)
+      } else if (options?.serviceTier !== undefined)
+        validateServiceTier(toModel(this.session.model), options.serviceTier)
     })
   }
 
@@ -2883,6 +2939,11 @@ export class SdkSession {
   async captureRestoreState(): Promise<ModelRestore | undefined> {
     if (this.status !== 'ready') return this.modelRestore
     const state = await this.call(() => this.getState())
-    return { sessionFile: state.sessionFile, model: toModel(state.model), thinkingLevel: state.thinkingLevel }
+    return {
+      sessionFile: state.sessionFile,
+      model: toModel(state.model),
+      thinkingLevel: state.thinkingLevel,
+      modelServiceTiers: branchServiceTiers(this.session.sessionManager.getBranch()),
+    }
   }
 }

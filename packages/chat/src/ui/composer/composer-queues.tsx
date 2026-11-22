@@ -59,7 +59,9 @@ export function ComposerQueues({
             (input.configuration.model.provider !== activeConfiguration.model?.provider ||
               input.configuration.model.id !== activeConfiguration.model?.id)) ||
             (input.configuration.thinkingLevel !== undefined &&
-              input.configuration.thinkingLevel !== activeConfiguration.thinkingLevel)),
+              input.configuration.thinkingLevel !== activeConfiguration.thinkingLevel) ||
+            (input.configuration.serviceTier !== undefined &&
+              input.configuration.serviceTier !== (activeConfiguration.serviceTier ?? 'inherit'))),
         )
         const guideDisabled =
           disabled || input.editing || input.deliveryUncertain || differentMode || differentConfiguration
@@ -102,9 +104,13 @@ export function ComposerQueues({
                       </button>
                     </span>
                   </TooltipTrigger>
-                  {!input.deliveryUncertain && !differentConfiguration && (
+                  {!input.deliveryUncertain && (
                     <TooltipContent side="top">
-                      {differentMode ? '消息模式与当前任务不同，暂时无法引导' : '提交，但不中断模型运行'}
+                      {differentConfiguration
+                        ? '模型、思考强度或速度与当前任务不同，此消息将单独执行'
+                        : differentMode
+                          ? '消息模式与当前任务不同，暂时无法引导'
+                          : '提交，但不中断模型运行'}
                     </TooltipContent>
                   )}
                 </Tooltip>

@@ -1,7 +1,7 @@
 import { validateVisualizationContext } from './visualize'
 import { isTaskMode, type MessageOptions, type EditMessageOptions } from './plan'
 import type { SkillReference } from './skills'
-import { sessionThinkingLevels, type PiImage } from './pi'
+import { isServiceTier, sessionThinkingLevels, type PiImage } from './pi'
 
 export function text(value: unknown): asserts value is string {
   if (typeof value !== 'string' || !value.trim()) throw new Error('参数必须是非空文本')
@@ -52,11 +52,16 @@ export function messageOptions(value: unknown): MessageOptions | undefined {
     typeof value !== 'object' ||
     Array.isArray(value) ||
     Object.keys(value).some(
-      (key) => !['mode', 'plan', 'visualization', 'clientProcessingAudit', 'model', 'thinkingLevel'].includes(key),
+      (key) =>
+        !['mode', 'plan', 'visualization', 'clientProcessingAudit', 'model', 'thinkingLevel', 'serviceTier'].includes(
+          key,
+        ),
     )
   )
     throw new Error('消息模式参数无效')
-  const { mode, plan, visualization, clientProcessingAudit, model, thinkingLevel } = value as MessageOptions
+  const { mode, plan, visualization, clientProcessingAudit, model, thinkingLevel, serviceTier } =
+    value as MessageOptions
+  if (serviceTier !== undefined && !isServiceTier(serviceTier)) throw new Error('速度选择无效')
   if (visualization !== undefined) validateVisualizationContext(visualization)
   if (mode !== undefined && !isTaskMode(mode)) throw new Error('消息模式无效')
   if (plan !== undefined) {
@@ -113,13 +118,15 @@ export function messageOptions(value: unknown): MessageOptions | undefined {
     ...(clientProcessingAudit === undefined ? {} : { clientProcessingAudit }),
     ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
     ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+    ...(serviceTier !== undefined ? { serviceTier } : {}),
   }
 }
 
 export function editMessageOptions(value: unknown): EditMessageOptions | undefined {
   if (value === undefined) return undefined
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('编辑配置无效')
-  const { model, thinkingLevel, ...rest } = value as EditMessageOptions
+  const { model, thinkingLevel, serviceTier, ...rest } = value as EditMessageOptions
+  if (serviceTier !== undefined && !isServiceTier(serviceTier)) throw new Error('速度选择无效')
   const parsed = messageOptions(rest)
   if (model !== undefined) {
     if (!model || typeof model !== 'object' || Array.isArray(model)) throw new Error('模型参数无效')
@@ -131,5 +138,6 @@ export function editMessageOptions(value: unknown): EditMessageOptions | undefin
     ...parsed,
     ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
     ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+    ...(serviceTier !== undefined ? { serviceTier } : {}),
   }
 }

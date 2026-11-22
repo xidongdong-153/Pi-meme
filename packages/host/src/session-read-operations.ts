@@ -1,3 +1,4 @@
+import { isServiceTier, modelServiceTier, type PiState } from '@pi-meme/contracts/pi'
 import type { AppSession, SessionRef } from '@pi-meme/contracts/app-host'
 import type { Snapshot } from '@pi-meme/contracts/desktop'
 import type { SessionHistoryData } from '@pi-meme/contracts/sessions'
@@ -207,7 +208,17 @@ function scalars(value: PublicRecord, keys: readonly string[]): PublicRecord {
 function publicModel(value: unknown): PublicRecord {
   const model = object(value)
   return {
-    ...scalars(model, ['provider', 'id', 'name', 'api', 'reasoning', 'contextWindow', 'maxTokens']),
+    ...scalars(model, [
+      'provider',
+      'id',
+      'name',
+      'api',
+      'reasoning',
+      'supportsFastMode',
+      'defaultServiceTier',
+      'contextWindow',
+      'maxTokens',
+    ]),
     input: Array.isArray(model.input) ? model.input.filter((item) => item === 'text' || item === 'image') : undefined,
     thinkingLevels: Array.isArray(model.thinkingLevels)
       ? model.thinkingLevels.filter((item) =>
@@ -304,7 +315,10 @@ function publicAgent(value: unknown): PublicRecord {
 function publicState(value: unknown): PublicRecord {
   const state = object(value)
   const policy = object(state.pluginPolicy)
+  const { model, modelServiceTiers } = state as Partial<PiState>
+  const tier = modelServiceTier(model, modelServiceTiers)
   return {
+    serviceTier: (model?.supportsFastMode || tier !== 'inherit') && isServiceTier(tier) ? tier : undefined,
     ...scalars(state, [
       'mode',
       'activeMode',
@@ -391,7 +405,7 @@ function publicAppSession(value: unknown): PublicRecord {
     ...scalars(session, ['hostId', 'sessionId', 'cwd', 'createdAt', 'name', 'status', 'temporary', 'pinned']),
     project: session.project === undefined ? undefined : scalars(object(session.project), ['hostId', 'projectId']),
     configuration: {
-      ...scalars(configuration, ['thinkingLevel', 'accessMode', 'mode']),
+      ...scalars(configuration, ['thinkingLevel', 'serviceTier', 'accessMode', 'mode']),
       model: configuration.model === undefined ? undefined : publicModel(configuration.model),
       agentPlugins: Array.isArray(configuration.agentPlugins)
         ? configuration.agentPlugins.filter((item) => typeof item === 'string')

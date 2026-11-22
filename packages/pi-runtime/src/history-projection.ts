@@ -12,6 +12,7 @@ import { projectConversationEntries, projectStableMessageMetadata } from './sdk/
 import { loadPiSdk } from './sdk/load'
 import { findSessionRecovery } from './sdk/recovery'
 import { withCompactionContextUsage } from './sdk/context-usage'
+import { branchServiceTiers } from './session-service-tier'
 import { projectSessionThinkingLevel } from './session-thinking'
 
 export function computeHistoryStats(history: SessionEntry[], headerId: string, filePath: string): PiSessionStats {
@@ -195,6 +196,7 @@ export async function projectSessionHistory(
     parentSessionPath: header.parentSession,
     model: context.model ? { provider: context.model.provider, id: context.model.modelId } : undefined,
     thinkingLevel: projectSessionThinkingLevel(branch, context.thinkingLevel),
+    modelServiceTiers: branchServiceTiers(branch),
     stats: withCompactionContextUsage(computeHistoryStats(history, header.id, filePath), branch, sdk, context),
   }
   data.historyAvailability = {

@@ -26,6 +26,13 @@ export type ContextTextItem = ContextPromptItem & { pieces: ContextPiece[] }
 export type ContextUsage = { input: number; output: number; cacheRead: number; cacheWrite: number }
 
 /** Internal observation only: no auth headers, credentials, or environment. Never persisted in Pi JSONL. */
+export type ContextServiceTier = {
+  selected: import('./pi').ServiceTier
+  sent: 'omitted' | 'other' | ReportedServiceTier
+  reported?: ReportedServiceTier
+}
+export type ReportedServiceTier = 'auto' | 'default' | 'priority' | 'fast' | 'flex' | 'scale' | 'ultrafast'
+
 export type ContextRuntimeCapture = {
   id: string
   generation: number
@@ -48,6 +55,7 @@ export type ContextRuntimeCapture = {
   replyCut?: boolean
   error?: string
   servedModel?: string
+  serviceTier?: ContextServiceTier
 }
 export type ContextCapture = ContextRuntimeCapture & { prompt?: ContextPrompt }
 export type ContextWindowAgent = { agentId: string; name: string }
@@ -65,6 +73,7 @@ export type ContextRequest = {
   api: string
   model: string
   servedModel?: string
+  serviceTier?: ContextServiceTier
   windowSource: 'catalog' | 'unknown'
   inputLeafId?: string
   compactionId?: string

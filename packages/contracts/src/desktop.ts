@@ -49,6 +49,7 @@ import type {
   PiState,
   PiQueuedMessages,
   ThinkingLevel,
+  ServiceTier,
   SessionThinkingLevel,
   PiSessionStats,
 } from './pi'
@@ -359,6 +360,7 @@ export interface GitBridge {
 /** 模型、思考等级、上下文占用与模型配置。 */
 export interface ModelsBridge {
   setModel: (sessionKey: string, model: PiModel) => Promise<PiModel>
+  setServiceTier: (sessionKey: string, model: PiModel, tier: ServiceTier) => Promise<void>
   setThinkingLevel: (sessionKey: string, level: SessionThinkingLevel) => Promise<void>
   getAvailableThinkingLevels: () => Promise<ThinkingLevel[]>
   getSessionStats: () => Promise<PiSessionStats>

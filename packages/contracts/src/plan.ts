@@ -1,4 +1,4 @@
-import type { PiImage, PiModel, SessionThinkingLevel } from './pi'
+import type { PiImage, PiModel, ServiceTier, SessionThinkingLevel } from './pi'
 import type { SkillReference } from './skills'
 
 export type TaskMode = 'default' | 'plan'
@@ -19,7 +19,16 @@ export type MessageOptions = MessageConfiguration & {
   plan?: PlanAction
   clientProcessingAudit?: readonly ClientProcessingAudit[]
 }
-export type MessageConfiguration = { model?: PiModel; thinkingLevel?: SessionThinkingLevel }
+export type MessageConfiguration = { model?: PiModel; thinkingLevel?: SessionThinkingLevel; serviceTier?: ServiceTier }
+
+export function sameMessageConfiguration(left: MessageConfiguration, right: MessageConfiguration) {
+  return (
+    left.model?.provider === right.model?.provider &&
+    left.model?.id === right.model?.id &&
+    left.thinkingLevel === right.thinkingLevel &&
+    (left.serviceTier ?? 'inherit') === (right.serviceTier ?? 'inherit')
+  )
+}
 export type EditMessageOptions = MessageOptions & MessageConfiguration
 /** 覆盖失败时仍返回已取出的队列，供发起编辑的窗口恢复。 */
 export type EditMessageResult = { recoveredInputs: QueuedInput[]; error?: string }

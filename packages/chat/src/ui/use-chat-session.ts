@@ -14,6 +14,7 @@ import {
   type TaskMode,
   type QueuedInput,
   type MessageConfiguration,
+  sameMessageConfiguration,
   type PlanAction,
   type MessageOptions,
 } from '@pi-meme/contracts/plan'
@@ -225,10 +226,7 @@ export function useChatSession(options: ChatSessionOptions) {
   }
   const actualConfiguration = options.configuration?.() ?? {}
   const configurationChanged = Boolean(
-    pendingConfiguration &&
-    (pendingConfiguration.model?.provider !== actualConfiguration.model?.provider ||
-      pendingConfiguration.model?.id !== actualConfiguration.model?.id ||
-      pendingConfiguration.thinkingLevel !== actualConfiguration.thinkingLevel),
+    pendingConfiguration && !sameMessageConfiguration(pendingConfiguration, actualConfiguration),
   )
   const editSubmitting =
     editRequest?.key === options.currentSessionKey() && editRequest?.generation === options.currentGeneration()
@@ -842,6 +840,7 @@ export function useChatSession(options: ChatSessionOptions) {
             submittedConfiguration.model?.provider,
             submittedConfiguration.model?.id,
             submittedConfiguration.thinkingLevel,
+            submittedConfiguration.serviceTier,
           ])
           let attempt = planSubmissions.current.get(key)
           if (attempt?.fingerprint !== fingerprint) {
@@ -883,6 +882,10 @@ export function useChatSession(options: ChatSessionOptions) {
           })
         }
         accepted = true
+        if (sessionKey === optionsRef.current.currentSessionKey() && generation === currentGeneration())
+          setPendingConfiguration((value) =>
+            value && sameMessageConfiguration(value, submittedConfiguration) ? undefined : value,
+          )
         if (planAction && sessionKey === optionsRef.current.currentSessionKey() && generation === currentGeneration())
           changeMode(messageMode)
         return true
@@ -1085,7 +1088,11 @@ export function useChatSession(options: ChatSessionOptions) {
         ...(pluginMentions.length ? { pluginMentions } : {}),
       }
       setEditingEntryId(message.sourceEntry.id)
-      setEditConfiguration({ ...configurationRef.current })
+      const configuration = configurationRef.current
+      const speed = message.sourceEntry.speed
+      const sameModel =
+        speed && configuration?.model?.provider === speed.provider && configuration.model.id === speed.id
+      setEditConfiguration({ ...configuration, ...(sameModel ? { serviceTier: speed.tier } : {}) })
       setDraft(restoredDraft)
       setSelectedSkills(restoredSkills)
       setPluginMentions([])
@@ -1309,6 +1316,7 @@ export function useChatSession(options: ChatSessionOptions) {
     setPluginMentions([])
     setAttachments(restored.attachments)
     changeMode(restored.mode)
+    setPendingConfiguration(input.configuration)
     setRecoveredInputs((value) => value.filter((entry) => entry.id !== input.id))
   }
 
@@ -1470,6 +1478,8 @@ export function useChatSession(options: ChatSessionOptions) {
     resume,
     resumeQueue: () => queueAction('resume'),
     selectedConfiguration,
+    clearSavedConfiguration: (saved: MessageConfiguration) =>
+      setPendingConfiguration((value) => (value && sameMessageConfiguration(value, saved) ? undefined : value)),
     pendingConfiguration,
     editConfiguration,
     updateConfiguration,

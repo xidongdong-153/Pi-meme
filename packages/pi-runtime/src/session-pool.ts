@@ -22,10 +22,24 @@ import {
   type AgentAccessMode,
 } from '@pi-meme/contracts/agent-access'
 import { AgentAccessStore } from './access-store'
+import type {
+  PiExtensionEvent,
+  PiExtensionUIResponse,
+  PiMessage,
+  PiImage,
+  PiModel,
+  PiSessionEntry,
+  PiSlashCommand,
+  PiState,
+  SessionThinkingLevel,
+  ServiceTier,
+} from '@pi-meme/contracts/pi'
 import {
   builtinCommand,
   builtinCommands,
   sameMessage,
+  updateModelServiceTier,
+  validateServiceTier,
   modelThinkingLevels,
   isSessionThinkingLevel,
   resolveModelThinkingLevel,
@@ -51,17 +65,6 @@ import {
   type PiSessionSummary,
   type WorkspaceKind,
 } from '@pi-meme/contracts/sessions'
-import type {
-  PiExtensionEvent,
-  PiExtensionUIResponse,
-  PiMessage,
-  PiImage,
-  PiModel,
-  PiSessionEntry,
-  PiSlashCommand,
-  PiState,
-  SessionThinkingLevel,
-} from '@pi-meme/contracts/pi'
 import { AccessSandbox, type SandboxCapability } from './sdk/access-sandbox'
 import { SdkSession } from './sdk/session'
 import { recoveryMessage } from './sdk/recovery'
@@ -72,7 +75,8 @@ import { markHistoryAppend, removeHistoryIndexes } from './session-history-index
 import { projectSessionWindow, projectSessionDetails } from '@pi-meme/contracts/session-window'
 import { projectBranchEntries } from './session-tree-entries'
 import { defaultModelConfiguration, readLocalModels, readLocalPreferences, readLocalSkills } from './session-metadata'
-import { appendSessionThinkingSelection, projectSessionThinkingLevel } from './session-thinking'
+import { appendServiceTier, serviceTierEntry } from './session-service-tier'
+import { appendSessionThinkingSelection, projectSessionThinkingLevel, sessionThinkingEntry } from './session-thinking'
 import { createPiRuntimePaths, createTemporaryRuntimePaths, type PiRuntimePaths } from './runtime-paths'
 import { MemoryCredentialStorage } from './secure-store'
 import {
@@ -953,6 +957,7 @@ export class PiSessionPool implements PiRuntime {
         // 已有会话沿用记录；新建会话留给 Pi 默认思考强度，不复制上一次的选择。
         thinkingLevel:
           options?.thinkingLevel ?? history?.thinkingLevel ?? (sessionFile ? this.defaults?.thinkingLevel : undefined),
+        modelServiceTiers: history?.modelServiceTiers,
         sessionName: history?.sessionName,
         skillUsages: history?.skillUsages,
         recovery: history?.recovery,
@@ -1071,6 +1076,8 @@ export class PiSessionPool implements PiRuntime {
   private handleEvent(record: RuntimeSession, value: DesktopEvent) {
     if (!this.sessions.has(record.key)) return
     const event = value.event
+    if (event.type === 'service_tier_update')
+      record.state = { ...record.state, modelServiceTiers: event.modelServiceTiers }
     if (event.type === 'session_saved') {
       record.sessionFile = event.sessionFile
       markHistoryAppend(event.sessionFile)
@@ -1381,6 +1388,7 @@ export class PiSessionPool implements PiRuntime {
           existing.name = history.sessionName
           existing.state = {
             ...existing.state,
+            modelServiceTiers: history.modelServiceTiers,
             sessionName: history.sessionName,
             skillUsages: history.skillUsages,
             recovery: history.recovery,
@@ -1449,6 +1457,7 @@ export class PiSessionPool implements PiRuntime {
           sessionName: record.name,
           model: record.state.model,
           thinkingLevel: record.state.thinkingLevel,
+          modelServiceTiers: record.state.modelServiceTiers,
           temporary: record.temporary ? true : undefined,
         }
       : null
@@ -1550,6 +1559,7 @@ export class PiSessionPool implements PiRuntime {
         await this.accessStore.set(record.sessionFile, record.accessMode)
       for (const value of buffer) {
         if (value.event.type === 'message_end') this.rememberMessage(record, value.event.message)
+        if (value.event.type === 'service_tier_update') record.state.modelServiceTiers = value.event.modelServiceTiers
         if (value.event.type === 'session_info_changed') {
           record.name = value.event.name
           record.state = { ...record.state, sessionName: value.event.name }
@@ -1565,6 +1575,7 @@ export class PiSessionPool implements PiRuntime {
         state: {
           ...snapshot.state,
           sessionName: record.name,
+          modelServiceTiers: record.state.modelServiceTiers,
           mode: record.state.mode,
           isPaused: record.state.isPaused,
           queuePaused: record.state.queuePaused,
@@ -1771,6 +1782,7 @@ export class PiSessionPool implements PiRuntime {
         sessionFile: record.sessionFile,
         model: record.state.model,
         thinkingLevel: record.state.thinkingLevel,
+        modelServiceTiers: record.state.modelServiceTiers,
       })
       if (record.name && !record.sessionFile) await record.session.setSessionName(record.name)
       if (record.state.steeringMode) await record.session.setSteeringMode(record.state.steeringMode)
@@ -2017,10 +2029,25 @@ export class PiSessionPool implements PiRuntime {
         (entry) => messageEntry(entry) && entry.message.role === 'user' && entry.message.timestamp === userTimestamp,
       )
       if (userIndex === -1) throw new Error('找不到这条对话，请刷新会话后重试')
-      const nextUser = path.slice(userIndex + 1).find((entry) => messageEntry(entry) && entry.message.role === 'user')
-      const forkPoint = nextUser?.parentId ?? data.leafId
-      if (!forkPoint) throw new Error('这段对话还没有可分叉的回复')
-      const throughPoint = path.slice(0, path.findIndex((entry) => entry.id === forkPoint) + 1)
+      const nextUser = path.findIndex(
+        (entry, index) => index > userIndex && messageEntry(entry) && entry.message.role === 'user',
+      )
+      const turn = path.slice(userIndex, nextUser < 0 ? undefined : nextUser)
+      const reply = turn.findLastIndex(
+        (entry) => messageEntry(entry) && (entry.message.role === 'assistant' || entry.message.role === 'toolResult'),
+      )
+      if (reply < 0) throw new Error('这段对话还没有可分叉的回复')
+      // Usage and tool metadata after the reply belong to this turn. Idle configuration writes prepare the next input.
+      const nextConfiguration = turn.findIndex(
+        (entry, index) =>
+          index > reply &&
+          (entry.type === 'model_change' ||
+            entry.type === 'thinking_level_change' ||
+            (entry.type === 'custom' &&
+              (entry.customType === serviceTierEntry || entry.customType === sessionThinkingEntry))),
+      )
+      const throughPoint = path.slice(0, userIndex + (nextConfiguration < 0 ? turn.length : nextConfiguration))
+      const forkPoint = throughPoint.at(-1)!.id
       const pendingCalls = new Set<string>()
       for (const entry of throughPoint) {
         if (!messageEntry(entry)) continue
@@ -2538,6 +2565,72 @@ export class PiSessionPool implements PiRuntime {
     record.state.thinkingLevel = (await record.session.snapshot()).state.thinkingLevel
     return selected
   }
+  restoreDraftConfiguration(
+    sessionKey: string,
+    saved: Pick<ModelRestore, 'model' | 'thinkingLevel' | 'modelServiceTiers'>,
+  ) {
+    const record = this.target(sessionKey)
+    if (record.dormant && !record.sessionFile)
+      record.state = {
+        ...record.state,
+        model: saved.model ?? record.state.model,
+        thinkingLevel: saved.thinkingLevel ?? record.state.thinkingLevel,
+        modelServiceTiers: saved.modelServiceTiers,
+      }
+  }
+
+  async setServiceTier(sessionKey: string, model: PiModel, tier: ServiceTier) {
+    this.assertNotEditing(sessionKey)
+    const record = this.target(sessionKey)
+    if (record.dormant) {
+      await this.warmMetadata(record)
+      await record.retiring
+      await record.workerStopping
+    }
+    const sdk = record.dormant && record.sessionFile ? await loadPiSdk() : undefined
+    if (
+      record !== this.target(sessionKey) ||
+      record.running ||
+      record.pendingPrompt ||
+      record.starting ||
+      record.stopping ||
+      record.retiring ||
+      record.workerStopping
+    )
+      throw new Error('会话正在运行或切换，请为下一条消息选择速度')
+    const selected = record.state.model
+    if (!selected || selected.provider !== model.provider || selected.id !== model.id)
+      throw new Error('当前模型已更换，请重新选择速度')
+    const canonical = this.localAvailableModels?.find(
+      (entry) => entry.provider === selected.provider && entry.id === selected.id,
+    )
+    if (record.dormant) {
+      validateServiceTier(canonical, tier)
+      let selections = updateModelServiceTier(selected, tier, record.state.modelServiceTiers)
+      if (record.sessionFile && sdk) {
+        const manager = sdk.SessionManager.open(
+          record.sessionFile,
+          this.runtimePaths.sessionDirectory(record.cwd),
+          record.cwd,
+        )
+        selections = appendServiceTier(manager, selected, tier)
+        record.sessionEntries = {
+          entries: projectBranchEntries(manager.getEntries(), manager.getLeafId()),
+          leafId: manager.getLeafId(),
+        }
+        invalidateSessionHistory([record.sessionFile])
+      }
+      record.state = { ...record.state, modelServiceTiers: selections }
+    } else {
+      await record.session.setServiceTier(selected, tier)
+      record.state.modelServiceTiers = (await record.session.snapshot()).state.modelServiceTiers
+    }
+    this.handleEvent(record, {
+      generation: record.executionGeneration,
+      event: { type: 'service_tier_update', modelServiceTiers: record.state.modelServiceTiers },
+    })
+  }
+
   async setThinkingLevel(sessionKey: string, level: SessionThinkingLevel) {
     if (!isSessionThinkingLevel(level)) throw new Error('思考强度无效')
     this.assertNotEditing(sessionKey)
@@ -2597,6 +2690,7 @@ export class PiSessionPool implements PiRuntime {
         sessionFile: this.active.sessionFile,
         model: this.active.state.model,
         thinkingLevel: this.active.state.thinkingLevel,
+        modelServiceTiers: this.active.state.modelServiceTiers,
       })
     return this.active.session.captureRestoreState()
   }
@@ -2635,6 +2729,7 @@ export class PiSessionPool implements PiRuntime {
           sessionFile: record.sessionFile,
           model: record.state.model,
           thinkingLevel: record.state.thinkingLevel,
+          modelServiceTiers: record.state.modelServiceTiers,
         },
       )
       if (epoch !== this.epoch || !this.sessions.has(record.key)) return

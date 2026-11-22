@@ -2,6 +2,7 @@ import type { Api, Credential, CredentialStore, Model } from '@earendil-works/pi
 import { getSupportedThinkingLevels } from '@earendil-works/pi-ai/models'
 import type { PiModel } from '@pi-meme/contracts/pi'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
+import { modelSpeed } from './service-tier'
 import type { PiSdk } from './load'
 import { observeModelRuntime, type ContextObserverOptions } from './context-observer'
 
@@ -14,6 +15,7 @@ export function projectModel(model: Model<Api>): PiModel {
     name: model.name,
     reasoning: model.reasoning,
     thinkingLevels: getSupportedThinkingLevels(model),
+    ...modelSpeed(model),
     api: model.api,
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens,

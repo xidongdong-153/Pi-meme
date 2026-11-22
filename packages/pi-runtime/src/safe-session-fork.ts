@@ -1,5 +1,6 @@
 import type { PiSessionEntry } from '@pi-meme/contracts/pi'
 import type { SystemMessage } from '@earendil-works/pi-ai'
+import { serviceTierEntry } from './session-service-tier'
 import { sessionThinkingEntry, stripUltraSystemMessage } from './session-thinking'
 
 /** 只复制当前分支；未闭合的 assistant 工具批次及其后条目整体排除。 */
@@ -34,7 +35,11 @@ export function stripUltraFromForkEntries(entries: readonly PiSessionEntry[]): P
   const byId = new Map(entries.map((entry) => [entry.id, entry]))
   const removed = new Set(
     entries
-      .filter((entry) => entry.type === 'custom' && entry.customType === sessionThinkingEntry)
+      .filter(
+        (entry) =>
+          entry.type === 'custom' &&
+          (entry.customType === sessionThinkingEntry || entry.customType === serviceTierEntry),
+      )
       .map((entry) => entry.id),
   )
   // 指向被删除策略节点的 label/context edit 也不能留下孤立引用。

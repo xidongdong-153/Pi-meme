@@ -224,6 +224,7 @@ export class ContextWindowStore {
       api: event.api,
       model: event.model,
       servedModel: event.servedModel ?? previous?.servedModel,
+      serviceTier: event.serviceTier ?? (samePayload ? previous?.serviceTier : undefined),
       windowSource: event.window && event.window > 0 ? 'catalog' : (previous?.windowSource ?? 'unknown'),
       inputLeafId: event.inputLeafId ?? previous?.inputLeafId,
       compactionId: event.compactionId ?? previous?.compactionId,

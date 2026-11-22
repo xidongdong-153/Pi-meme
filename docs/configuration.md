@@ -58,6 +58,8 @@ paths:
 
 默认模型和原生思考强度写入 `config/agent/settings.json` 的 `defaultProvider`、`defaultModel`、`defaultThinkingLevel`。原生档位为 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；未设置时 Pi 使用 `medium`。同一文件里的 `modelThinkingLevels` 可按 `provider/modelId` 覆盖该模型的启动强度。这些默认值不改变已经打开的会话。对话选择器额外提供的 [Ultra 会话策略](sessions.md#思考强度与-ultra)不属于模型能力或默认原生档位。
 
+支持 Fast 的 GPT 模型在聊天模型面板左上角显示闪电按钮。内置 OpenAI API 和 Codex 订阅分别按各自的模型目录判断能力。自定义 GPT 网关可以通过发现接口声明 `service_tiers` 的 `priority` 或 `additional_speed_tiers` 的 `fast`，也可以在模型的高级 JSON 中设置 `"compat": { "supportsFastMode": true }`。只有模型 ID 时，兼容网关需要显式声明。档位下发和会话记忆见 [GPT 速度](sessions.md#gpt-速度)。
+
 自定义模型可以逐项勾选思考强度。未提供档位映射时，配置表单默认全选；保存后使用 Pi 的 `thinkingLevelMap` 声明能力，取消勾选的档位写为 `null`。关闭“支持思考”后，会话只提供 `off`。已有映射保留；高级模型参数可填写每档对应的接口参数值。OpenAI 兼容协议的 `xhigh`、`max` 默认同名映射；Google 协议默认映射到 `high`，可按服务文档调整。接口返回 `reasoning` 和 `thinkingLevelMap` 时，模型发现会保留这些字段；仅返回模型 ID 时不推断上游能力。
 
 原生思考强度选择使用 Pi SDK 返回的模型可用档位；切换模型、恢复会话或设置不支持的强度时，按模型能力调整。未经配置表单保存的旧模型仍遵循 SDK 默认能力：`reasoning: true` 且没有映射时最高为 `high`。全局默认强度保留用户偏好，各会话按所选模型调整。

@@ -372,6 +372,15 @@ const Card = memo(
                   <code className="ctx-model">{request.servedModel ?? request.model}</code>
                 </TooltipHint>
               </span>
+              {request.serviceTier && (
+                <TooltipHint
+                  content={`选择：${{ inherit: '跟随默认', standard: '标准', fast: 'Fast' }[request.serviceTier.selected]} · 请求：${request.serviceTier.sent === 'omitted' ? '省略 service_tier' : request.serviceTier.sent} · 服务端返回：${request.serviceTier.reported ?? '未报告'}${request.api === 'openai-codex-responses' && ['auto', 'default'].includes(request.serviceTier.reported ?? '') ? '（订阅端未确认实际档位）' : ''}`}
+                >
+                  <span tabIndex={0} className="ctx-model text-xs">
+                    速度
+                  </span>
+                </TooltipHint>
+              )}
             </span>
             <TooltipHint
               content={

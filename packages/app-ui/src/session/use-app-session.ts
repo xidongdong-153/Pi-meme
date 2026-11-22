@@ -1,4 +1,4 @@
-import type { PlanDocument, PlanState, TaskMode } from '@pi-meme/contracts/plan'
+import type { MessageConfiguration, PlanDocument, PlanState, TaskMode } from '@pi-meme/contracts/plan'
 import { activePathIds } from '@pi-meme/contracts/session-tree'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
 import { transferDraft } from '@pi-meme/chat/ui/composer/transfer-draft'
@@ -21,8 +21,9 @@ import type {
   PiState,
   SessionThinkingLevel,
   ThinkingLevel,
+  ServiceTier,
 } from '@pi-meme/contracts/pi'
-import { resolveSessionThinkingLevel } from '@pi-meme/contracts/pi'
+import { modelServiceTier, updateModelServiceTier, resolveSessionThinkingLevel } from '@pi-meme/contracts/pi'
 import { applyEvent as reduceEvent, emptyChat, fromSnapshot } from '@pi-meme/chat/ui/model/state'
 import type { ChatState } from '@pi-meme/chat/ui/model/types'
 import { useChatSession, type ComposerSnapshot } from '@pi-meme/chat/ui/use-chat-session'
@@ -109,6 +110,8 @@ export function useAppSession(
   const modelSaveError = useRef<unknown>(undefined)
   const thinkingSelection = useRef<Promise<void> | null>(null)
   const thinkingSaveError = useRef<unknown>(undefined)
+  const speedSelection = useRef<Promise<void> | null>(null)
+  const speedSaveError = useRef<unknown>(undefined)
   const thinkingRequest = useRef(0)
   const selection = useRef(new SessionSelection())
   const preview = useRef<{ transaction: SelectionTransaction; draftKey: string; input?: SelectWorkspace } | null>(null)
@@ -198,6 +201,8 @@ export function useAppSession(
       const previousGeneration = displayed.current.generation
       if (previousKey !== snapshot.connection.sessionKey) {
         modelSelection.current = null
+        speedSelection.current = null
+        speedSaveError.current = undefined
         thinkingSelection.current = null
         thinkingSaveError.current = undefined
       }
@@ -440,7 +445,8 @@ export function useAppSession(
       return async (...args: Args) => {
         const pending = modelSelection.current
         if (pending && !(await pending)) throw modelSaveError.current ?? new Error('模型切换失败，消息尚未发送')
-        await thinkingSelection.current
+        await Promise.all([thinkingSelection.current, speedSelection.current])
+        if (speedSaveError.current) throw speedSaveError.current
         if (thinkingSaveError.current) throw thinkingSaveError.current
         return send.apply(bridge, args)
       }
@@ -450,17 +456,24 @@ export function useAppSession(
       prompt: afterModelSelection(bridge.prompt),
       followUp: afterModelSelection(bridge.followUp),
       editAndPrompt: async (...args: Parameters<DesktopBridge['editAndPrompt']>) => {
-        await Promise.allSettled([modelSelection.current, thinkingSelection.current])
+        await Promise.allSettled([modelSelection.current, thinkingSelection.current, speedSelection.current])
         return bridge.editAndPrompt(...args)
       },
     }
   }, [bridge])
+  const currentTier = modelServiceTier(state?.model, state?.modelServiceTiers)
+  const activeConfiguration = {
+    model: state?.model,
+    thinkingLevel: state?.thinkingLevel,
+    serviceTier: state?.model?.supportsFastMode || currentTier !== 'inherit' ? currentTier : undefined,
+  }
   const chat = useChatSession({
     submitPlan: host
       ? async (sessionKey, text, options, idempotencyKey) => {
           const pending = modelSelection.current
           if (pending && !(await pending)) throw modelSaveError.current ?? new Error('模型切换失败，计划尚未发送')
-          await thinkingSelection.current
+          await Promise.all([thinkingSelection.current, speedSelection.current])
+          if (speedSaveError.current) throw speedSaveError.current
           if (thinkingSaveError.current) throw thinkingSaveError.current
           const session = await bridge.resolveAppSession(sessionKey)
           const receipt = await host.sessions.submit(
@@ -473,7 +486,7 @@ export function useAppSession(
         }
       : undefined,
     bridge: chatBridge,
-    configuration: () => ({ model: state?.model, thinkingLevel: state?.thinkingLevel }),
+    configuration: () => activeConfiguration,
     refresh,
     commands,
     canSend: () =>
@@ -548,8 +561,18 @@ export function useAppSession(
     const model = state?.model
     if (loading || switching || previewing || !model || !draftModel) return
     if (modelIsAvailable(models, model) && !modelIsAvailable(models, draftModel))
-      chatRef.current?.updateConfiguration({ model, thinkingLevel: state?.thinkingLevel })
-  }, [loading, switching, previewing, state?.model, state?.thinkingLevel, models, draftModel, chat.editSubmitting])
+      chatRef.current?.updateConfiguration({ model, thinkingLevel: state?.thinkingLevel, serviceTier: currentTier })
+  }, [
+    loading,
+    switching,
+    previewing,
+    state?.model,
+    state?.thinkingLevel,
+    models,
+    draftModel,
+    chat.editSubmitting,
+    currentTier,
+  ])
   const bindDraftSession = useCallback(
     (key: string, sessionId: string) => {
       const saved = drafts.bind(key, sessionId)
@@ -719,6 +742,17 @@ export function useAppSession(
         record.generation === current.current.generation &&
         !selection.current.current &&
         !preview.current
+      if (event.type === 'service_tier_update') {
+        if (cached) {
+          cached.snapshot = {
+            ...cached.snapshot,
+            state: { ...cached.snapshot.state, modelServiceTiers: event.modelServiceTiers },
+          }
+          cached.sequence = record.sequence ?? cached.sequence
+        }
+        if (visible) setState((value) => value && { ...value, modelServiceTiers: event.modelServiceTiers })
+        return
+      }
       if (event.type === 'session_info_changed') {
         if (cached) {
           cached.snapshot = { ...cached.snapshot, state: { ...cached.snapshot.state, sessionName: event.name } }
@@ -1441,6 +1475,54 @@ export function useAppSession(
   }
   const visiblePlanDocuments =
     chat.editingEntryId || planState ? (visiblePlanState?.document ? [visiblePlanState.document] : []) : planDocuments
+  const draftSettings = Boolean(
+    chat.editing || chat.editingQueue || chat.chat.running || chat.chat.paused || chat.chat.queuePaused,
+  )
+
+  // A draft selected during a turn can outlive it. An explicit idle selection now saves its model and settings together.
+  function saveIdleDraft(update: MessageConfiguration) {
+    if (!chat.pendingConfiguration) return
+    const next = { ...chat.selectedConfiguration, ...update }
+    const model = next.model
+    if (!model || actionLock.current || selection.current.current || preview.current) return Promise.resolve(false)
+    chat.updateConfiguration(update)
+    setModelSaving(true)
+    modelSaveError.current = undefined
+    const previousWrites = [thinkingSelection.current, speedSelection.current]
+    const pending = action(async (key, owns) => {
+      try {
+        await Promise.allSettled(previousWrites)
+        if (model.provider !== state?.model?.provider || model.id !== state.model.id) await bridge.setModel(key, model)
+        if (
+          next.thinkingLevel !== undefined &&
+          (next.thinkingLevel !== state?.thinkingLevel ||
+            model.provider !== state?.model?.provider ||
+            model.id !== state.model.id)
+        )
+          await bridge.setThinkingLevel(key, next.thinkingLevel)
+        if (
+          next.serviceTier !== undefined &&
+          (model.supportsFastMode ||
+            next.serviceTier !== 'inherit' ||
+            modelServiceTier(model, state?.modelServiceTiers) !== 'inherit')
+        )
+          await bridge.setServiceTier(key, model, next.serviceTier)
+        if (!owns()) return
+        await refresh()
+        if (owns()) chat.clearSavedConfiguration(next)
+      } catch (cause) {
+        modelSaveError.current = cause
+        throw cause
+      }
+    }, false)
+    modelSelection.current = pending
+    void pending.then(() => {
+      if (modelSelection.current === pending) modelSelection.current = null
+      if (mounted.current) setModelSaving(false)
+    })
+    return pending
+  }
+
   return {
     bindDraftSession,
     hasUnstoredDraft: drafts.hasUnstoredInput,
@@ -1495,6 +1577,7 @@ export function useAppSession(
       }
     },
     chat: chat.chat,
+    activeConfiguration,
     appSession,
     chatStream: chat.chatStream,
     loadOlderMessages,
@@ -1729,13 +1812,20 @@ export function useAppSession(
       }),
     selectModel: (model: PiModel) => {
       if (chat.editSubmitting) return Promise.resolve(false)
-      if (chat.editing || chat.chat.running || chat.chat.paused || chat.chat.queuePaused) {
+      if (draftSettings) {
         chat.updateConfiguration({
           model,
+          serviceTier: modelServiceTier(model, state?.modelServiceTiers),
           thinkingLevel: resolveSessionThinkingLevel(model, chat.selectedConfiguration.thinkingLevel ?? 'medium'),
         })
         return Promise.resolve(true)
       }
+      const savedDraft = saveIdleDraft({
+        model,
+        serviceTier: modelServiceTier(model, state?.modelServiceTiers),
+        thinkingLevel: resolveSessionThinkingLevel(model, chat.selectedConfiguration.thinkingLevel ?? 'medium'),
+      })
+      if (savedDraft) return savedDraft
       if (!current.current.sessionKey || actionLock.current || selection.current.current) return Promise.resolve(false)
       if (state?.model?.provider === model.provider && state.model.id === model.id && !state.modelSelectionRequired)
         return Promise.resolve(true)
@@ -1746,6 +1836,7 @@ export function useAppSession(
       const pending = action(async (key, owns) => {
         setState((value) => value && { ...value, model, modelSelectionRequired: false })
         try {
+          await Promise.allSettled([speedSelection.current, thinkingSelection.current])
           const selected = await bridge.setModel(key, model)
           if (!owns()) return
           setState((value) => value && { ...value, model: selected, modelSelectionRequired: false })
@@ -1767,12 +1858,52 @@ export function useAppSession(
       })
       return pending
     },
+    selectServiceTier: (tier: ServiceTier) => {
+      if (chat.editSubmitting) return
+      if (draftSettings) {
+        chat.updateConfiguration({ serviceTier: tier })
+        return
+      }
+      if (saveIdleDraft({ serviceTier: tier })) return
+      const model = state?.model
+      const { sessionKey: key, generation } = current.current
+      if (!model || !key || actionLock.current || selection.current.current || preview.current) return
+      const owns = () =>
+        mounted.current && current.current.sessionKey === key && current.current.generation === generation
+      synchronization.current.cancel()
+      setError('')
+      setState(
+        (value) =>
+          value && { ...value, modelServiceTiers: updateModelServiceTier(model, tier, value.modelServiceTiers) },
+      )
+      speedSaveError.current = undefined
+      const modelPending = modelSelection.current
+      const pending = Promise.resolve(speedSelection.current)
+        .catch(() => {})
+        .then(async () => {
+          if (modelPending && !(await modelPending)) throw modelSaveError.current ?? new Error('模型切换失败')
+          await bridge.setServiceTier(key, model, tier)
+        })
+      speedSelection.current = pending
+      void pending.catch(async (cause) => {
+        if (!owns() || speedSelection.current !== pending) return
+        speedSaveError.current = cause
+        setError(String(cause))
+        const saved = await bridge
+          .getSnapshot()
+          .then((snapshot) => snapshot.state.modelServiceTiers)
+          .catch(() => state?.modelServiceTiers)
+        if (owns() && speedSelection.current === pending)
+          setState((value) => value && { ...value, modelServiceTiers: saved })
+      })
+    },
     selectThinkingLevel: (level: SessionThinkingLevel) => {
       if (chat.editSubmitting) return
-      if (chat.editing || chat.chat.running || chat.chat.paused || chat.chat.queuePaused) {
+      if (draftSettings) {
         chat.updateConfiguration({ thinkingLevel: level })
         return
       }
+      if (saveIdleDraft({ thinkingLevel: level })) return
       const key = current.current.sessionKey
       const generation = current.current.generation
       const owns = () =>

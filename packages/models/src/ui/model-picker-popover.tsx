@@ -8,13 +8,22 @@ import {
   resolveSessionThinkingLevel,
   type PiModel,
   type SessionThinkingLevel,
+  type ServiceTier,
 } from '@pi-meme/contracts/pi'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@pi-meme/ui/components/ui/dropdown-menu'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { THINKING_LEVEL_LABELS } from './thinking-config'
 import './model-picker-popover.css'
 
+const speedLabels = { inherit: '跟随默认', standard: '标准', fast: 'Fast' } as const
 const ULTRA_DESCRIPTION = '最高可用思考强度与主动多代理协作，可能增加用量'
 
 const ULTRA_PARTICLES = [
@@ -59,6 +68,9 @@ export type ModelPickerPopoverProps = {
   thinkingLevel?: SessionThinkingLevel
   /** 仅聊天输入框开放 Ultra；模型默认、定时任务等配置继续使用原生档位。 */
   allowUltra?: boolean
+  serviceTier?: ServiceTier
+  onSelectServiceTier?: (tier: ServiceTier) => void
+  nextMessageSpeed?: boolean
   disabled: boolean
   busy?: boolean
   active?: boolean
@@ -81,6 +93,9 @@ export function ModelPickerPopover({
   models,
   currentModel,
   thinkingLevel = 'medium',
+  serviceTier = 'inherit',
+  nextMessageSpeed,
+  onSelectServiceTier,
   allowUltra = false,
   disabled,
   busy = false,
@@ -100,6 +115,11 @@ export function ModelPickerPopover({
 
   const selectedModel =
     models.find((model) => model.provider === currentModel?.provider && model.id === currentModel.id) ?? currentModel
+  const showSpeed = Boolean(onSelectServiceTier && (selectedModel?.supportsFastMode || serviceTier !== 'inherit'))
+  const showFast =
+    showSpeed && (serviceTier === 'fast' || (serviceTier === 'inherit' && selectedModel?.defaultServiceTier === 'fast'))
+  const speedMenu = React.useRef<HTMLDivElement>(null)
+  const speedLabel = nextMessageSpeed ? '下一条消息的速度' : '速度'
   const activeLevels: readonly SessionThinkingLevel[] = allowUltra
     ? modelSessionThinkingLevels(selectedModel)
     : modelThinkingLevels(selectedModel)
@@ -258,7 +278,8 @@ export function ModelPickerPopover({
     if (!ownerDocument) return
     const dismissOutside = (event: PointerEvent) => {
       const path = event.composedPath()
-      if (path.includes(triggerRef.current!) || path.includes(contentRef.current!)) return
+      if (path.includes(triggerRef.current!) || path.includes(contentRef.current!) || path.includes(speedMenu.current!))
+        return
       closedByOutsidePointer.current = true
       gestureRef.current = null
       setDragRatio(null)
@@ -307,7 +328,7 @@ export function ModelPickerPopover({
       }}
     >
       <TooltipHint
-        content={`${displayName} · ${currentLevelLabel}${shortcutLabel ? `（${shortcutLabel}）` : ''}`}
+        content={`${displayName} · ${currentLevelLabel}${showFast ? ' · Fast' : ''}${shortcutLabel ? `（${shortcutLabel}）` : ''}`}
         open={open ? false : undefined}
       >
         <PopoverTrigger asChild>
@@ -316,7 +337,7 @@ export function ModelPickerPopover({
             type="button"
             disabled={disabled}
             aria-busy={busy || undefined}
-            aria-label="选择模型与思考强度"
+            aria-label={showSpeed ? `选择模型、思考强度与速度${showFast ? '，Fast' : ''}` : '选择模型与思考强度'}
             data-thinking-level={activeLevel}
             className={cn(
               'model-thinking-theme inline-flex min-w-0 max-w-full whitespace-nowrap items-center justify-center select-none cursor-pointer transition-colors rounded-full',
@@ -336,6 +357,7 @@ export function ModelPickerPopover({
                 <span className="model-thinking-accent min-w-[2em] text-center font-medium shrink-0 text-[0.6875rem]">
                   {currentLevelLabel}
                 </span>
+                {showFast && <span className="shrink-0 text-[0.6875rem] font-medium">Fast</span>}
               </div>
               <ChevronDown className="size-3 text-muted-foreground/80 shrink-0 ml-0.5" />
             </div>
@@ -363,8 +385,57 @@ export function ModelPickerPopover({
           >
             {/* 顶栏：中间高亮强度文字与模型入口，右侧重置按钮 */}
             <div className="flex items-center justify-between px-1">
-              <div className="flex size-6 items-center justify-center">
-                {isUltra && <Zap aria-hidden="true" className="model-thinking-accent size-3.5" />}
+              <div className="flex size-6 shrink-0 items-center justify-center self-start">
+                {showSpeed ? (
+                  <DropdownMenu modal={false}>
+                    <TooltipHint
+                      side="top"
+                      content={
+                        <span className="flex flex-col">
+                          <span>{nextMessageSpeed ? '下一条消息的速度' : 'Fast 优先处理'}</span>
+                          <span className="text-muted-foreground">用量更多</span>
+                        </span>
+                      }
+                    >
+                      <DropdownMenuTrigger asChild>
+                        <button
+                          type="button"
+                          disabled={disabled || busy}
+                          aria-label={`${speedLabel}：${speedLabels[serviceTier]}`}
+                          className={cn(
+                            'flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-secondary',
+                            showFast && 'bg-secondary text-foreground',
+                          )}
+                        >
+                          <Zap aria-hidden className={cn('size-4', showFast && 'fill-current')} strokeWidth={1.6} />
+                        </button>
+                      </DropdownMenuTrigger>
+                    </TooltipHint>
+                    <DropdownMenuContent
+                      ref={speedMenu}
+                      side="top"
+                      align="start"
+                      sideOffset={5}
+                      className="min-w-28"
+                      aria-label={speedLabel}
+                    >
+                      <DropdownMenuRadioGroup value={serviceTier}>
+                        {(['inherit', 'standard', 'fast'] as const).map((tier) => (
+                          <DropdownMenuRadioItem
+                            key={tier}
+                            value={tier}
+                            disabled={tier !== 'inherit' && !selectedModel?.supportsFastMode}
+                            onSelect={() => onSelectServiceTier?.(tier)}
+                          >
+                            {speedLabels[tier]}
+                          </DropdownMenuRadioItem>
+                        ))}
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : isUltra ? (
+                  <Zap aria-hidden className="model-thinking-accent size-3.5" />
+                ) : null}
               </div>
               <div className="flex flex-col items-center">
                 <TooltipHint content={isUltra ? ULTRA_DESCRIPTION : isMax ? 'Max · 模型原生最大思考强度' : undefined}>

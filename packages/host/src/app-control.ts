@@ -15,7 +15,13 @@ import {
 } from '@pi-meme/contracts/goal'
 import { skillMessageText } from '@pi-meme/contracts/skills'
 import { messageOptions } from '@pi-meme/contracts/ipc'
-import { isSessionThinkingLevel } from '@pi-meme/contracts/pi'
+import {
+  isSessionThinkingLevel,
+  isServiceTier,
+  modelServiceTier,
+  validateServiceTier,
+  type ModelServiceTiers,
+} from '@pi-meme/contracts/pi'
 import { randomUUID, createHash } from 'node:crypto'
 import path from 'node:path'
 import { projectUiMessage } from '@pi-meme/contracts/plugin-ui-message'
@@ -135,7 +141,11 @@ type Options = {
   isSessionClosing?: (session: AppSession) => boolean
   onError: (cause: unknown) => void
 }
-type ManagedSession = AppSession & { pinnedRuntimeKey?: string; managedDraft?: boolean }
+type ManagedSession = AppSession & {
+  pinnedRuntimeKey?: string
+  managedDraft?: boolean
+  draftServiceTiers?: ModelServiceTiers
+}
 
 type Pending = {
   clientId?: string
@@ -225,7 +235,12 @@ export async function createAppControl(options: Options) {
     return value.trim()
   }
   const validateConfiguration = (value: unknown): SessionConfiguration => {
-    const config = record(value, ['agentPlugins', 'model', 'thinkingLevel', 'accessMode', 'mode'], '会话配置')
+    const config = record(
+      value,
+      ['agentPlugins', 'model', 'thinkingLevel', 'serviceTier', 'accessMode', 'mode'],
+      '会话配置',
+    )
+    if (config.serviceTier !== undefined && !isServiceTier(config.serviceTier)) throw new Error('模型速度无效')
     if (config.accessMode !== undefined && !isAgentAccessMode(config.accessMode)) throw new Error('会话权限无效')
     if (config.mode !== undefined && config.mode !== 'default' && config.mode !== 'plan')
       throw new Error('会话模式无效')
@@ -368,16 +383,22 @@ export async function createAppControl(options: Options) {
       Object.assign(session, { pinnedRuntimeKey: view.sessionKey! })
       options.lifecycle.changed()
     }
+    const draftTiers = nextFile ? undefined : context.state.modelServiceTiers
+    const managed = session as ManagedSession
+    const tier = modelServiceTier(context.state.model, context.state.modelServiceTiers)
     const nextConfig = {
       ...session.configuration,
       model: configurationModel(context.state.model),
       thinkingLevel: context.state.thinkingLevel,
+      serviceTier: context.state.model?.supportsFastMode || tier !== 'inherit' ? tier : undefined,
       accessMode: context.accessMode,
       mode: context.state.mode,
     }
     const nextName = context.state.sessionName ?? session.name
     const changed =
       pinChanged ||
+      JSON.stringify(managed.draftServiceTiers) !== JSON.stringify(draftTiers) ||
+      session.configuration.serviceTier !== nextConfig.serviceTier ||
       session.sessionFile !== nextFile ||
       session.name !== nextName ||
       session.configuration.model?.provider !== nextConfig.model?.provider ||
@@ -385,6 +406,7 @@ export async function createAppControl(options: Options) {
       session.configuration.thinkingLevel !== nextConfig.thinkingLevel ||
       session.configuration.accessMode !== nextConfig.accessMode ||
       session.configuration.mode !== nextConfig.mode
+    managed.draftServiceTiers = draftTiers
     session.sessionFile = nextFile
     session.configuration = nextConfig
     session.name = nextName
@@ -408,12 +430,16 @@ export async function createAppControl(options: Options) {
       throw new Error('模型标识无效')
     const key = view.sessionKey!
     if (config.agentPlugins !== undefined) options.validateAgentPlugins(config.agentPlugins, restore)
-    if (config.model && !restore && options.models) {
-      const available = await options.models.list()
-      if (!available.some((model) => model.provider === config.model!.provider && model.id === config.model!.id))
-        throw new Error('模型已不可用，请重新选择模型')
-    }
     const previous = pi.readSessionBinding(key)
+    if (!restore && (config.model || config.serviceTier !== undefined) && options.models) {
+      const available = await options.models.list()
+      const requested = config.model ?? previous.state.model
+      if (requested) {
+        const selected = available.find((model) => model.provider === requested.provider && model.id === requested.id)
+        if (!selected) throw new Error('模型已不可用，请重新选择模型')
+        if (config.serviceTier !== undefined) validateServiceTier(selected, config.serviceTier)
+      }
+    }
     const previousConfiguration = { ...session.configuration }
     let restoredRevision: number | undefined
     let previousPolicy = { accessMode: previous.accessMode, mode: previous.state.mode }
@@ -433,6 +459,11 @@ export async function createAppControl(options: Options) {
       if (config.agentPlugins !== undefined) await options.configureAgentPlugins(key, config.agentPlugins, { restore })
       if (config.model !== undefined) await pi.setModel(key, config.model)
       if (config.thinkingLevel !== undefined) await pi.setThinkingLevel(key, config.thinkingLevel)
+      if (config.serviceTier !== undefined && !restore) {
+        const model = pi.readSessionBinding(key).state.model
+        if (!model) throw new Error('请先选择模型再设置速度')
+        await pi.setServiceTier(key, model, config.serviceTier)
+      }
       session.configuration = { ...session.configuration, ...config }
       await sync(session, view)
       return structuredClone(session)
@@ -459,6 +490,8 @@ export async function createAppControl(options: Options) {
       }
     }
     if (restores.has(session.sessionId)) return restores.get(session.sessionId)!
+    const savedConfiguration = structuredClone(session.configuration)
+    const draftServiceTiers = (session as ManagedSession).draftServiceTiers
     const pending = (async () => {
       const view = pi.createClientView()
       view.clientId = `control:${session.sessionId}`
@@ -467,12 +500,20 @@ export async function createAppControl(options: Options) {
           if (session.sessionFile) {
             const selected = await pi.switchSession(session.sessionFile)
             if (selected.cancelled) throw new Error('会话恢复已取消')
-          } else pi.initializeClient(session.cwd)
+          } else {
+            pi.initializeClient(session.cwd)
+            if (restore)
+              pi.restoreDraftConfiguration(view.sessionKey!, {
+                model: savedConfiguration.model,
+                thinkingLevel: savedConfiguration.thinkingLevel,
+                modelServiceTiers: draftServiceTiers,
+              })
+          }
           runtime.set(session.sessionId, view)
           pi.retainSession(view.sessionKey!)
           if (!session.sessionFile && session.name)
             await options.lifecycle.renameSession(view.sessionKey!, session.name)
-          await configure(session, view, session.configuration, restore)
+          await configure(session, view, savedConfiguration, restore)
         })
         return view
       } catch (cause) {
@@ -522,6 +563,7 @@ export async function createAppControl(options: Options) {
       stats: existing?.stats,
       model: existing?.state.model,
       thinkingLevel: existing?.state.thinkingLevel,
+      modelServiceTiers: existing?.state.modelServiceTiers,
     } as import('@pi-meme/contracts/sessions').SessionHistoryData
   }
   const readTarget = async <T>(
@@ -553,6 +595,7 @@ export async function createAppControl(options: Options) {
         mode: session.configuration.mode ?? 'default',
         model: history.model,
         thinkingLevel: history.thinkingLevel,
+        modelServiceTiers: history.modelServiceTiers,
         isStreaming: false,
         isCompacting: false,
         steeringMode: 'all',
@@ -772,7 +815,7 @@ export async function createAppControl(options: Options) {
     }
     for (const session of store.state.sessions) {
       const view = runtime.get(session.sessionId)
-      if (!view) continue
+      if (!view || restores.has(session.sessionId)) continue
       try {
         await sync(session, view, true)
       } catch {
@@ -824,6 +867,9 @@ export async function createAppControl(options: Options) {
           else if (input.delivery === 'steer')
             await pi.steer(key, input.text, input.images, input.skills, {
               mode: input.mode,
+              model: input.model,
+              thinkingLevel: input.thinkingLevel,
+              serviceTier: input.serviceTier,
               visualization: input.visualization,
             })
           else
@@ -838,6 +884,7 @@ export async function createAppControl(options: Options) {
                 visualization: input.visualization,
                 model: input.model,
                 thinkingLevel: input.thinkingLevel,
+                serviceTier: input.serviceTier,
                 clientProcessingAudit: input.clientProcessingAudit,
               }),
             )
@@ -903,6 +950,7 @@ export async function createAppControl(options: Options) {
         plan: input.plan,
         model: input.model,
         thinkingLevel: input.thinkingLevel,
+        serviceTier: input.serviceTier,
         clientProcessingAudit: input.clientProcessingAudit,
       })
       if (input.delivery !== 'start') throw new Error('计划操作只能在空闲会话直接开始')
@@ -918,6 +966,26 @@ export async function createAppControl(options: Options) {
       const document = await options.visualizations(key).read(input.visualization.reference, references)
       validateVisualizationState(input.visualization.state, document)
       input = { ...input, visualization: structuredClone(input.visualization) }
+    }
+    if (input.serviceTier !== undefined && !isServiceTier(input.serviceTier)) throw new Error('模型速度无效')
+    if (input.delivery === 'queue' || input.delivery === 'steer') {
+      const { state } = pi.readSessionBinding(key)
+      const model = input.model ?? state.model
+      const tier = modelServiceTier(model, state.modelServiceTiers)
+      input = {
+        ...input,
+        model,
+        thinkingLevel: input.thinkingLevel ?? state.thinkingLevel,
+        serviceTier: input.serviceTier ?? tier,
+      }
+      if (
+        input.delivery === 'steer' &&
+        (model?.provider !== state.model?.provider ||
+          model?.id !== state.model?.id ||
+          input.thinkingLevel !== state.thinkingLevel ||
+          input.serviceTier !== modelServiceTier(state.model, state.modelServiceTiers))
+      )
+        throw new Error('模型、思考强度或速度与当前任务不同，请改为排队')
     }
     const running = active.has(session.sessionId) || busy(key)
     if (input.delivery === 'start' && running) throw new Error('会话正在运行，请使用 queue 或 steer')
@@ -1126,6 +1194,7 @@ export async function createAppControl(options: Options) {
     const projected: ManagedSession = structuredClone(session)
     delete projected.pinnedRuntimeKey
     delete projected.managedDraft
+    delete projected.draftServiceTiers
     return {
       ...projected,
       pinned: Boolean(
@@ -1586,6 +1655,8 @@ export async function createAppControl(options: Options) {
                   (config?.model !== undefined &&
                     (config.model?.provider !== current.state.model?.provider ||
                       config.model?.id !== current.state.model?.id)) ||
+                  (config?.serviceTier !== undefined &&
+                    config.serviceTier !== modelServiceTier(current.state.model, current.state.modelServiceTiers)) ||
                   (config?.thinkingLevel !== undefined && config.thinkingLevel !== current.state.thinkingLevel) ||
                   (config?.agentPlugins !== undefined &&
                     JSON.stringify(config.agentPlugins) !== JSON.stringify(session.configuration.agentPlugins ?? []))
@@ -2564,7 +2635,7 @@ export async function createAppControl(options: Options) {
               project: project && { hostId, projectId: project.projectId },
               cwd: context.cwd,
               createdAt: pi.getRuntimeHistory(key)?.created ?? new Date().toISOString(),
-              sessionFile: context.sessionFile,
+              sessionFile: context.historySaved ? context.sessionFile : undefined,
               configuration: { agentPlugins },
               status: busy(key) ? 'running' : 'idle',
               temporary: isTemporary || undefined,
@@ -2633,6 +2704,7 @@ export async function createAppControl(options: Options) {
         // 兼容旧版 API 操作日志、命名和置顶，不删除其余控制记录。
         if (
           managed.managedDraft !== true &&
+          !managed.draftServiceTiers &&
           !previouslyManaged.has(session.sessionId) &&
           !session.name?.trim() &&
           !pinnedPaths.includes(`session:${session.sessionId}`) &&

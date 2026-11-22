@@ -1614,6 +1614,7 @@ export class HostClient {
       getGitSnapshot: () => rpc('git:snapshot'),
       getGitDiff: (path, kind) => rpc('git:diff', [path, kind]),
       setModel: (key, model) => rpc('pi:set-model', [key, model], key),
+      setServiceTier: (key, model, tier) => rpc('pi:set-service-tier', [key, model, tier], key),
       setThinkingLevel: (key, level) => rpc('pi:set-thinking-level', [key, level], key),
       getAvailableThinkingLevels: () => rpc('pi:thinking-levels'),
       getSessionStats: () => rpc('pi:session-stats'),

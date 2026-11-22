@@ -15,13 +15,20 @@ import type {
   PiQueuedMessages,
   PiSlashCommand,
   PiState,
+  ServiceTier,
+  ModelServiceTiers,
   SessionThinkingLevel,
   ThinkingLevel,
 } from '@pi-meme/contracts/pi'
 import type { SkillReference } from '@pi-meme/contracts/skills'
 import type { ToolExecutionSettings } from '@pi-meme/contracts/settings'
 
-export type ModelRestore = { sessionFile?: string; model?: PiModel; thinkingLevel?: SessionThinkingLevel }
+export type ModelRestore = {
+  sessionFile?: string
+  model?: PiModel
+  thinkingLevel?: SessionThinkingLevel
+  modelServiceTiers?: ModelServiceTiers
+}
 
 /** 桌面端对 Pi 运行时的完整需求面：进程内 SDK 会话池实现它，功能包只依赖这个接口。 */
 export interface PiRuntime {
@@ -101,6 +108,7 @@ export interface PiRuntime {
   setAccessMode: (sessionKey: string, mode: AgentAccessMode) => Promise<void>
   getCommands: () => Promise<PiSlashCommand[]>
   setModel: (sessionKey: string, model: PiModel) => Promise<PiModel>
+  setServiceTier: (sessionKey: string, model: PiModel, tier: ServiceTier) => Promise<void>
   setThinkingLevel: (sessionKey: string, level: SessionThinkingLevel) => Promise<void>
   getAvailableThinkingLevels: () => Promise<ThinkingLevel[]>
   getSessionStats: () => Promise<import('@pi-meme/contracts/pi').PiSessionStats>

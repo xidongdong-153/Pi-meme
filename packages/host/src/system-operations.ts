@@ -220,7 +220,7 @@ export function createSystemOperations(context: SystemOperationContext) {
   register(
     'sessions.create',
     '创建新聊天；指定 project 创建项目会话，省略则创建独立聊天；返回稳定 SessionRef，不切换界面',
-    '[{project?:ProjectRef,name?,configuration?:{model?,thinkingLevel?,accessMode?,mode?,agentPlugins?}}]',
+    '[{project?:ProjectRef,name?,configuration?:{model?,thinkingLevel?,serviceTier?:inherit|standard|fast,accessMode?,mode?,agentPlugins?}}]',
     true,
     'host',
     ([input], mutation) => api.sessions.create(input as Parameters<HostApi['sessions']['create']>[0], mutation),
@@ -238,8 +238,8 @@ export function createSystemOperations(context: SystemOperationContext) {
   )
   register(
     'sessions.configure',
-    '编辑空闲会话的模型、思考等级、权限、任务模式或插件；权限变更与其他配置分开提交',
-    '[{model?,thinkingLevel?,accessMode?,mode?,agentPlugins?},SessionRef]',
+    '编辑空闲会话的模型、思考等级、速度、权限、任务模式或插件；权限变更与其他配置分开提交',
+    '[{model?,thinkingLevel?,serviceTier?:inherit|standard|fast,accessMode?,mode?,agentPlugins?},SessionRef]',
     true,
     'session',
     ([input, ref], mutation) =>
