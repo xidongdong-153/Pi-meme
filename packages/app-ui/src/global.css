@@ -355,6 +355,7 @@ body {
 @source '../../codemode/src';
 @source '../../subagents/src';
 @source '../../usage/src';
+@source '../../image-generation/src/ui';
 
 .conversation-contribution
   :is(
