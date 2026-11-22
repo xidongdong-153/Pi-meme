@@ -78,7 +78,7 @@ export function registerComputerUse(
   powerMonitor.on('unlock-screen', () => {
     locked = false
   })
-  app.on('before-quit', () => end())
+  app.on('will-quit', () => end())
   app.on('web-contents-created', (_event, contents) => {
     const reset = () => {
       if (run && contents === getWindow()?.webContents) stop(run.activity.executionId)

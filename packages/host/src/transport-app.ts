@@ -151,6 +151,10 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
     )
       throw new Error('请求参数无效')
     if (value.hostId && value.hostId !== host.hostId) throw new Error('请求服务身份不匹配')
+    if (value.method === 'host:running-session-count') {
+      if (!auth.localRequest(c.env.incoming)) return reply(403, { error: '退出状态只允许在本机读取' })
+      return reply(200, { requestId: value.requestId, hostId: host.hostId, result: host.control.runningSessionCount() })
+    }
     if (value.method === 'chat:file-preview') {
       const ref = value.args[0] as { hostId: string; sessionId: string }
       const session = await host.control.apiFor(value.clientId).sessions.get(ref)

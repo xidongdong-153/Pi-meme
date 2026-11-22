@@ -219,7 +219,7 @@ pnpm start:server
 
 Desktop 和 Server 使用相同端口、相同真实数据目录时，只创建一个 Host。创建方负责停机。Desktop 复用独立 Server 时，Server 继续管理本机任务，存储维护也由 Server 的管理方负责。Server 入口发现已有 Host 后打印复用结果并成功退出。
 
-macOS 上用 **⌘Q** 或应用菜单的**退出**结束 Desktop。红色按钮只关闭窗口。退出时 Desktop 等待自己启动的 Host 结束。如果安装版在默认数据目录和端口识别到专用 Host 登录项 `ink.xdd.pi-meme-host`，选择**停用登录项并退出**会停止该登录项及其管理的 Host，结束这个 Host 上的任务和终端，同时关闭该登录项的自动启动。下次打开 App 会由 Desktop 启动 Host，之后直接退出即可。选择**仅退出桌面**会保留登录项的后台启动行为。
+macOS 上用 **⌘Q** 或应用菜单的**退出**结束 Desktop。红色按钮和 **⌘W** 只关闭窗口。Windows 关闭最后一个窗口时也会退出。空闲时应用直接退出。如果有会话会被打断，弹窗会显示数量。选**取消**或按 **Esc** 可以继续聊天，选**停止并退出**会结束这些会话的本轮执行和子任务。已保存的聊天记录可在下次打开时查看。
 
 Desktop 自定义目录保存在本机定位文件，Server 不读取它。先在 Desktop 查看数据目录，再以相同 `PI_MEME_DATA_ROOT` 启动 Server。安装版 Desktop 的默认端口冲突时自动分配空闲端口；开发入口、Server 和显式指定端口的 Desktop 仍报告冲突。设置新的令牌、TLS 或 Web 根目录属于创建配置，不能应用到已运行的 Host。
 

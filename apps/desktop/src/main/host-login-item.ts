@@ -1,11 +1,17 @@
 import { execFile } from 'node:child_process'
 import { statSync } from 'node:fs'
-import { realpath } from 'node:fs/promises'
+import { readdir, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { promisify } from 'node:util'
 import { defaultHostPort, localHostUrl } from '@pi-meme/contracts/host-runtime'
+import { activeAgentStatuses } from '@pi-meme/contracts/collaboration'
+import type { Snapshot } from '@pi-meme/contracts/desktop'
+import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
+import type { NodeHostClient } from '@pi-meme/client/node-host-client'
+import { readLocalHostStatus } from '@pi-meme/host/host-status'
 import type { LocalHostLease } from '@pi-meme/host/local-host'
 
 const execute = promisify(execFile)
@@ -84,7 +90,44 @@ export async function findHostLoginItem(lease: LocalHostLease<unknown>) {
   let group = groupId(job)
   if (lease.ownership === 'attached' && (!group || !(await jobServesHost(group)))) return
   return {
-    label,
+    async legacyRunningSessionCount(client: NodeHostClient, signal: AbortSignal) {
+      // 旧版列表隐藏临时聊天。只检查已验证数据根下有无临时目录，不读取私有会话内容。
+      const temporary = await readdir(
+        path.join(lease.status.dataRoot, storageLayoutRelativePaths.temporarySessionsDirectory),
+        { withFileTypes: true },
+      )
+      if (temporary.some((entry) => entry.isDirectory())) return undefined
+      const snapshot = await client.rpc<PiSessionsSnapshot>('pi:sessions', [], { signal })
+      const roots = new Map(
+        [
+          ...snapshot.recents,
+          ...(snapshot.standaloneSessions ?? []),
+          ...snapshot.projects.flatMap((group) => group.sessions),
+        ].map((session) => [session.path, session] as const),
+      )
+      let count = 0
+      for (const session of roots.values()) {
+        if (session.running || session.needsInput) count++
+        else if (session.id.startsWith('runtime:')) {
+          const live = await client.rpc<Snapshot>('pi:snapshot', [{ limit: 1, details: 'deferred' }], {
+            sessionId: session.id,
+            signal,
+          })
+          if (
+            live.state.isStreaming ||
+            live.state.isCompacting ||
+            live.state.retry ||
+            (!live.state.stopped && !live.state.queuePaused && live.state.pendingMessageCount) ||
+            live.appSession?.status === 'running' ||
+            live.goal?.status === 'active' ||
+            live.pendingInteractions?.length ||
+            live.agents?.some((agent) => activeAgentStatuses.has(agent.status))
+          )
+            count++
+        }
+      }
+      return count
+    },
     async stop() {
       // 窗口确认关闭后复核当前登录项，以防用户在确认期间更换了服务。
       const current = await describeJob(target)
@@ -93,7 +136,13 @@ export async function findHostLoginItem(lease: LocalHostLease<unknown>) {
         if (file?.ino === installed.ino && file.dev === installed.dev && file.mtimeMs === installed.mtimeMs)
           await launchctl('disable', target)
       } else if (matches(current)) {
-        group = groupId(current) ?? group
+        const currentGroup = groupId(current)
+        if (lease.ownership === 'attached' && currentGroup !== group) {
+          if (!currentGroup || !(await jobServesHost(currentGroup))) return
+          const status = await readLocalHostStatus(lease.url)
+          if (status?.instanceId !== lease.status.instanceId) return
+        }
+        group = currentGroup ?? group
         await launchctl('disable', target)
         try {
           await launchctl('bootout', target)

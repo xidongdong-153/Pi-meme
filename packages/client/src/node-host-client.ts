@@ -18,8 +18,9 @@ export type NodeHostClientOptions = {
     close: () => void
   }
 }
+type RpcOptions = { sessionId?: string; signal?: AbortSignal }
 export type NodeHostClient = HostApi & {
-  rpc: <T>(method: string, args?: unknown[]) => Promise<T>
+  rpc: <T>(method: string, args?: unknown[], options?: RpcOptions) => Promise<T>
   dispose: () => void
 }
 
@@ -59,7 +60,11 @@ export async function createNodeHostClient(options: NodeHostClientOptions): Prom
     return authentication
   }
   await authenticate()
-  async function call<T>(pathname: '/api/control' | '/api/rpc', input: Record<string, unknown>): Promise<T> {
+  async function call<T>(
+    pathname: '/api/control' | '/api/rpc',
+    input: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<T> {
     if (disposed) throw new Error('服务客户端已关闭')
     const body = JSON.stringify({ ...input, hostId, clientId: options.clientId })
     const send = () =>
@@ -68,6 +73,7 @@ export async function createNodeHostClient(options: NodeHostClientOptions): Prom
         redirect: 'error',
         headers: { 'Content-Type': 'application/json', Cookie: cookie, Origin: baseUrl.origin },
         body,
+        signal,
       })
     let response = await send()
     if (response.status === 401) {
@@ -154,8 +160,8 @@ export async function createNodeHostClient(options: NodeHostClientOptions): Prom
     },
   })
   return Object.assign(api, {
-    rpc: <T>(method: string, args: unknown[] = []) =>
-      call<T>('/api/rpc', { requestId: crypto.randomUUID(), method, args }),
+    rpc: <T>(method: string, args: unknown[] = [], { sessionId, signal }: RpcOptions = {}) =>
+      call<T>('/api/rpc', { requestId: crypto.randomUUID(), method, args, sessionId }, signal),
     dispose() {
       disposed = true
       for (const close of [...closers]) close()

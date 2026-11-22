@@ -1,5 +1,5 @@
 import { registerBrowserRuntime } from './browser/browser-runtime'
-import { app, dialog, type BrowserWindow, type MessageBoxOptions } from 'electron'
+import { app, dialog, type BrowserWindow } from 'electron'
 import path from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -17,6 +17,7 @@ import { createStorageController } from './storage/controller'
 import { pendingStorageJob } from './storage/preferences'
 import { acquireDesktopHost } from './local-host'
 import { findHostLoginItem } from './host-login-item'
+import { confirmSessionQuit } from './quit-confirmation'
 import { cancelWindowPreparation, closePreparedWindow, prepareWindowMaintenance } from './window/prepare-window'
 
 const isolatedTest = ['memory', 'file'].includes(process.env.PI_MEME_TEST_CREDENTIALS ?? '')
@@ -245,34 +246,24 @@ let pendingLoginItem: Awaited<ReturnType<typeof findHostLoginItem>>
 async function quitDesktop() {
   // 启动中的 Host 和界面代理可能已经创建，但尚未赋给主进程的变量。
   await starting?.catch(() => {})
-  let loginItem = pendingLoginItem
-  if (!loginItem && app.isPackaged && localHost) {
-    loginItem = await findHostLoginItem(localHost)
-    if (loginItem) {
-      const prompt: MessageBoxOptions = {
-        type: 'question',
-        message: '随 Pi meme 一起关闭本机 Host？',
-        detail: `登录项 ${loginItem.label} 会在后台启动 Host。停用它将结束它管理的本机任务和终端，以后 Host 随 Pi meme 启停。`,
-        buttons: ['停用登录项并退出', '仅退出桌面', '取消'],
-        defaultId: 0,
-        cancelId: 2,
-        noLink: true,
-      }
-      const { response } = window ? await dialog.showMessageBox(window, prompt) : await dialog.showMessageBox(prompt)
-      if (response === 2) return
-      if (response === 1) loginItem = undefined
-    }
+  const lease = localHost
+  const loginItem = pendingLoginItem ?? (app.isPackaged && lease ? await findHostLoginItem(lease) : undefined)
+  let confirmation: Promise<boolean> | undefined
+  const confirm = () => {
+    if (!lease || lease !== localHost || (lease.ownership === 'attached' && !loginItem)) return Promise.resolve(true)
+    return (confirmation ??= confirmSessionQuit(hostClient, () => window, loginItem?.legacyRunningSessionCount))
   }
   const target = window
-  if (target && !(await closePreparedWindow(target, 'quit'))) {
+  if (target && !(await closePreparedWindow(target, 'quit', confirm))) {
     cancelWindowPreparation(target)
     return
   }
+  // macOS 可以在窗口已关闭时退出，也可以在关闭窗口的同时按 ⌘Q。
+  if (!(await confirm())) return
   // 先卸载登录项，避免它在自管 Host 释放端口后立即补启 Server。
   pendingLoginItem = loginItem
   await loginItem?.stop()
   pendingLoginItem = undefined
-  const lease = localHost
   hostClient?.dispose()
   hostClient = undefined
   uiUrl = ''
@@ -304,6 +295,7 @@ app.on('before-quit', (event) => {
     .finally(() => {
       if (stopped) return
       stopping = false
-      if (!window && app.isReady()) void open(showRecovery).catch((cause: unknown) => console.error(String(cause)))
+      if (showRecovery && !window && app.isReady())
+        void open(true).catch((cause: unknown) => console.error(String(cause)))
     })
 })

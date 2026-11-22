@@ -5,6 +5,7 @@ import { mkdir, rename, writeFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import type { DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
 import {
+  activeAgentStatuses as activeStatuses,
   collaborationLimits,
   agentAvatarScenes,
   resolveAgentTarget,
@@ -34,7 +35,6 @@ import {
   type CollaborationRootPartition,
 } from './collaboration-store'
 
-const activeStatuses = new Set(['starting', 'running', 'waiting_children', 'waiting_input'])
 type RootBinding = {
   sessionKey: string
   cwd: string
@@ -130,6 +130,14 @@ export class HostCollaborationBridge {
       record.cleaning === true ||
       (record.summary.cleanup !== undefined && record.summary.cleanup.state !== 'completed')
     )
+  }
+  runningRootSessionKeys() {
+    const keys = new Set<string>()
+    for (const { summary, interactions, queued, pendingStart, cleaning } of this.records.values()) {
+      if (activeStatuses.has(summary.status) || interactions.length || queued.length || pendingStart || cleaning)
+        keys.add(summary.rootSessionKey)
+    }
+    return keys
   }
   assertCheckoutIdle(matches: (cwd: string) => boolean) {
     if (

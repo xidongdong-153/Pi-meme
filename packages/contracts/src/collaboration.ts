@@ -38,6 +38,12 @@ export type AgentStatus =
   | 'failed'
   | 'interrupted'
   | 'stopped'
+export const activeAgentStatuses: ReadonlySet<AgentStatus> = new Set([
+  'starting',
+  'running',
+  'waiting_children',
+  'waiting_input',
+])
 export type AgentIdentity = {
   agentId: string
   rootAgentId: string

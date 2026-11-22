@@ -241,6 +241,27 @@ export class PiSessionPool implements PiRuntime {
       )
     )
   }
+  runningSessionKeys() {
+    const keys = new Set<string>()
+    for (const record of this.sessions.values()) {
+      const queue = record.queue?.event
+      const pending =
+        queue?.type === 'queue_update'
+          ? queue.steering.length + queue.followUp.length
+          : record.state.pendingMessageCount
+      if (
+        record.running ||
+        record.pendingPrompt ||
+        record.state.isCompacting ||
+        record.state.retry ||
+        record.tools.size ||
+        [...record.extensions.keys()].some((key) => key.startsWith('dialog:')) ||
+        (!record.state.stopped && !record.state.queuePaused && pending)
+      )
+        keys.add(record.key)
+    }
+    return keys
+  }
   isSessionIdle(key: string, allowQueued = false) {
     const record = this.sessions.get(key)
     return (

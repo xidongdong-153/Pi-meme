@@ -67,7 +67,7 @@ Host 使用 Hono、`@hono/node-server` 和 `ws`，由 [transport-app.ts](../pack
 
 [运行契约](../packages/contracts/src/host-runtime.ts) 统一默认端口 `3185` 与本机状态结构。[local-host.ts](../packages/host/src/local-host.ts) 先探测 `/api/status`，校验产品、状态字段、真实数据目录和持久 Host 身份；没有监听者才创建。并发创建依靠 `host.lock` 决定唯一写入者，其余入口等待并复用。状态只允许本机来源读取，不包含令牌或 Cookie。
 
-Desktop 的连接状态分 `owned` 与 `attached`。退出时先等待正在进行的本机启动结束，再关闭界面代理，并等待 `owned` 的 utilityProcess 退出。`attached` 连接由独立 Server 的启动方负责停机。macOS 安装版允许在退出时停用匹配的专用 Host 登录项，主进程核对用户域、启动脚本和 Host 归属，在用户确认且窗口完成关闭后卸载登录项，再释放自己创建的 Host。[本机进程管理](../apps/desktop/src/main/local-host.ts) · [Host 登录项](../apps/desktop/src/main/host-login-item.ts)
+Desktop 退出前等待本机启动完成。对于 `owned` 的 Host，主进程在关闭窗口前读取正在运行的会话数。Host 将模型执行、待答交互、活动目标与子任务按根会话去重，空闲时直接退出，有活动会话时等待用户确认。窗口同意关闭后，Desktop 释放界面代理并等待 Host 停机。`attached` 的独立 Server 由其启动方管理。macOS 安装版会识别旧版专用 Host 登录项，核对用户域、启动脚本和归属，按相同流程处理它管理的会话，并在窗口同意关闭后停用该项，防止自动重启。[退出确认](../apps/desktop/src/main/quit-confirmation.ts) · [本机进程管理](../apps/desktop/src/main/local-host.ts) · [Host 登录项](../apps/desktop/src/main/host-login-item.ts)
 
 Server 入口发现兼容 Host 后输出地址并退出，不转移所有权。管理方退出后其他客户端只重连，不自动创建替代 Host。
 

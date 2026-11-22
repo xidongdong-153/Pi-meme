@@ -1,4 +1,4 @@
-import { dialog, type BrowserWindow } from 'electron'
+import { app, BrowserWindow, dialog } from 'electron'
 import { randomUUID } from 'node:crypto'
 import type { PlatformPrepareRequest } from '@pi-meme/contracts/host'
 import { recoveryUrl } from './recovery-page'
@@ -37,6 +37,10 @@ class WindowPreparation {
         return
       }
       event.preventDefault()
+      if (process.platform !== 'darwin' && BrowserWindow.getAllWindows().length === 1) {
+        app.quit()
+        return
+      }
       void this.run('close', () => this.close()).catch((cause: unknown) => console.error(String(cause)))
     })
     window.webContents.on('will-prevent-unload', () => this.cancel())
@@ -120,7 +124,7 @@ class WindowPreparation {
     })
   }
 
-  run(reason: Reason, action: () => void): Promise<boolean> {
+  run(reason: Reason, action: () => void, confirm?: () => Promise<boolean>): Promise<boolean> {
     // Repeated close/quit gestures share one barrier, but must not join a reload or maintenance action.
     if (this.running) {
       const closing = (value: Reason | undefined) => value === 'close' || value === 'quit'
@@ -134,9 +138,7 @@ class WindowPreparation {
       for (;;) {
         try {
           await this.prepare(reason)
-          if (this.window.isDestroyed()) return false
-          action()
-          return true
+          break
         } catch (cause) {
           this.cancel()
           if (reason === 'maintenance' || this.window.isDestroyed()) throw cause
@@ -151,10 +153,13 @@ class WindowPreparation {
           })
           if (result.response === 0) continue
           if (result.response !== 2 || this.window.isDestroyed()) return false
-          action()
-          return true
+          break
         }
       }
+      if (confirm && !(await confirm())) return false
+      if (this.window.isDestroyed()) return false
+      action()
+      return true
     })()
     const settled: Promise<boolean> = task.finally(() => {
       if (this.running === settled) {
@@ -166,8 +171,8 @@ class WindowPreparation {
     return settled
   }
 
-  closePrepared(reason: 'close' | 'quit') {
-    return this.run(reason, () => this.close())
+  closePrepared(reason: 'close' | 'quit', confirm?: () => Promise<boolean>) {
+    return this.run(reason, () => this.close(), confirm)
   }
 }
 
@@ -183,7 +188,11 @@ export function cancelWindowPreparation(window: BrowserWindow | null) {
   if (window) coordinators.get(window)?.cancel()
 }
 
-export async function closePreparedWindow(window: BrowserWindow, reason: 'close' | 'quit') {
+export async function closePreparedWindow(
+  window: BrowserWindow,
+  reason: 'close' | 'quit',
+  confirm?: () => Promise<boolean>,
+) {
   const coordinator = coordinators.get(window)
   if (!coordinator) throw new Error('窗口关闭准备尚未初始化')
   const contents = window.webContents
@@ -193,7 +202,7 @@ export async function closePreparedWindow(window: BrowserWindow, reason: 'close'
   window.once('closed', closed)
   contents.once('will-prevent-unload', prevented)
   try {
-    if (!(await coordinator.closePrepared(reason))) return window.isDestroyed()
+    if (!(await coordinator.closePrepared(reason, confirm))) return window.isDestroyed()
     return await result.promise
   } finally {
     window.removeListener('closed', closed)

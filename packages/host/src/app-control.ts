@@ -85,6 +85,7 @@ type Options = {
   projects: ProjectStore
   sessions: SessionService
   collaboration: CollaborationBridge & {
+    runningRootSessionKeys: () => Set<string>
     peekCollaboration?: (
       key?: string,
       file?: string,
@@ -2489,6 +2490,15 @@ export async function createAppControl(options: Options) {
     publishContext: (session: SessionRef, value: { requestId: string; revision: number }) =>
       store.publish({ type: 'context-window', sessionId: session.sessionId, value }),
     assertActivityAccess,
+    runningSessionCount() {
+      const keys = pi.runningSessionKeys()
+      for (const key of collaboration.runningRootSessionKeys()) keys.add(key)
+      const addSession = (id: string) => keys.add(runtime.get(id)?.sessionKey ?? id)
+      for (const id of active.keys()) addSession(id)
+      for (const [id, queue] of queues) if (queue.some((entry) => !entry.stopped)) addSession(id)
+      for (const goal of goals.list()) if (goal.status === 'active') addSession(goal.session.sessionId)
+      return keys.size
+    },
     assertPolicyQueueIdle: (key: string) => {
       for (const [id, view] of runtime)
         if (view.sessionKey === key && queues.get(id)?.length)
