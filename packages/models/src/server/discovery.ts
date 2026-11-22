@@ -1,4 +1,5 @@
 import type { ConfiguredModel, DiscoverModels } from '@pi-meme/contracts/model-config'
+import { isConfigurableFastModeApi } from '@pi-meme/contracts/model-config'
 import {
   endpoint,
   object,
@@ -103,7 +104,7 @@ export async function discoverModels(
         if (typeof capabilities.image_input?.supported === 'boolean')
           model.input = capabilities.image_input.supported ? ['text', 'image'] : ['text']
       }
-      if (input.api === 'openai-responses' || input.api === 'openai-completions') {
+      if (isConfigurableFastModeApi(input.api)) {
         if (Array.isArray(raw.service_tiers) || Array.isArray(raw.additional_speed_tiers)) {
           const priority =
             Array.isArray(raw.service_tiers) &&

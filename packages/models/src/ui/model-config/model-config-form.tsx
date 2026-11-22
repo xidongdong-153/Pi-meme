@@ -7,7 +7,7 @@ import type {
   ModelConfigSnapshot,
   SaveModelProvider,
 } from '@pi-meme/contracts/model-config'
-import { modelApis } from '@pi-meme/contracts/model-config'
+import { isConfigurableFastModeApi, isOfficialFastModel, modelApis } from '@pi-meme/contracts/model-config'
 import { thinkingLevels, type ThinkingLevel } from '@pi-meme/contracts/pi'
 import { THINKING_LEVEL_LABELS } from '../thinking-config'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -20,7 +20,7 @@ import { Textarea } from '@pi-meme/ui/components/ui/textarea'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 import { CollapsibleSection } from '@pi-meme/ui/components/ui/collapsible'
-import { Brain, Eye, EyeOff, Image as ImageIcon, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { Brain, Eye, EyeOff, Image as ImageIcon, Plus, RefreshCw, Search, Trash2, Zap } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
 
 export const apiLabels: Record<ModelApi, string> = {
@@ -35,6 +35,11 @@ const examples: Record<ModelApi, string> = {
   'anthropic-messages': 'https://api.anthropic.com',
   'google-generative-ai': 'https://generativelanguage.googleapis.com/v1beta',
 }
+const capabilityButtonClassName = cn(
+  'inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-1 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50',
+  'border-border/70 bg-background/60 text-muted-foreground hover:text-foreground',
+  'aria-pressed:border-primary/40 aria-pressed:bg-primary/10 aria-pressed:font-medium aria-pressed:text-foreground',
+)
 const jsonText = (value: unknown) => (value ? JSON.stringify(value, null, 2) : '')
 function jsonObject(text: string, label: string) {
   if (!text.trim()) return undefined
@@ -46,6 +51,13 @@ function jsonObject(text: string, label: string) {
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label}必须是 JSON 对象`)
   return value as Record<string, unknown>
+}
+function readDraftCompat(text: string) {
+  try {
+    return jsonObject(text, 'compat') ?? {}
+  } catch {
+    return null
+  }
 }
 type ModelDraft = ConfiguredModel & { headersText: string; compatText: string }
 function defaultThinkingMapping(api: ModelApi, level: ThinkingLevel) {
@@ -106,6 +118,7 @@ export function ModelConfigForm({
   const dirty = signature !== initialSignature.current
   const [discard, setDiscard] = useState(false)
   const locked = saving || fetching
+  const providerCompat = readDraftCompat(compat)
 
   function close() {
     if (locked) return
@@ -142,6 +155,24 @@ export function ModelConfigForm({
         headers: jsonObject(headers, '服务商请求头') as Record<string, string> | undefined,
       })
       setCatalog(result)
+      if (isConfigurableFastModeApi(api) && providerCompat && providerCompat.supportsFastMode === undefined) {
+        const fastModes = new Map(result.map((model) => [model.id, model.compat?.supportsFastMode]))
+        const providerUrl = baseUrl.replace(/\/+$/, '')
+        setModels((selected) =>
+          selected.map((model) => {
+            const discovered = fastModes.get(model.id)
+            if (
+              typeof discovered !== 'boolean' ||
+              (model.api ?? api) !== api ||
+              (model.baseUrl && model.baseUrl.replace(/\/+$/, '') !== providerUrl)
+            )
+              return model
+            const modelCompat = readDraftCompat(model.compatText)
+            if (!modelCompat || Object.hasOwn(modelCompat, 'supportsFastMode')) return model
+            return { ...model, compatText: jsonText({ ...modelCompat, supportsFastMode: discovered }) }
+          }),
+        )
+      }
       if (!result.length) setListError('接口没有返回可用模型，可在下方手动添加模型 ID。')
     } catch (cause) {
       setListError(String(cause))
@@ -535,6 +566,13 @@ export function ModelConfigForm({
                       {models.map((model) => {
                         const supportsImage = model.input?.includes('image') ?? false
                         const supportsReasoning = model.reasoning ?? false
+                        const modelApi = model.api ?? api
+                        const canConfigureFastMode = isConfigurableFastModeApi(modelApi)
+                        const modelCompat = canConfigureFastMode ? readDraftCompat(model.compatText) : null
+                        const supportsFastMode =
+                          (modelCompat?.supportsFastMode ??
+                            providerCompat?.supportsFastMode ??
+                            isOfficialFastModel(modelApi, model.baseUrl ?? baseUrl, model.id)) === true
                         return (
                           <div
                             key={model.id}
@@ -560,12 +598,7 @@ export function ModelConfigForm({
                                 type="button"
                                 aria-pressed={supportsReasoning}
                                 onClick={() => updateModel(model.id, { reasoning: !supportsReasoning })}
-                                className={cn(
-                                  'inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-1 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-                                  supportsReasoning
-                                    ? 'border-primary/40 bg-primary/10 font-medium text-foreground'
-                                    : 'border-border/70 bg-background/60 text-muted-foreground hover:text-foreground',
-                                )}
+                                className={capabilityButtonClassName}
                               >
                                 <Brain className="size-3" />
                                 支持思考
@@ -578,16 +611,29 @@ export function ModelConfigForm({
                                     input: supportsImage ? ['text'] : ['text', 'image'],
                                   })
                                 }
-                                className={cn(
-                                  'inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2 py-1 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-                                  supportsImage
-                                    ? 'border-primary/40 bg-primary/10 font-medium text-foreground'
-                                    : 'border-border/70 bg-background/60 text-muted-foreground hover:text-foreground',
-                                )}
+                                className={capabilityButtonClassName}
                               >
                                 <ImageIcon className="size-3" />
                                 支持图片
                               </button>
+                              {canConfigureFastMode && (
+                                <button
+                                  type="button"
+                                  aria-label={`${model.id} 支持快速模式`}
+                                  aria-pressed={supportsFastMode}
+                                  disabled={!modelCompat}
+                                  title={modelCompat ? undefined : '请先修正此模型的 compat JSON'}
+                                  onClick={() =>
+                                    updateModel(model.id, {
+                                      compatText: jsonText({ ...modelCompat, supportsFastMode: !supportsFastMode }),
+                                    })
+                                  }
+                                  className={capabilityButtonClassName}
+                                >
+                                  <Zap className="size-3" />
+                                  支持快速模式
+                                </button>
+                              )}
                             </div>
                             <FormField label="显示名称">
                               <Input
