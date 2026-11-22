@@ -440,7 +440,7 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
                 <DialogDescription>填写图片服务信息，保存配置不会发起生成请求。</DialogDescription>
               </div>
               <form
-                className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-0.5"
+                className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-0.5 [scrollbar-gutter:stable]"
                 onSubmit={(event) => {
                   event.preventDefault()
                   void change(

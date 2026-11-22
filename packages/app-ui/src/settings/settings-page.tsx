@@ -165,7 +165,7 @@ function SettingsNavigation({ sectionId, saving, onNavigate }: SettingsNavigatio
       </div>
       <nav
         aria-label="设置分类"
-        className="hidden min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-2.5 pt-3 pb-5 @min-[660px]/settings:block"
+        className="hidden min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-2.5 pt-3 pb-5 [scrollbar-gutter:stable] @min-[660px]/settings:block"
       >
         {visibleGroups.map((group) => (
           <section key={group.label} aria-label={group.label}>
@@ -216,7 +216,7 @@ function SettingsPanel({
       id="settings-content"
       aria-labelledby="settings-section-title"
       tabIndex={-1}
-      className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-[clamp(1rem,3.8cqw,3rem)] py-[clamp(1.25rem,3.5dvh,2.5rem)] pb-[max(clamp(1.25rem,3.5dvh,2.5rem),env(safe-area-inset-bottom))] outline-none"
+      className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-[clamp(1rem,3.8cqw,3rem)] py-[clamp(1.25rem,3.5dvh,2.5rem)] pb-[max(clamp(1.25rem,3.5dvh,2.5rem),env(safe-area-inset-bottom))] outline-none [scrollbar-gutter:stable]"
     >
       <div className="mx-auto max-w-[44rem] space-y-7">
         <h2 id="settings-section-title" className="pr-10 text-xl font-semibold tracking-tight sm:text-2xl">
