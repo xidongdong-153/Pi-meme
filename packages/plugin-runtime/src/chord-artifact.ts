@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import type { BuiltScript } from '@earendil-works/chord/plugins'
 import type { PluginManifest } from '@pi-meme/plugin-sdk/manifest'
 
-export const chordVersion = '1.5.2'
+export const chordVersion = '1.6.0'
 export const chordArtifactFormat = 'pi-meme-chord-plugin-v1'
 export const chordModuleRegistryName = 'pi-meme.plugin.modules'
 
@@ -24,7 +24,7 @@ export async function readChordArtifact(file: string, manifest: Pick<PluginManif
     artifact.format !== chordArtifactFormat ||
     artifact.chordVersion !== chordVersion
   )
-    throw new Error('unsupported-chord: 可信 Server 必须使用 Chord 1.5.2 DevKit 重建')
+    throw new Error(`unsupported-chord: 可信 Server 必须使用 Chord ${chordVersion} DevKit 重建`)
   if (artifact.plugin?.id !== manifest.name || artifact.plugin?.version !== manifest.version)
     throw new Error('Chord 构建产物与插件身份或版本不匹配')
   if (

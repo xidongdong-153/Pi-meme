@@ -68,7 +68,7 @@ paths:
 }
 ```
 
-仅声明实际使用的入口。可信 Server 指向 Chord 1.5.2 构建产物 `chord-facets.json`，其中包含插件身份、版本、脚本和 SHA-256 摘要；受限 Server、两种 Agent 和 UI 指向独立 `.js`。旧 Chord 产物必须使用当前 DevKit 重建，Host 不提供旧格式加载路径。可信源码是 `src/server/entry.ts`、`src/agent/entry.ts`，受限源码是 `src/server/restricted.ts`、`src/agent/restricted.ts`，UI 是 `src/ui/entry.tsx`。DevKit 使用示例中的固定输出路径，见 [build.ts](../packages/plugin-devkit/src/build.ts)。可信与受限入口不能指向同一产物。
+仅声明实际使用的入口。可信 Server 指向 Chord 1.6.0 构建产物 `chord-facets.json`，其中包含插件身份、版本、脚本和 SHA-256 摘要；受限 Server、两种 Agent 和 UI 指向独立 `.js`。旧 Chord 产物必须使用当前 DevKit 重建，Host 不提供旧格式加载路径。可信源码是 `src/server/entry.ts`、`src/agent/entry.ts`，受限源码是 `src/server/restricted.ts`、`src/agent/restricted.ts`，UI 是 `src/ui/entry.tsx`。DevKit 使用示例中的固定输出路径，见 [build.ts](../packages/plugin-devkit/src/build.ts)。可信与受限入口不能指向同一产物。
 
 `permissions` 是申请，不是授权。可信 UI、Server、Agent 分别确认；受限能力、网络、共享数据、UI 能力及每个发送前处理器分别授权。更新代码或申请范围后不能继续沿用不匹配的旧授权。授权类型见 [permissions.ts](../packages/plugin-sdk/src/permissions.ts)。
 
@@ -386,7 +386,7 @@ flowchart LR
   Lease --> Dispose["释放旧代码和 UI 贡献"]
 ```
 
-PluginManager 使用 Chord 1.5.2，按 `requires/provides` 组装连通依赖组，每组持有独立 `createHost` 实例和释放作用域。插件模块由 `buildFacet` 构建、`evaluateFacet` 加载并贡献到模块 registry；每个插件对应一个无参数本地对象，`self.get` 声明服务依赖、等待提供者就绪，`self.open` 负责 Server 初始化和资源释放。安装、卸载和依赖变化通过重建组作用域完成：
+PluginManager 使用 Chord 1.6.0，按 `requires/provides` 组装连通依赖组，每组持有独立 `createHost` 实例和释放作用域。插件模块由 `buildFacet` 构建、`evaluateFacet` 加载并贡献到模块 registry；每个插件对应一个无参数本地对象，`self.get` 声明服务依赖、等待提供者就绪，`self.open` 负责 Server 初始化和资源释放。安装、卸载和依赖变化通过重建组作用域完成：
 
 - 纯 Agent 版本可共存，新任务使用新代次，旧任务持有原租约直到结束。
 - 共享 Server 组切换先阻止新调用，等待相关任务、工具、子代理和未答交互释放，再释放旧资源并创建新版。
