@@ -169,6 +169,7 @@ export function AppRail({
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
+                  data-settings-trigger=""
                   aria-label="用户菜单与设置"
                   aria-busy={profileLoading}
                   onFocus={(event) => {

@@ -124,7 +124,7 @@ import type { HostApi, AppSession, FilePreview, SessionRef } from '@pi-meme/cont
 import type { SystemClientRequest, SystemClientExecutionContext } from '@pi-meme/contracts/system-tools'
 import { CustomizationPage } from './plugins/customization-page'
 import { PluginPage } from './settings/plugin-page'
-import { SettingsPage, type SettingsSection } from './settings/settings-page'
+import { SettingsDialog, type SettingsSection } from './settings/settings-page'
 import { WorkspaceViewSettings } from './settings/workspace-view-settings'
 import { SkillPage } from './settings/skill-page'
 import { useUserProfile } from './settings/user-profile'
@@ -573,18 +573,23 @@ function AppContent({
     setPluginPageError('')
   }
   const navigation = useAppNavigation({
-    dirty: instructionsDirty || memoryDirty || Boolean(dirtyPage),
+    pageDirty: Boolean(dirtyPage),
+    settingsDirty: instructionsDirty || memoryDirty,
     saving: instructionsSaving || memorySaving || storageMaintaining,
-    onDiscard: () => {
+    onDiscardPage: discardPluginPage,
+    onDiscardSettings: () => {
       setInstructionsDirty(false)
       discardMemory()
-      discardPluginPage()
     },
   })
   const [materialsVisited, setMaterialsVisited] = useState(false)
   const route = navigation.route
-  const imageDraftContext = useRef({ chat, route })
-  imageDraftContext.current = { chat, route }
+  const view = useMemo(
+    () => (navigation.settings.open ? { kind: 'settings' as const, section: navigation.settings.section } : route),
+    [navigation.settings, route],
+  )
+  const imageDraftContext = useRef({ chat, view })
+  imageDraftContext.current = { chat, view }
   const preparingImageDraft = useRef(false)
   const navigationMotion = useNavigationMotion(
     route.kind === 'plugin' ? `plugin:${route.pluginId}` : route.kind,
@@ -599,11 +604,11 @@ function AppContent({
     window.addEventListener('beforeunload', unload)
     return () => window.removeEventListener('beforeunload', unload)
   }, [dirtyPage, instructionsDirty, instructionsSaving, memoryDirty, memorySaving, storageMaintaining])
-  const settingsSection = route.kind === 'settings' ? route.section : null
-  const settingsOpen = settingsSection !== null
+  const settingsOpen = navigation.settings.open
   const projectsOpen = route.kind === 'projects'
   const customizationOpen = route.kind === 'customization'
-  const chatVisible = route.kind === 'chat'
+  const chatOpen = route.kind === 'chat'
+  const chatVisible = chatOpen && !settingsOpen
   const contextState = useSessionContextRequest(host, contextApi, appSession, active && chatVisible)
   const contextRequest = contextState.request
   const subagents = useMemo(
@@ -626,7 +631,28 @@ function AppContent({
     chat.setReadVisible(chatVisible && active && chatPaneVisible)
     return () => chat.setReadVisible(false)
   }, [chatVisible, active, chatPaneVisible, chat.setReadVisible])
-  const openSettings = (section: SettingsSection = 'general') => navigation.open({ kind: 'settings', section })
+  const settingsReturnFocus = useRef<HTMLElement | null>(null)
+  const confirmationReturnFocus = useRef<HTMLElement | null>(null)
+  function openSettings(section: SettingsSection = 'general') {
+    if (!settingsOpen) {
+      const focused = document.activeElement
+      const triggerId = focused?.closest('[role="menu"]')?.getAttribute('aria-labelledby')
+      settingsReturnFocus.current = triggerId
+        ? document.getElementById(triggerId)
+        : focused instanceof HTMLElement && focused !== document.body
+          ? focused
+          : null
+    }
+    navigation.openSettings(section)
+  }
+  function returnFromSettings() {
+    const opener = settingsReturnFocus.current
+    const target =
+      opener?.isConnected && opener.getClientRects().length && !opener.closest('[inert]')
+        ? opener
+        : navigationMotion.current?.querySelector<HTMLElement>('[data-settings-trigger]:not([inert] *)')
+    target?.focus({ preventScroll: true })
+  }
   const pluginPages = useSyncExternalStore(registry.subscribe, registry.getPages, registry.getPages)
   const pluginNavigation = useSyncExternalStore(registry.subscribe, registry.getNavigation, registry.getNavigation)
   const pluginPageRequest = useSyncExternalStore(registry.subscribe, registry.getPageRequest, registry.getPageRequest)
@@ -907,7 +933,7 @@ function AppContent({
     const initial = imageDraftContext.current
     const ownsSource = () =>
       isCurrent() &&
-      imageDraftContext.current.route === initial.route &&
+      imageDraftContext.current.view === initial.view &&
       imageDraftContext.current.chat.workspaceUiKey === initial.chat.workspaceUiKey
     try {
       if (!serviceUI && !(await beforeDeactivate())) return false
@@ -943,7 +969,7 @@ function AppContent({
         attachment = { ...file, type: 'file', id: crypto.randomUUID() }
       }
       if (!ownsSource() || !(await initial.chat.newSession())) return false
-      if (!isCurrent() || imageDraftContext.current.route !== initial.route) return false
+      if (!isCurrent() || imageDraftContext.current.view !== initial.view) return false
       const store = imageDraftContext.current.chat.composerStore
       const draft = store.getSnapshot()
       const intent = item ? '请基于所附图片进行图像创作。' : '请帮我生成一张图片。'
@@ -952,9 +978,9 @@ function AppContent({
         draft: [draft.draft.trimEnd(), intent].filter(Boolean).join('\n\n'),
         attachments: attachment ? [...draft.attachments, attachment] : draft.attachments,
       })
-      navigation.home()
+      navigation.showActiveSession()
       requestAnimationFrame(() => {
-        if (imageDraftContext.current.route.kind === 'chat') store.editor?.focus()
+        if (imageDraftContext.current.view.kind === 'chat') store.editor?.focus()
       })
       return true
     } finally {
@@ -2106,9 +2132,9 @@ function AppContent({
           hostId,
           session: appSession ? { hostId: appSession.hostId, sessionId: appSession.sessionId } : undefined,
           active,
-          route,
-          canBack: navigation.canBack,
-          canForward: navigation.canForward,
+          route: view,
+          canBack: settingsOpen || navigation.canBack,
+          canForward: !settingsOpen && navigation.canForward,
           dirty: instructionsDirty || memoryDirty || Boolean(dirtyPage) || fileStore.hasDirty(),
           saving: instructionsSaving || memorySaving || storageMaintaining,
           composer: registry.getComposerSnapshot,
@@ -2132,8 +2158,9 @@ function AppContent({
     if (creatingSkillSession.current) return false
     creatingSkillSession.current = true
     try {
+      if (!serviceUI && !(await beforeDeactivate())) return false
       if (!(await navigateSession(() => invokeSkillInNewSession(chat, bridge.getCommands, name, prompt)))) return false
-      navigation.home()
+      navigation.showActiveSession()
       return true
     } finally {
       creatingSkillSession.current = false
@@ -2197,17 +2224,21 @@ function AppContent({
       <TooltipProvider delayDuration={200}>
         <main
           ref={navigationMotion}
+          onFocusCapture={(event) => {
+            if (!navigation.confirmation && event.target instanceof HTMLElement)
+              confirmationReturnFocus.current = event.target
+          }}
           data-active-service={serviceUI?.serviceId ?? 'local'}
           className="theme-app flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground select-none"
         >
-          <div className={!chatVisible ? 'hidden' : 'flex flex-1 min-h-0 flex-col'} inert={!chatVisible}>
+          <div className={chatOpen ? 'flex flex-1 min-h-0 flex-col' : 'hidden'} inert={!chatVisible}>
             {sideChatBridge && (
               <SideChatSession
                 key={sideChat.sessionKey}
                 bridge={sideChatBridge}
                 host={host}
                 hostId={hostId ?? hostAddress ?? 'local'}
-                target={active && chatVisible && sideChatVisible ? sideChatTarget : null}
+                target={active && chatOpen && sideChatVisible ? sideChatTarget : null}
                 resources={resources}
                 registry={registry}
                 consent={pluginConsent}
@@ -2393,9 +2424,9 @@ function AppContent({
                   if (await switchSession(session.sessionFile)) navigation.home()
                 }}
                 onCreateImage={async (id, item) => {
-                  const origin = imageDraftContext.current.route
+                  const origin = imageDraftContext.current.view
                   if (serviceUI?.onCreateImage)
-                    return serviceUI.onCreateImage(id, item, () => imageDraftContext.current.route === origin)
+                    return serviceUI.onCreateImage(id, item, () => imageDraftContext.current.view === origin)
                   if (id !== imageSources[0]?.id) throw new Error('图片所属服务不可用')
                   if (!(await prepareImageDraft(item))) throw new Error('未能准备图像创作，请检查连接后重试')
                 }}
@@ -2555,7 +2586,7 @@ function AppContent({
             </div>
           )}
 
-          {projectsOpen && !settingsOpen && !customizationOpen && (
+          {projectsOpen && (
             <ProjectsPage
               bridge={bridge}
               sessions={chat.sessions}
@@ -2602,7 +2633,7 @@ function AppContent({
           )}
 
           {customizationOpen && (
-            <div className={settingsOpen ? 'hidden' : 'flex min-h-0 flex-1 flex-col'} inert={settingsOpen}>
+            <div className="flex min-h-0 flex-1 flex-col">
               <CustomizationPage
                 plugins={pluginDescriptors}
                 nativeWindow={nativeWindow}
@@ -2716,307 +2747,284 @@ function AppContent({
             />
           )}
 
-          {/* 设置页面 */}
-          {settingsSection && (
-            <SettingsPage
-              initialSection={settingsSection}
-              dirty={instructionsDirty || memoryDirty}
-              saving={instructionsSaving || memorySaving || storageMaintaining}
-              nativeWindow={nativeWindow}
-              onDiscard={() => {
-                setInstructionsDirty(false)
-                discardMemory()
-              }}
-              onDismiss={navigation.back}
-              onHome={navigation.home}
-              dismissLabel="返回上一页"
-              onProjects={() => navigation.open({ kind: 'projects' })}
-              onPlugins={() => navigation.open({ kind: 'customization' })}
-              renderRail={(onDismiss, navigate, onProjects, onPlugins) => (
-                <AppRail
-                  profile={userProfile.profile}
-                  profileLoading={userProfile.showPlaceholder}
-                  {...pluginRailProps}
-                  onHome={onDismiss}
-                  onProjects={onProjects}
-                  onPlugins={onPlugins}
-                  onSettings={() => navigate('general')}
-                  onUsage={() => navigate('profile')}
-                  onAccount={() => navigate('account')}
-                />
-              )}
-              renderContent={(section, navigate) => {
-                if (section === 'shortcuts') return <ShortcutSettings />
-                if (section === 'memory')
-                  return (
-                    <MemorySettings
-                      key={hostId}
-                      host={host}
-                      connected={
-                        currentService
-                          ? currentService.status === 'connected'
-                          : chat.connection.status !== 'disconnected' && chat.connection.status !== 'connecting'
-                      }
-                      hostLabel={
-                        currentService
-                          ? serviceLabel(currentService)
-                          : hostLocal
-                            ? '此计算机'
-                            : (hostAddress ?? '当前服务')
-                      }
-                      currentProjectId={appSession?.project?.projectId}
-                      models={chat.models}
-                      onModels={() => navigate('models')}
-                      onDirty={setMemoryDirty}
-                      onSaving={setMemorySaving}
-                      discardVersion={memoryDiscardVersion}
-                      renderSource={(message) => <HistoryMarkdown>{message.text}</HistoryMarkdown>}
-                      onOpenSourceSession={async (source) => {
-                        const sourceSession = await host.sessions.get(source.session)
-                        if (!sourceSession.sessionFile) throw new Error('来源会话当前无法打开')
-                        if (!serviceUI && !(await beforeDeactivate())) return
-                        if (await switchSession(sourceSession.sessionFile)) navigation.replace({ kind: 'chat' })
-                      }}
-                    />
-                  )
-                if (section === 'computer')
-                  return (
-                    <ComputerSettings
-                      hostId={hostId}
-                      onTry={() => {
-                        chat.setDraft((draft) =>
-                          draft.includes(computerMention)
-                            ? draft
-                            : `${computerMention} ${draft || '帮我在日历里找下周三下午半小时的空档。'}`,
-                        )
-                        navigation.home()
-                      }}
-                    />
-                  )
-                if (section === 'browser')
-                  return (
-                    <BrowserSettings
-                      platform={browserPlatform}
-                      onOpen={(url) => void browser.create(url)}
-                      initialSection={browserSettingsTarget === 'clear' ? 'general' : browserSettingsTarget}
-                      openClear={browserSettingsTarget === 'clear'}
-                    />
-                  )
-                const contentProps: Omit<ComponentProps<typeof SettingsContent>, 'section'> = {
-                  bridge,
-                  cwd: chat.connection.cwd,
-                  busy: chat.busy || chat.connection.status === 'connecting',
-                  snapshot: settings.snapshot,
-                  piVersion: chat.connection.piVersion,
-                  error: settings.error,
-                  onDirty: setInstructionsDirty,
-                  onSaving: setInstructionsSaving,
-                  onMaintaining: setStorageMaintaining,
-                  onBeforeRestart: async () => {
-                    if (serviceUI) serviceUI.beforeRestart()
-                    else assertRestartAllowed()
-                    await appearance.flushAppearance()
-                  },
-                  accessSettings: (
-                    <AccessSettings
-                      value={settings.snapshot?.settings.defaultAccessMode}
-                      loading={!settings.snapshot}
-                      supported={Boolean(chat.connection.restrictedAccessSupported)}
-                      reason={chat.connection.restrictedAccessReason}
-                      busy={chat.busy}
-                      saving={settings.saving}
-                      onSave={(mode) => void settings.saveAccessMode(mode)}
-                    />
-                  ),
-                  onOperation: appearance.onOperation,
-                  onEditor: (value) => void settings.saveEditor(value),
-                  onPreview: appearance.previewAppearance,
-                  onFlush: appearance.flushAppearance,
-                  loadFonts: settings.getInstalledFonts,
-                  onImport: () => void settings.importTheme(),
-                  onExport: (theme) => void settings.exportTheme(theme),
-                  onReload: () => void settings.reload(),
-                  onOpenDirectory: () => void settings.openDirectory(),
-                }
+          <SettingsDialog
+            open={settingsOpen}
+            sectionId={navigation.settings.section}
+            saving={instructionsSaving || memorySaving || storageMaintaining}
+            onDismiss={navigation.closeSettings}
+            onReturnFocus={returnFromSettings}
+            onNavigate={openSettings}
+            renderContent={(section) => {
+              if (section === 'shortcuts') return <ShortcutSettings />
+              if (section === 'memory')
+                return (
+                  <MemorySettings
+                    key={hostId}
+                    host={host}
+                    connected={
+                      currentService
+                        ? currentService.status === 'connected'
+                        : chat.connection.status !== 'disconnected' && chat.connection.status !== 'connecting'
+                    }
+                    hostLabel={
+                      currentService
+                        ? serviceLabel(currentService)
+                        : hostLocal
+                          ? '此计算机'
+                          : (hostAddress ?? '当前服务')
+                    }
+                    currentProjectId={appSession?.project?.projectId}
+                    models={chat.models}
+                    onModels={() => openSettings('models')}
+                    onDirty={setMemoryDirty}
+                    onSaving={setMemorySaving}
+                    discardVersion={memoryDiscardVersion}
+                    renderSource={(message) => <HistoryMarkdown>{message.text}</HistoryMarkdown>}
+                    onOpenSourceSession={async (source) => {
+                      const sourceSession = await host.sessions.get(source.session)
+                      if (!sourceSession.sessionFile) throw new Error('来源会话当前无法打开')
+                      if (!serviceUI && !(await beforeDeactivate())) return
+                      if (await switchSession(sourceSession.sessionFile)) navigation.showActiveSession()
+                    }}
+                  />
+                )
+              if (section === 'computer')
+                return (
+                  <ComputerSettings
+                    hostId={hostId}
+                    onTry={() => {
+                      chat.setDraft((draft) =>
+                        draft.includes(computerMention)
+                          ? draft
+                          : `${computerMention} ${draft || '帮我在日历里找下周三下午半小时的空档。'}`,
+                      )
+                      navigation.home()
+                    }}
+                  />
+                )
+              if (section === 'browser')
+                return (
+                  <BrowserSettings
+                    platform={browserPlatform}
+                    onOpen={(url) => void browser.create(url)}
+                    initialSection={browserSettingsTarget === 'clear' ? 'general' : browserSettingsTarget}
+                    openClear={browserSettingsTarget === 'clear'}
+                  />
+                )
+              const contentProps: Omit<ComponentProps<typeof SettingsContent>, 'section'> = {
+                bridge,
+                cwd: chat.connection.cwd,
+                busy: chat.busy || chat.connection.status === 'connecting',
+                snapshot: settings.snapshot,
+                piVersion: chat.connection.piVersion,
+                error: settings.error,
+                onDirty: setInstructionsDirty,
+                onSaving: setInstructionsSaving,
+                onMaintaining: setStorageMaintaining,
+                onBeforeRestart: async () => {
+                  if (serviceUI) serviceUI.beforeRestart()
+                  else assertRestartAllowed()
+                  await appearance.flushAppearance()
+                },
+                accessSettings: (
+                  <AccessSettings
+                    value={settings.snapshot?.settings.defaultAccessMode}
+                    loading={!settings.snapshot}
+                    supported={Boolean(chat.connection.restrictedAccessSupported)}
+                    reason={chat.connection.restrictedAccessReason}
+                    busy={chat.busy}
+                    saving={settings.saving}
+                    onSave={(mode) => void settings.saveAccessMode(mode)}
+                  />
+                ),
+                onOperation: appearance.onOperation,
+                onEditor: (value) => void settings.saveEditor(value),
+                onPreview: appearance.previewAppearance,
+                onFlush: appearance.flushAppearance,
+                loadFonts: settings.getInstalledFonts,
+                onImport: () => void settings.importTheme(),
+                onExport: (theme) => void settings.exportTheme(theme),
+                onReload: () => void settings.reload(),
+                onOpenDirectory: () => void settings.openDirectory(),
+              }
 
-                if (section === 'host' && serviceUI) return serviceUI.remoteSettings
-                if (section === 'host')
-                  return (
-                    <HostSettings
-                      hostId={hostId}
-                      address={hostAddress}
-                      local={hostLocal}
-                      onConnect={onHostConnection}
-                      connections={hostConnections}
-                      call={call}
+              if (section === 'host' && serviceUI) return serviceUI.remoteSettings
+              if (section === 'host')
+                return (
+                  <HostSettings
+                    hostId={hostId}
+                    address={hostAddress}
+                    local={hostLocal}
+                    onConnect={onHostConnection}
+                    connections={hostConnections}
+                    call={call}
+                  />
+                )
+              if (section === 'skills')
+                return (
+                  <SkillPage
+                    client={resources}
+                    cwd={cwd}
+                    commands={chat.commands}
+                    skillUsages={chat.chat.skillUsages}
+                    resourceSnapshot={chat.state?.resourceSnapshot}
+                    onChanged={async () => {
+                      await chat.refreshSnapshot()
+                    }}
+                    onUse={(command) => {
+                      chat.setSelectedSkills([...chat.selectedSkills, command])
+                      chat.setDraft(appendSkillInvocation(chat.draft))
+                      navigation.home()
+                    }}
+                    onCreate={() => invokeSystemSkill('skill-creator')}
+                  />
+                )
+              if (section === 'plugins')
+                return (
+                  <PluginPage
+                    client={plugins}
+                    plugins={pluginDescriptors}
+                    errors={registry.errors()}
+                    onChanged={async () => {
+                      await refreshPlugins()
+                      await chat.refreshSnapshot()
+                    }}
+                    onCreate={() => invokeSystemSkill('plugin-creator', '帮我创建一个插件')}
+                    onOpenSystem={
+                      appSession
+                        ? (id) => {
+                            navigation.home()
+                            setSystemRequest({
+                              id:
+                                id === '@pi-meme/git'
+                                  ? 'builtin:git'
+                                  : id === '@pi-meme/file-directory'
+                                    ? 'builtin:files'
+                                    : 'builtin:terminal',
+                              revision: Date.now(),
+                              target: pluginProps.target,
+                            })
+                          }
+                        : undefined
+                    }
+                    renderSettings={(id) => (
+                      <PluginSlot registry={registry} pluginId={id} slot="settings" props={pluginProps} />
+                    )}
+                  />
+                )
+              if (section === 'general')
+                return (
+                  <div className="space-y-6">
+                    <GeneralSettings
+                      accessSettings={contentProps.accessSettings}
+                      settings={settings.snapshot?.settings}
+                      onEditor={contentProps.onEditor}
+                      bridge={bridge}
+                      onBeforeRestart={contentProps.onBeforeRestart}
+                      onMaintaining={setInstructionsSaving}
                     />
-                  )
-                if (section === 'skills')
-                  return (
-                    <SkillPage
-                      client={resources}
-                      cwd={cwd}
-                      commands={chat.commands}
-                      skillUsages={chat.chat.skillUsages}
-                      resourceSnapshot={chat.state?.resourceSnapshot}
-                      onChanged={async () => {
-                        await chat.refreshSnapshot()
-                      }}
-                      onUse={(command) => {
-                        chat.setSelectedSkills([...chat.selectedSkills, command])
-                        chat.setDraft(appendSkillInvocation(chat.draft))
-                        navigation.home()
-                      }}
-                      onCreate={() => invokeSystemSkill('skill-creator')}
+                    {settings.snapshot?.errors.map((message) => (
+                      <p
+                        key={message}
+                        role="alert"
+                        className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive"
+                      >
+                        {message}
+                      </p>
+                    ))}
+                    {settings.error && (
+                      <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+                        {settings.error}
+                      </p>
+                    )}
+                  </div>
+                )
+              if (section === 'about' || section === 'appearance' || section === 'instructions')
+                return (
+                  <>
+                    {section === 'appearance' && <WorkspaceViewSettings workspaceView={workspaceView} />}
+                    <SettingsContent
+                      section={section}
+                      {...contentProps}
+                      {...(section === 'appearance'
+                        ? {
+                            snapshot: appearance.snapshot,
+                            error: appearance.error,
+                            onOperation: appearance.onOperation,
+                            status: appearance.status,
+                            frozen: appearance.frozen,
+                            onRetry: () => void appearance.retryAppearance(),
+                            onAdoptLatest: appearance.adoptLatestAppearance,
+                            onPreview: appearance.previewAppearance,
+                            onFlush: appearance.flushAppearance,
+                            loadFonts: appearance.getInstalledFonts,
+                            onImport: () => void appearance.importTheme(),
+                            onExport: (theme) => void appearance.exportTheme(theme),
+                            onReload: () => void appearance.reload(),
+                            onOpenDirectory: () => void appearance.openDirectory(),
+                          }
+                        : {})}
                     />
-                  )
-                if (section === 'plugins')
-                  return (
-                    <PluginPage
-                      client={plugins}
-                      plugins={pluginDescriptors}
-                      errors={registry.errors()}
-                      onChanged={async () => {
-                        await refreshPlugins()
-                        await chat.refreshSnapshot()
-                      }}
-                      onCreate={() => invokeSystemSkill('plugin-creator', '帮我创建一个插件')}
-                      onOpenSystem={
-                        appSession
-                          ? (id) => {
-                              navigation.home()
-                              setSystemRequest({
-                                id:
-                                  id === '@pi-meme/git'
-                                    ? 'builtin:git'
-                                    : id === '@pi-meme/file-directory'
-                                      ? 'builtin:files'
-                                      : 'builtin:terminal',
-                                revision: Date.now(),
-                                target: pluginProps.target,
-                              })
-                            }
-                          : undefined
-                      }
-                      renderSettings={(id) => (
-                        <PluginSlot registry={registry} pluginId={id} slot="settings" props={pluginProps} />
-                      )}
-                    />
-                  )
-                if (section === 'general')
-                  return (
-                    <div className="space-y-6">
-                      <GeneralSettings
-                        accessSettings={contentProps.accessSettings}
-                        settings={settings.snapshot?.settings}
-                        onEditor={contentProps.onEditor}
-                        bridge={bridge}
-                        onBeforeRestart={contentProps.onBeforeRestart}
-                        onMaintaining={setInstructionsSaving}
-                      />
-                      {settings.snapshot?.errors.map((message) => (
-                        <p
-                          key={message}
-                          role="alert"
-                          className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive"
-                        >
-                          {message}
-                        </p>
-                      ))}
-                      {settings.error && (
-                        <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
-                          {settings.error}
-                        </p>
-                      )}
-                    </div>
-                  )
-                if (section === 'about' || section === 'appearance' || section === 'instructions')
-                  return (
-                    <>
-                      {section === 'appearance' && <WorkspaceViewSettings workspaceView={workspaceView} />}
-                      <SettingsContent
-                        section={section}
-                        {...contentProps}
-                        {...(section === 'appearance'
-                          ? {
-                              snapshot: appearance.snapshot,
-                              error: appearance.error,
-                              onOperation: appearance.onOperation,
-                              status: appearance.status,
-                              frozen: appearance.frozen,
-                              onRetry: () => void appearance.retryAppearance(),
-                              onAdoptLatest: appearance.adoptLatestAppearance,
-                              onPreview: appearance.previewAppearance,
-                              onFlush: appearance.flushAppearance,
-                              loadFonts: appearance.getInstalledFonts,
-                              onImport: () => void appearance.importTheme(),
-                              onExport: (theme) => void appearance.exportTheme(theme),
-                              onReload: () => void appearance.reload(),
-                              onOpenDirectory: () => void appearance.openDirectory(),
-                            }
-                          : {})}
-                      />
-                    </>
-                  )
-                if (section === 'subagents')
-                  return (
-                    <SubagentDefaultsSettings
-                      models={chat.models}
-                      value={settings.subagentDefaults}
-                      loading={!settings.snapshot}
-                      connected={!remoteOffline}
-                      pending={settings.subagentPending}
-                      status={settings.subagentStatus}
-                      failed={settings.subagentFailed}
-                      onSave={settings.saveSubagentDefaults}
-                      onModels={() => navigate('models')}
-                    />
-                  )
-                if (section === 'image-generation')
-                  return (
-                    <ImageGenerationSettings
-                      api={host.imageGeneration}
-                      hostLabel={
-                        currentService
-                          ? serviceLabel(currentService)
-                          : hostLocal
-                            ? '此计算机'
-                            : (hostAddress ?? '当前设备')
-                      }
-                    />
-                  )
-                if (section === 'models')
-                  return <ModelConfigSettings {...{ busy: chat.modelPickerDisabled, bridge, models: chat.models }} />
-                if (section === 'mcp')
-                  return (
-                    <McpSettings
-                      {...{
-                        bridge,
-                        busy: chat.connection.status === 'connecting' || (chat.busy && ready),
-                        saving: settings.saving,
-                        mode: chat.connection.accessMode,
-                        sessionKey: chat.connection.sessionKey,
-                        capabilities: {
-                          codemodeEnabled: Boolean(settings.snapshot?.settings.codemodeEnabled),
-                          mcpEnabled: Boolean(settings.snapshot?.settings.mcpEnabled),
-                        },
-                        onCapabilities: (value) => void settings.saveCapabilities(value),
-                      }}
-                    />
-                  )
-                if (section === 'account')
-                  return (
-                    <AccountSettings
-                      profile={userProfile.profile}
-                      loading={userProfile.loading}
-                      updateProfile={userProfile.updateProfile}
-                    />
-                  )
-                if (section === 'profile') return <ProfileSettings {...{ loadUsage: bridge.getUsageStats }} />
-                return null
-              }}
-            />
-          )}
+                  </>
+                )
+              if (section === 'subagents')
+                return (
+                  <SubagentDefaultsSettings
+                    models={chat.models}
+                    value={settings.subagentDefaults}
+                    loading={!settings.snapshot}
+                    connected={!remoteOffline}
+                    pending={settings.subagentPending}
+                    status={settings.subagentStatus}
+                    failed={settings.subagentFailed}
+                    onSave={settings.saveSubagentDefaults}
+                    onModels={() => openSettings('models')}
+                  />
+                )
+              if (section === 'image-generation')
+                return (
+                  <ImageGenerationSettings
+                    api={host.imageGeneration}
+                    hostLabel={
+                      currentService
+                        ? serviceLabel(currentService)
+                        : hostLocal
+                          ? '此计算机'
+                          : (hostAddress ?? '当前设备')
+                    }
+                  />
+                )
+              if (section === 'models')
+                return <ModelConfigSettings {...{ busy: chat.modelPickerDisabled, bridge, models: chat.models }} />
+              if (section === 'mcp')
+                return (
+                  <McpSettings
+                    {...{
+                      bridge,
+                      busy: chat.connection.status === 'connecting' || (chat.busy && ready),
+                      saving: settings.saving,
+                      mode: chat.connection.accessMode,
+                      sessionKey: chat.connection.sessionKey,
+                      capabilities: {
+                        codemodeEnabled: Boolean(settings.snapshot?.settings.codemodeEnabled),
+                        mcpEnabled: Boolean(settings.snapshot?.settings.mcpEnabled),
+                      },
+                      onCapabilities: (value) => void settings.saveCapabilities(value),
+                    }}
+                  />
+                )
+              if (section === 'account')
+                return (
+                  <AccountSettings
+                    profile={userProfile.profile}
+                    loading={userProfile.loading}
+                    updateProfile={userProfile.updateProfile}
+                  />
+                )
+              if (section === 'profile') return <ProfileSettings {...{ loadUsage: bridge.getUsageStats }} />
+              return null
+            }}
+          />
 
           <ShortcutHelpDialog
             open={shortcutHelpOpen}
@@ -3030,9 +3038,23 @@ function AppContent({
               if (!open) navigation.cancelLeave()
             }}
           >
-            <DialogContent>
+            <DialogContent
+              onCloseAutoFocus={(event) => {
+                event.preventDefault()
+                const opener = confirmationReturnFocus.current
+                if (
+                  opener?.isConnected &&
+                  opener.getClientRects().length &&
+                  !opener.closest('[role="dialog"][data-state="closed"], [inert]')
+                ) {
+                  opener.focus({ preventScroll: true })
+                } else if (settingsOpen) {
+                  document.getElementById('settings-content')?.focus({ preventScroll: true })
+                }
+              }}
+            >
               <DialogTitle>放弃未保存的更改？</DialogTitle>
-              <DialogDescription>离开后，当前页面或设置中尚未保存的修改不会自动恢复。</DialogDescription>
+              <DialogDescription>离开后，当前未保存的修改将被丢弃。</DialogDescription>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={navigation.cancelLeave}>
                   继续编辑

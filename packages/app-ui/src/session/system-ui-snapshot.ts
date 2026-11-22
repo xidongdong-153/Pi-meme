@@ -10,13 +10,14 @@ import { readText, SystemReadError } from '@pi-meme/contracts/system-read'
 import { SHORTCUT_DEFINITIONS } from '@pi-meme/contracts/keyboard-shortcuts'
 import type { ShortcutContextValue } from '../shortcuts/shortcut-provider'
 import type { AppRoute } from '../layout/use-app-navigation'
+import type { SettingsSection } from '../settings/settings-page'
 import { panelStorageKey, readPanelLayout, type PanelLayoutState } from '../layout/panel-layout'
 
 export type SystemUiSources = {
   hostId?: string
   session?: SessionRef
   active: boolean
-  route: AppRoute
+  route: AppRoute | { kind: 'settings'; section: SettingsSection }
   canBack: boolean
   canForward: boolean
   dirty: boolean
@@ -34,10 +35,9 @@ export type SystemUiSources = {
 function platform() {
   return (window as Window & { piPlatform?: PlatformAdapter }).piPlatform
 }
-function routeMetadata(route: AppRoute) {
+function routeMetadata(route: SystemUiSources['route']) {
   switch (route.kind) {
     case 'settings':
-      return { kind: route.kind, section: route.section }
     case 'customization':
       return { kind: route.kind, section: route.section }
     case 'plugin':

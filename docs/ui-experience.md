@@ -84,10 +84,10 @@ Host 在切换前校验分支、工作区改动、任务与活动服务；同一
 
 ## 实现入口与接入范围
 
-- 一级导航：[use-navigation-motion.ts](../packages/app-ui/src/layout/use-navigation-motion.ts) 在首页、资料空间、项目、定时任务、插件与技能、设置及不同插件之间切换时，对可见 `.content-frame` 的直接子内容做淡入；不改变导航状态和页面生命周期。
+- 一级导航：[use-navigation-motion.ts](../packages/app-ui/src/layout/use-navigation-motion.ts) 在首页、资料空间、项目、定时任务、插件与技能及不同插件之间切换时，对可见 `.content-frame` 的直接子内容做淡入；不改变导航状态和页面生命周期。
 - 导航选中底色：[AppRail](../packages/app-ui/src/layout/app-rail.tsx) 使用 `.app-rail-entry`；样式在 [global.css](../packages/app-ui/src/global.css)。
 - 局部内容入场：[FadeContent](../packages/ui/src/components/fade-content.tsx) 使用 `.ui-content-enter`，用于右侧栏 Tab 和启动画面。仅在原本就需要挂载的新内容上使用；不要包裹已有页面后再通过更换 `key` 重播动画。
-- 设置分类：[SettingsPage](../packages/app-ui/src/settings/settings-page.tsx) 直接渲染固定界面，不使用分类骨架或整页淡入。快捷键等同步页面立即可用；外观、指令等页面保留已知结构，未知配置读取完成前禁用相关操作。刷新保留已有数据，不为动效增加固定等待。
+- [设置弹框](../packages/app-ui/src/settings/settings-page.tsx) 覆盖在当前工作区上，打开、切换分类和关闭均保留底层页面与导航历史。宽屏使用可搜索的分类侧栏，窄屏从顶部选择分类。分类标题立即显示，依赖配置的操作在读取完成后启用。
 - 动态文字：[CrossfadeText](../packages/ui/src/components/crossfade-text.tsx) 将新值立即提交，旧文字仅作短暂的视觉过渡并从辅助技术中隐藏。有限的可能文案可以用 `reserve` 预留尺寸；输入框不替换实例、不为重播动效更换 `key`。
 - 异步内容：[RevealContent](../packages/ui/src/components/reveal-content.tsx) 常驻容器，在 `ready` 变化时展开，例如服务商、技能、MCP 列表和用量图表。固定标题与操作放在容器外，后台刷新保持 `ready`，不反复收起；隐藏区域使用 `inert` 和 `aria-hidden`。系统或应用减少动态效果时直接切换。
 - 首次等待提示：`.ui-loading-delayed` 在 [tokens.css](../packages/ui/src/tokens.css) 中维护，目前用于项目空列表读取提示和定时任务的懒加载提示。它只延迟视觉提示，不延迟请求和数据提交。

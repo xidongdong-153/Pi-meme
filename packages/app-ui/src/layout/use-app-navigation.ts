@@ -9,7 +9,6 @@ export type AppRoute =
   | { kind: 'materials'; section: 'all' | 'images'; image?: { hostId: string; id: string; serviceId: string } }
   | { kind: 'schedules'; taskId?: string }
   | { kind: 'customization'; section?: 'plugins' | 'skills'; selectedId?: string }
-  | { kind: 'settings'; section: SettingsSection }
   | { kind: 'plugin'; pluginId: string; pageId: string; target: UiTarget; params: UiJsonValue }
 export type AppNavigationState = { route: AppRoute; past: AppRoute[]; future: AppRoute[] }
 export type AppNavigationAction =
@@ -18,6 +17,9 @@ export type AppNavigationAction =
   | { type: 'back' }
   | { type: 'forward' }
   | { type: 'prune'; valid: (route: AppRoute) => boolean }
+type NavigationRequest =
+  | Extract<AppNavigationAction, { type: 'open' | 'back' | 'forward' }>
+  | { type: 'settings'; section: SettingsSection | null }
 const limit = 50
 export const initialAppNavigation: AppNavigationState = { route: { kind: 'chat' }, past: [], future: [] }
 
@@ -58,37 +60,64 @@ export function appNavigationReducer(state: AppNavigationState, action: AppNavig
 }
 
 export function useAppNavigation({
-  dirty = false,
+  pageDirty = false,
+  settingsDirty = false,
   saving = false,
-  onDiscard,
+  onDiscardPage,
+  onDiscardSettings,
 }: {
-  dirty?: boolean
+  pageDirty?: boolean
+  settingsDirty?: boolean
   saving?: boolean
-  onDiscard?: () => void
+  onDiscardPage?: () => void
+  onDiscardSettings?: () => void
 } = {}) {
   const [state, dispatch] = useReducer(appNavigationReducer, initialAppNavigation)
-  const [pending, setPending] = useState<AppNavigationAction | null>(null)
-  const request = (action: AppNavigationAction) => {
-    if (saving) return
-    if (dirty) setPending(action)
-    else dispatch(action)
+  const [settings, setSettings] = useState<{ open: boolean; section: SettingsSection }>({
+    open: false,
+    section: 'general',
+  })
+  const [pending, setPending] = useState<NavigationRequest | null>(null)
+
+  function apply(action: NavigationRequest) {
+    if (action.type === 'settings' && action.section !== null) {
+      setSettings({ open: true, section: action.section })
+    } else {
+      setSettings((current) => (current.open ? { ...current, open: false } : current))
+      if (action.type !== 'settings') dispatch(action)
+    }
   }
+
+  function request(action: NavigationRequest) {
+    if (saving) return
+    if (action.type === 'settings' && action.section === (settings.open ? settings.section : null)) return
+    if (settingsDirty || (action.type !== 'settings' && pageDirty)) setPending(action)
+    else apply(action)
+  }
+
+  const closeSettings = () => request({ type: 'settings', section: null })
   return {
     ...state,
+    settings,
+    openSettings: (section: SettingsSection = 'general') => request({ type: 'settings', section }),
+    closeSettings,
     canBack: state.past.length > 0,
     canForward: state.future.length > 0,
     open: (route: AppRoute) => request({ type: 'open', route: structuredClone(route) }),
     replace: (route: AppRoute) => dispatch({ type: 'replace', route: structuredClone(route) }),
-    back: () => request({ type: 'back' }),
+    back: () => (settings.open ? closeSettings() : request({ type: 'back' })),
     forward: () => request({ type: 'forward' }),
     home: () => request({ type: 'open', route: { kind: 'chat' } }),
+    // 会话已通过离开确认并切换成功，只需显示对应聊天。
+    showActiveSession: () => apply({ type: 'open', route: { kind: 'chat' } }),
     prune: (valid: (route: AppRoute) => boolean) => dispatch({ type: 'prune', valid }),
     confirmation: pending !== null,
     cancelLeave: () => setPending(null),
     discardAndLeave: () => {
       if (!pending || saving) return
-      onDiscard?.()
-      dispatch(pending)
+      if (settingsDirty) onDiscardSettings?.()
+      if (pending.type !== 'settings' && pageDirty) onDiscardPage?.()
+      apply(pending)
       setPending(null)
     },
   }

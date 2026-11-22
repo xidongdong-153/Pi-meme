@@ -20,7 +20,6 @@ import {
   User,
   Users,
 } from 'lucide-react'
-import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import {
   Select,
@@ -31,9 +30,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@pi-meme/ui/components/ui/select'
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@pi-meme/ui/components/ui/dialog'
+import { Dialog, DialogContent, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { PageHeader, PageHeaderNavigation } from '../layout/page-header'
 
 function PluginSettingsIcon({ className, strokeWidth }: { className?: string; strokeWidth?: number }) {
   return (
@@ -107,43 +105,14 @@ type Section = (typeof groups)[number]['sections'][number]
 export type SettingsSection = Section['id']
 const sections = groups.flatMap<Section>((group) => group.sections)
 
-export function SettingsPage({
-  renderContent,
-  renderRail,
-  dirty,
-  saving,
-  initialSection = 'general',
-  nativeWindow = false,
-  onDiscard,
-  onDismiss,
-  onProjects,
-  onPlugins,
-  onHome,
-  dismissLabel = '返回聊天',
-}: {
-  renderContent: (section: SettingsSection, navigate: (section: SettingsSection) => void) => ReactNode
-  renderRail?: (
-    onDismiss: () => void,
-    navigate: (section: SettingsSection) => void,
-    onProjects?: () => void,
-    onPlugins?: () => void,
-  ) => ReactNode
-  dirty: boolean
+type SettingsNavigationProps = {
+  sectionId: SettingsSection
   saving: boolean
-  initialSection?: SettingsSection
-  /** Desktop 隐藏标题栏需要让出交通灯；Web 不留这段间距。 */
-  nativeWindow?: boolean
-  onDiscard: () => void
-  onDismiss: () => void
-  onProjects?: () => void
-  onPlugins?: () => void
-  onHome?: () => void
-  dismissLabel?: string
-}) {
-  const [sectionId, setSectionId] = useState<SettingsSection>(initialSection)
+  onNavigate: (section: SettingsSection) => void
+}
+
+function SettingsNavigation({ sectionId, saving, onNavigate }: SettingsNavigationProps) {
   const [query, setQuery] = useState('')
-  const [pending, setPending] = useState<(() => void) | null>(null)
-  const section = sections.find((entry) => entry.id === sectionId)!
   const search = query.trim().toLowerCase()
   const visibleGroups = groups
     .map((group) => ({
@@ -154,146 +123,155 @@ export function SettingsPage({
     }))
     .filter((group) => group.sections.length > 0)
 
-  function leave(action: () => void) {
-    if (saving) return
-    if (dirty) setPending(() => action)
-    else action()
-  }
-
-  function navigate(id: SettingsSection) {
-    if (id !== sectionId) leave(() => setSectionId(id))
-  }
-
   return (
-    <section
-      aria-label="设置页面"
-      className="workspace-panes flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-secondary"
-    >
-      <PageHeader>
-        <PageHeaderNavigation
-          nativeWindow={nativeWindow}
-          back={{ label: dismissLabel, onClick: () => leave(onDismiss), disabled: saving, autoFocus: true }}
-        />
-      </PageHeader>
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        {renderRail?.(
-          () => leave(onHome ?? onDismiss),
-          navigate,
-          onProjects ? () => leave(onProjects) : undefined,
-          onPlugins ? () => leave(onPlugins) : undefined,
-        )}
-        <div className="content-frame bg-background">
-          <aside className="appearance-sidebar settings-sidebar hidden w-52 shrink-0 overflow-y-auto border-r border-border bg-card/40 px-2.5 py-5 sm:block lg:w-64">
-            <h1 className="px-2.5 text-base font-semibold tracking-tight text-foreground">设置</h1>
-            <div className="relative mt-3">
-              <Search
-                aria-hidden="true"
-                className="pointer-events-none absolute left-2.5 top-2.5 size-3.5 text-muted-foreground"
-                strokeWidth={1.8}
-              />
-              <Input
-                aria-label="搜索设置"
-                placeholder="搜索设置"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="h-9 rounded-full border-0 bg-secondary/60 pl-8 pr-2.5 text-xs transition-colors duration-200 focus-visible:bg-secondary"
-              />
-            </div>
-            <nav aria-label="设置分类" className="mt-4 space-y-4">
-              {visibleGroups.map((group) => (
-                <section key={group.label} aria-label={group.label}>
-                  <h2 className="mb-1 px-2.5 text-[11px] font-medium text-muted-foreground/60 select-none">
-                    {group.label}
-                  </h2>
-                  <div className="space-y-0.5">
-                    {group.sections.map(({ id, label, icon: Icon }) => (
-                      <button
-                        key={id}
-                        type="button"
-                        aria-current={sectionId === id ? 'page' : undefined}
-                        aria-controls="settings-content"
-                        disabled={saving}
-                        onClick={() => navigate(id)}
-                        className={cn(
-                          'settings-nav-item flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] font-normal transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50',
-                          sectionId === id
-                            ? 'bg-secondary font-medium text-foreground'
-                            : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground',
-                        )}
-                      >
-                        <span className="settings-nav-icon flex size-4 shrink-0 items-center justify-center">
-                          <Icon aria-hidden="true" className="size-3.5 sm:size-4" strokeWidth={1.8} />
-                        </span>
-                        <span className="truncate">{label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              ))}
-              {visibleGroups.length === 0 && (
-                <p role="status" className="px-2.5 text-xs text-muted-foreground">
-                  没有匹配的设置
-                </p>
-              )}
-            </nav>
-          </aside>
-          <div
-            id="settings-content"
-            className="theme-workspace min-w-0 flex-1 overflow-y-auto bg-background px-4 py-6 [scrollbar-gutter:stable] sm:px-6 sm:py-8 lg:px-12 lg:py-12"
-          >
-            <nav aria-label="设置分类" className="mx-auto mb-6 max-w-3xl sm:hidden">
-              <Select value={sectionId} onValueChange={(value) => navigate(value as SettingsSection)} disabled={saving}>
-                <SelectTrigger aria-label="设置分类" className="h-9 bg-card/40 text-xs shadow-none">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="w-[var(--radix-select-trigger-width)]">
-                  {groups.map((group) => (
-                    <SelectGroup key={group.label}>
-                      <SelectLabel>{group.label}</SelectLabel>
-                      {group.sections.map(({ id, label }) => (
-                        <SelectItem key={id} value={id} className="text-xs">
-                          {label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
+    <aside className="flex min-h-0 shrink-0 flex-col border-b border-border/70 bg-secondary/45 sm:w-[clamp(11rem,23%,15.5rem)] sm:border-r sm:border-b-0">
+      <div className="flex shrink-0 items-center gap-4 px-4 py-3 pr-14 sm:block sm:px-3 sm:pt-4 sm:pb-2">
+        <DialogTitle className="shrink-0 text-base font-semibold sm:px-1.5">设置</DialogTitle>
+        <div className="relative mt-3 hidden sm:block">
+          <Search
+            aria-hidden="true"
+            className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+            strokeWidth={1.8}
+          />
+          <Input
+            aria-label="搜索设置"
+            placeholder="搜索设置"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            className="h-9 rounded-full border-foreground/15 bg-transparent pl-8.5 text-xs shadow-none focus-visible:border-foreground/35 focus-visible:ring-0"
+          />
+        </div>
+        <div className="min-w-0 flex-1 sm:hidden">
+          <Select value={sectionId} onValueChange={(value) => onNavigate(value as SettingsSection)} disabled={saving}>
+            <SelectTrigger aria-label="设置分类" className="h-8 bg-transparent text-xs shadow-none">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent side="bottom" align="start">
+              {groups.map((group) => (
+                <SelectGroup key={group.label}>
+                  <SelectLabel>{group.label}</SelectLabel>
+                  {group.sections.map(({ id, label }) => (
+                    <SelectItem key={id} value={id} className="text-xs">
+                      {label}
+                    </SelectItem>
                   ))}
-                </SelectContent>
-              </Select>
-            </nav>
-            <div key={sectionId} className="mx-auto max-w-3xl space-y-8">
-              <div>
-                <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">{section.label}</h2>
-              </div>
-              <div className="min-w-0 space-y-6 text-xs">{renderContent(sectionId, navigate)}</div>
-            </div>
-          </div>
+                </SelectGroup>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
-      <Dialog
-        open={Boolean(pending)}
-        onOpenChange={(open) => {
-          if (!open) setPending(null)
+      <nav
+        aria-label="设置分类"
+        className="hidden min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-2.5 pt-3 pb-5 sm:block"
+      >
+        {visibleGroups.map((group) => (
+          <section key={group.label} aria-label={group.label}>
+            <h3 className="mb-1.5 px-2.5 text-xs font-medium text-muted-foreground">{group.label}</h3>
+            <div className="space-y-0.5">
+              {group.sections.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-current={sectionId === id ? 'page' : undefined}
+                  aria-controls="settings-content"
+                  disabled={saving}
+                  onClick={() => onNavigate(id)}
+                  className={cn(
+                    'settings-nav-item flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50',
+                    sectionId === id
+                      ? 'bg-foreground/9 font-medium text-foreground'
+                      : 'text-foreground/80 hover:bg-foreground/5 hover:text-foreground',
+                  )}
+                >
+                  <Icon aria-hidden="true" className="settings-nav-icon size-4 shrink-0" strokeWidth={1.65} />
+                  <span className="truncate">{label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        ))}
+        {visibleGroups.length === 0 && (
+          <p role="status" className="px-2.5 text-xs text-muted-foreground">
+            没有匹配的设置
+          </p>
+        )}
+      </nav>
+    </aside>
+  )
+}
+
+function SettingsPanel({
+  sectionId,
+  renderContent,
+}: {
+  sectionId: SettingsSection
+  renderContent: (section: SettingsSection) => ReactNode
+}) {
+  const section = sections.find((entry) => entry.id === sectionId)!
+  return (
+    <section
+      id="settings-content"
+      aria-labelledby="settings-section-title"
+      tabIndex={-1}
+      className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 outline-none sm:px-8 sm:py-10 lg:px-12"
+    >
+      <div className="mx-auto max-w-[38rem] space-y-7">
+        <h2 id="settings-section-title" className="pr-6 text-xl font-semibold tracking-tight sm:text-2xl">
+          {section.label}
+        </h2>
+        <div className="min-w-0 space-y-6 text-xs">{renderContent(sectionId)}</div>
+      </div>
+    </section>
+  )
+}
+
+export function SettingsDialog({
+  open,
+  sectionId,
+  saving,
+  onNavigate,
+  onDismiss,
+  onReturnFocus,
+  renderContent,
+}: SettingsNavigationProps & {
+  open: boolean
+  onDismiss: () => void
+  onReturnFocus: () => void
+  renderContent: (section: SettingsSection) => ReactNode
+}) {
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onDismiss()
+      }}
+    >
+      <DialogContent
+        aria-describedby={undefined}
+        overlayClassName="bg-black/45 backdrop-blur-[3px]"
+        className="no-drag flex h-[calc(100dvh-1rem)] max-h-none w-[calc(100vw-1rem)] max-w-[67.5rem] flex-col gap-0 rounded-2xl border-border/70 bg-popover p-0 text-popover-foreground shadow-2xl sm:h-[min(82dvh,46rem)] sm:w-[90vw] sm:flex-row lg:w-[84vw]"
+        closeButtonProps={{
+          'aria-label': '关闭设置',
+          disabled: saving,
+          className:
+            'right-2.5 top-2.5 grid size-8 place-items-center rounded-full text-muted-foreground opacity-100 hover:bg-foreground/5 hover:text-foreground disabled:opacity-40 sm:right-3 sm:top-3',
+        }}
+        onEscapeKeyDown={(event) => {
+          if (
+            event.isComposing ||
+            (event.target instanceof Element && event.target.closest('[data-shortcut-recording]'))
+          )
+            event.preventDefault()
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault()
+          onReturnFocus()
         }}
       >
-        <DialogContent>
-          <DialogTitle>丢弃未保存的修改？</DialogTitle>
-          <DialogDescription>离开后，当前修改不会保存。</DialogDescription>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setPending(null)}>
-              继续编辑
-            </Button>
-            <Button
-              onClick={() => {
-                onDiscard()
-                pending?.()
-                setPending(null)
-              }}
-            >
-              丢弃修改
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-    </section>
+        <SettingsNavigation sectionId={sectionId} saving={saving} onNavigate={onNavigate} />
+        <SettingsPanel key={sectionId} sectionId={sectionId} renderContent={renderContent} />
+      </DialogContent>
+    </Dialog>
   )
 }

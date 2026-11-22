@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowLeft, ChevronRight, FileText, RefreshCw } from 'lucide-react'
 import type { ModelsBridge, SettingsBridge } from '@pi-meme/contracts/desktop'
 import type { InstructionFile, InstructionKind, InstructionsSnapshot } from '@pi-meme/contracts/settings'
@@ -69,7 +69,7 @@ export function InstructionSettings({
       mounted.current = false
     }
   }, [bridge, cwd])
-  useEffect(() => {
+  useLayoutEffect(() => {
     onDirty(dirty)
     return () => onDirty(false)
   }, [dirty, onDirty])

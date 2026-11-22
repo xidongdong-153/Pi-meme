@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, ChevronDown, ChevronRight, LoaderCircle, Plus, RefreshCw, X } from 'lucide-react'
 import type { HostApi } from '@pi-meme/contracts/app-host'
 import type { MemoryEntry, MemoryEntryInput, MemoryJob, MemorySource } from '@pi-meme/contracts/memory'
@@ -97,9 +97,11 @@ export function MemorySettings({
   const selectedModel = config?.model && models.find((model) => modelKey(model) === modelKey(config.model!))
   const modelUnavailable = Boolean(config?.model && !selectedModel)
 
-  useEffect(() => onDirty(dirty), [dirty, onDirty])
-  useEffect(() => onSaving(saving), [saving, onSaving])
-  useEffect(
+  useLayoutEffect(() => {
+    onDirty(dirty)
+    onSaving(saving)
+  }, [dirty, saving, onDirty, onSaving])
+  useLayoutEffect(
     () => () => {
       onDirty(false)
       onSaving(false)
