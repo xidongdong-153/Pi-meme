@@ -14,6 +14,12 @@ import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 let cachedUsageSnapshot: UsageStatsSnapshot | null = null
 let lastUsageFetchTime = 0
 
+function formatUpdatedAt(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '刚刚更新'
+  return `更新于 ${date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
+}
+
 export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageStatsSnapshot> }) {
   const [snapshot, setSnapshot] = useState<UsageStatsSnapshot | null>(cachedUsageSnapshot)
   const [loading, setLoading] = useState(() => cachedUsageSnapshot === null)
@@ -60,28 +66,28 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
   const metrics = snapshot
     ? [
         {
-          label: '累计 Token 数',
+          label: '累计 Token',
           value: compactTokens(snapshot.totalTokens),
-          hint: `${snapshot.totalTokens.toLocaleString('zh-CN')} 个 Token，包含输入、输出、缓存读取、缓存写入及已知的记忆后台用量。`,
+          hint: `${compactTokens(snapshot.totalTokens)} Token（精确 ${snapshot.totalTokens.toLocaleString('zh-CN')}），包含输入、输出、缓存读取、缓存写入及已知的记忆后台用量。`,
         },
         {
-          label: '单日 Token 峰值',
+          label: '单日峰值',
           value: compactTokens(snapshot.peakDailyTokens),
-          hint: `单日最高 ${snapshot.peakDailyTokens.toLocaleString('zh-CN')} 个 Token，按系统本地日期统计。`,
+          hint: `单日最高 ${compactTokens(snapshot.peakDailyTokens)} Token（精确 ${snapshot.peakDailyTokens.toLocaleString('zh-CN')}），按系统本地日期统计。`,
         },
         {
-          label: '最长任务用时',
+          label: '最长任务',
           value: taskDuration(snapshot.longestTaskMs),
           hint: `从发送消息到回复完成的时间，包含工具执行。${snapshot.longestTaskMs === null ? '暂无已完成任务。' : `最长 ${snapshot.longestTaskMs.toLocaleString('zh-CN')} 毫秒。`}`,
         },
-        { label: '最长连续天数', value: `${snapshot.longestStreak} 天`, hint: '全部历史中连续使用 Token 的最长天数。' },
+        { label: '最长连续', value: `${snapshot.longestStreak} 天`, hint: '全部历史中连续使用 Token 的最长天数。' },
         {
-          label: '当前连续天数',
+          label: '当前连续',
           value: `${snapshot.currentStreak} 天`,
           hint: '从今天或昨天向前计算连续使用 Token 的天数。',
         },
       ]
-    : ['累计 Token 数', '单日 Token 峰值', '最长任务用时', '最长连续天数', '当前连续天数'].map((label) => ({
+    : ['累计 Token', '单日峰值', '最长任务', '最长连续', '当前连续'].map((label) => ({
         label,
         value: error ? '读取失败' : '读取中…',
         hint: '正在读取历史用量统计。',
@@ -89,12 +95,23 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
 
   return (
     <div aria-label="个人资料统计" aria-busy={loading} className="@container min-w-0 space-y-6">
-      <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted-foreground">
+      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+        <p role="status" className="truncate whitespace-nowrap text-[11px]">
+          <CrossfadeText>
+            {snapshot
+              ? loading
+                ? '正在更新统计…'
+                : formatUpdatedAt(snapshot.updatedAt)
+              : error
+                ? '统计读取失败'
+                : '正在读取统计…'}
+          </CrossfadeText>
+        </p>
         <Button
           variant="ghost"
           size="sm"
           aria-label="刷新 Token 统计"
-          className={settingsControlClassName}
+          className={cn(settingsControlClassName, 'shrink-0 whitespace-nowrap')}
           disabled={loading}
           onClick={() => void refresh()}
         >
@@ -102,6 +119,7 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
           刷新
         </Button>
       </div>
+
       {error && (
         <div
           role="alert"
@@ -111,7 +129,7 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
           <Button
             variant="outline"
             size="sm"
-            className={settingsControlClassName}
+            className={cn(settingsControlClassName, 'shrink-0 whitespace-nowrap')}
             disabled={loading}
             onClick={() => void refresh()}
           >
@@ -119,10 +137,11 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
           </Button>
         </div>
       )}
+
       <div className="space-y-6">
         <TooltipProvider delayDuration={100}>
           <dl
-            className={cn(settingsCardClassName, 'grid grid-cols-2 gap-y-4 divide-y-0 p-4 @min-[600px]:grid-cols-5')}
+            className={cn(settingsCardClassName, 'grid grid-cols-2 gap-y-4 divide-y-0 p-4 @min-[520px]:grid-cols-5')}
             aria-label="历史用量统计"
           >
             {metrics.map((metric) => (
@@ -130,10 +149,10 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
                 <TooltipTrigger asChild>
                   <div
                     tabIndex={0}
-                    className="flex min-w-0 flex-col px-2 py-1 text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring @min-[600px]:border-r @min-[600px]:border-border/40 @min-[600px]:last:border-r-0"
+                    className="flex min-w-0 flex-col px-2 py-1 text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring @min-[520px]:border-r @min-[520px]:border-border/40 @min-[520px]:last:border-r-0"
                   >
-                    <dt className="mt-1 text-[11px] text-muted-foreground">{metric.label}</dt>
-                    <dd className="-order-1 min-h-6 text-base font-medium tabular-nums">
+                    <dt className="mt-1 whitespace-nowrap text-[11px] text-muted-foreground">{metric.label}</dt>
+                    <dd className="-order-1 min-h-6 whitespace-nowrap text-base font-medium tabular-nums">
                       <CrossfadeText>{metric.value}</CrossfadeText>
                     </dd>
                   </div>
@@ -143,46 +162,61 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
             ))}
           </dl>
         </TooltipProvider>
-        {snapshot?.memoryTotalTokens !== undefined && (
-          <SettingsGroup title="记忆后台用量" aria-label="记忆后台用量">
-            <dl className={cn(settingsCardClassName, 'grid grid-cols-2 gap-4 divide-y-0 p-4')}>
-              {[
-                { label: '已知 Token', value: snapshot.memoryTotalTokens.toLocaleString('zh-CN') },
-                { label: '模型调用', value: `${snapshot.memoryCalls ?? 0} 次` },
-                { label: '结果或 Token 未知', value: `${snapshot.memoryUnknownCalls ?? 0} 次` },
-                { label: '费用未知', value: `${snapshot.memoryUnknownCostCalls ?? 0} 次` },
-              ].map((metric) => (
-                <div key={metric.label} className="space-y-1">
-                  <dt className="text-xs text-muted-foreground">{metric.label}</dt>
-                  <dd className="text-sm tabular-nums">
-                    <CrossfadeText>{metric.value}</CrossfadeText>
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </SettingsGroup>
-        )}
+
         <SettingsGroup title="Token 活动" aria-label="Token 活动记录">
-          <p role="status" className="text-[11px] text-muted-foreground">
-            <CrossfadeText>
-              {snapshot
-                ? loading
-                  ? '正在更新活动记录…'
-                  : '活动记录已就绪'
-                : error
-                  ? '活动记录读取失败'
-                  : '正在读取活动记录…'}
-            </CrossfadeText>
-          </p>
           <RevealContent ready={snapshot !== null}>
             {snapshot && <TokenActivity daily={snapshot.daily} today={snapshot.today} />}
           </RevealContent>
         </SettingsGroup>
-        <p className="text-[11px] text-muted-foreground">
-          <CrossfadeText>
-            {snapshot ? `更新于 ${new Date(snapshot.updatedAt).toLocaleString('zh-CN')}` : '尚未获取统计'}
-          </CrossfadeText>
-        </p>
+
+        {snapshot?.memoryTotalTokens !== undefined && (
+          <SettingsGroup title="记忆后台用量" aria-label="记忆后台用量">
+            <TooltipProvider delayDuration={100}>
+              <dl
+                className={cn(settingsCardClassName, 'grid grid-cols-2 gap-4 divide-y-0 p-4 @min-[520px]:grid-cols-4')}
+              >
+                {[
+                  {
+                    label: '已知 Token',
+                    value: compactTokens(snapshot.memoryTotalTokens),
+                    hint: `精确 ${snapshot.memoryTotalTokens.toLocaleString('zh-CN')} Token`,
+                  },
+                  { label: '模型调用', value: `${snapshot.memoryCalls ?? 0} 次`, hint: '' },
+                  {
+                    label: 'Token 未知',
+                    value: `${snapshot.memoryUnknownCalls ?? 0} 次`,
+                    hint: '结果或 Token 未知的调用次数',
+                  },
+                  { label: '费用未知', value: `${snapshot.memoryUnknownCostCalls ?? 0} 次`, hint: '' },
+                ].map((metric) =>
+                  metric.hint ? (
+                    <Tooltip key={metric.label}>
+                      <TooltipTrigger asChild>
+                        <div
+                          tabIndex={0}
+                          className="min-w-0 space-y-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        >
+                          <dt className="whitespace-nowrap text-xs text-muted-foreground">{metric.label}</dt>
+                          <dd className="whitespace-nowrap text-sm font-medium tabular-nums">
+                            <CrossfadeText>{metric.value}</CrossfadeText>
+                          </dd>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent>{metric.hint}</TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <div key={metric.label} className="min-w-0 space-y-1">
+                      <dt className="whitespace-nowrap text-xs text-muted-foreground">{metric.label}</dt>
+                      <dd className="whitespace-nowrap text-sm font-medium tabular-nums">
+                        <CrossfadeText>{metric.value}</CrossfadeText>
+                      </dd>
+                    </div>
+                  ),
+                )}
+              </dl>
+            </TooltipProvider>
+          </SettingsGroup>
+        )}
       </div>
     </div>
   )

@@ -124,10 +124,12 @@ function SettingsNavigation({ sectionId, saving, onNavigate }: SettingsNavigatio
     .filter((group) => group.sections.length > 0)
 
   return (
-    <aside className="flex min-h-0 shrink-0 flex-col border-b border-border/70 bg-secondary/45 sm:w-[clamp(11rem,23%,15.5rem)] sm:border-r sm:border-b-0">
-      <div className="flex shrink-0 items-center gap-4 px-4 py-3 pr-14 sm:block sm:px-3 sm:pt-4 sm:pb-2">
-        <DialogTitle className="shrink-0 text-base font-semibold sm:px-1.5">设置</DialogTitle>
-        <div className="relative mt-3 hidden sm:block">
+    <aside className="flex min-h-0 shrink-0 flex-col border-b border-border/70 bg-secondary/45 pt-[env(safe-area-inset-top)] sm:pt-0 @min-[660px]/settings:w-[clamp(11.5rem,22cqw,14.5rem)] @min-[660px]/settings:border-r @min-[660px]/settings:border-b-0">
+      <div className="flex shrink-0 items-center gap-4 px-4 py-3 pr-14 @min-[660px]/settings:block @min-[660px]/settings:px-3 @min-[660px]/settings:pt-4 @min-[660px]/settings:pb-2">
+        <DialogTitle className="shrink-0 whitespace-nowrap text-base font-semibold @min-[660px]/settings:px-1.5">
+          设置
+        </DialogTitle>
+        <div className="relative mt-3 hidden @min-[660px]/settings:block">
           <Search
             aria-hidden="true"
             className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
@@ -141,7 +143,7 @@ function SettingsNavigation({ sectionId, saving, onNavigate }: SettingsNavigatio
             className="h-9 rounded-full border-foreground/15 bg-transparent pl-8.5 text-xs shadow-none focus-visible:border-foreground/35 focus-visible:ring-0"
           />
         </div>
-        <div className="min-w-0 flex-1 sm:hidden">
+        <div className="min-w-0 flex-1 @min-[660px]/settings:hidden">
           <Select value={sectionId} onValueChange={(value) => onNavigate(value as SettingsSection)} disabled={saving}>
             <SelectTrigger aria-label="设置分类" className="h-8 bg-transparent text-xs shadow-none">
               <SelectValue />
@@ -163,7 +165,7 @@ function SettingsNavigation({ sectionId, saving, onNavigate }: SettingsNavigatio
       </div>
       <nav
         aria-label="设置分类"
-        className="hidden min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-2.5 pt-3 pb-5 sm:block"
+        className="hidden min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-2.5 pt-3 pb-5 @min-[660px]/settings:block"
       >
         {visibleGroups.map((group) => (
           <section key={group.label} aria-label={group.label}>
@@ -214,10 +216,10 @@ function SettingsPanel({
       id="settings-content"
       aria-labelledby="settings-section-title"
       tabIndex={-1}
-      className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 outline-none sm:px-8 sm:py-10 lg:px-12"
+      className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-[clamp(1rem,3.8cqw,3rem)] py-[clamp(1.25rem,3.5dvh,2.5rem)] pb-[max(clamp(1.25rem,3.5dvh,2.5rem),env(safe-area-inset-bottom))] outline-none"
     >
-      <div className="mx-auto max-w-[38rem] space-y-7">
-        <h2 id="settings-section-title" className="pr-6 text-xl font-semibold tracking-tight sm:text-2xl">
+      <div className="mx-auto max-w-[44rem] space-y-7">
+        <h2 id="settings-section-title" className="pr-10 text-xl font-semibold tracking-tight sm:text-2xl">
           {section.label}
         </h2>
         <div className="min-w-0 space-y-6 text-xs">{renderContent(sectionId)}</div>
@@ -250,12 +252,12 @@ export function SettingsDialog({
       <DialogContent
         aria-describedby={undefined}
         overlayClassName="bg-black/45 backdrop-blur-[3px]"
-        className="no-drag flex h-[calc(100dvh-1rem)] max-h-none w-[calc(100vw-1rem)] max-w-[67.5rem] flex-col gap-0 rounded-2xl border-border/70 bg-popover p-0 text-popover-foreground shadow-2xl sm:h-[min(82dvh,46rem)] sm:w-[90vw] sm:flex-row lg:w-[84vw]"
+        className="no-drag @container/settings block h-dvh max-h-none w-dvw max-w-none gap-0 rounded-none border-0 bg-popover p-0 text-popover-foreground shadow-2xl sm:h-[min(calc(100dvh-2rem),clamp(32rem,84dvh,52rem))] sm:w-[min(calc(100vw-2rem),clamp(45rem,84vw,68rem))] sm:rounded-2xl sm:border sm:border-border/70"
         closeButtonProps={{
           'aria-label': '关闭设置',
           disabled: saving,
           className:
-            'right-2.5 top-2.5 grid size-8 place-items-center rounded-full text-muted-foreground opacity-100 hover:bg-foreground/5 hover:text-foreground disabled:opacity-40 sm:right-3 sm:top-3',
+            'right-2.5 top-[max(0.625rem,env(safe-area-inset-top))] grid size-8 place-items-center rounded-full text-muted-foreground opacity-100 hover:bg-foreground/5 hover:text-foreground disabled:opacity-40 sm:right-3.5 sm:top-3.5',
         }}
         onEscapeKeyDown={(event) => {
           if (
@@ -269,8 +271,10 @@ export function SettingsDialog({
           onReturnFocus()
         }}
       >
-        <SettingsNavigation sectionId={sectionId} saving={saving} onNavigate={onNavigate} />
-        <SettingsPanel key={sectionId} sectionId={sectionId} renderContent={renderContent} />
+        <div className="flex size-full min-h-0 min-w-0 flex-col @min-[660px]/settings:flex-row">
+          <SettingsNavigation sectionId={sectionId} saving={saving} onNavigate={onNavigate} />
+          <SettingsPanel key={sectionId} sectionId={sectionId} renderContent={renderContent} />
+        </div>
       </DialogContent>
     </Dialog>
   )
