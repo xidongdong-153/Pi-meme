@@ -3,6 +3,10 @@
   --thinking-fill: linear-gradient(90deg, #2563eb 0%, #3b82f6 100%);
   --thinking-fill-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18);
   --thinking-ring: rgb(59 130 246 / 0.45);
+  --thinking-fast-accent: var(--thinking-accent);
+  --thinking-fast-glow: rgb(96 165 250 / 0.55);
+  --thinking-particle-color: #ffffff;
+  --thinking-particle-glow: rgb(191 219 254 / 0.9);
 }
 
 .model-thinking-theme[data-thinking-level='off'] {
@@ -10,6 +14,10 @@
   --thinking-fill: #52525b;
   --thinking-fill-shadow: none;
   --thinking-ring: rgb(148 163 184 / 0.45);
+  --thinking-fast-accent: #38bdf8;
+  --thinking-fast-glow: rgb(56 189 248 / 0.55);
+  --thinking-particle-color: #f8fafc;
+  --thinking-particle-glow: rgb(226 232 240 / 0.78);
 }
 
 .model-thinking-theme[data-thinking-level='minimal'] {
@@ -17,6 +25,10 @@
   --thinking-fill: linear-gradient(90deg, #059669 0%, #10b981 100%);
   --thinking-fill-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2);
   --thinking-ring: rgb(16 185 129 / 0.45);
+  --thinking-fast-accent: var(--thinking-accent);
+  --thinking-fast-glow: rgb(52 211 153 / 0.52);
+  --thinking-particle-color: #f0fdf4;
+  --thinking-particle-glow: rgb(167 243 208 / 0.85);
 }
 
 .model-thinking-theme[data-thinking-level='low'] {
@@ -24,6 +36,10 @@
   --thinking-fill: linear-gradient(90deg, #0284c7 0%, #0ea5e9 100%);
   --thinking-fill-shadow: inset 0 1px 0 rgb(255 255 255 / 0.2);
   --thinking-ring: rgb(14 165 233 / 0.45);
+  --thinking-fast-accent: var(--thinking-accent);
+  --thinking-fast-glow: rgb(56 189 248 / 0.55);
+  --thinking-particle-color: #f0f9ff;
+  --thinking-particle-glow: rgb(186 230 253 / 0.88);
 }
 
 .model-thinking-theme[data-thinking-level='medium'] {
@@ -31,6 +47,10 @@
   --thinking-fill: linear-gradient(90deg, #2563eb 0%, #3b82f6 100%);
   --thinking-fill-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18);
   --thinking-ring: rgb(59 130 246 / 0.45);
+  --thinking-fast-accent: var(--thinking-accent);
+  --thinking-fast-glow: rgb(96 165 250 / 0.58);
+  --thinking-particle-color: #ffffff;
+  --thinking-particle-glow: rgb(191 219 254 / 0.92);
 }
 
 .model-thinking-theme[data-thinking-level='high'] {
@@ -38,6 +58,10 @@
   --thinking-fill: linear-gradient(90deg, #d97706 0%, #f59e0b 100%);
   --thinking-fill-shadow: inset 0 1px 0 rgb(255 251 235 / 0.28);
   --thinking-ring: rgb(245 158 11 / 0.45);
+  --thinking-fast-accent: var(--thinking-accent);
+  --thinking-fast-glow: rgb(251 191 36 / 0.56);
+  --thinking-particle-color: #fefce8;
+  --thinking-particle-glow: rgb(254 240 138 / 0.92);
 }
 
 .model-thinking-theme[data-thinking-level='xhigh'] {
@@ -45,6 +69,10 @@
   --thinking-fill: linear-gradient(90deg, #ea580c 0%, #f97316 100%);
   --thinking-fill-shadow: inset 0 1px 0 rgb(255 247 237 / 0.28);
   --thinking-ring: rgb(249 115 22 / 0.45);
+  --thinking-fast-accent: var(--thinking-accent);
+  --thinking-fast-glow: rgb(251 146 60 / 0.58);
+  --thinking-particle-color: #fff7ed;
+  --thinking-particle-glow: rgb(254 215 170 / 0.92);
 }
 
 .model-thinking-theme[data-thinking-level='max'] {
@@ -53,6 +81,10 @@
   --thinking-fill-shadow:
     inset 0 1px 0 rgb(255 243 224 / 0.4), inset 0 -1px 0 rgb(136 19 55 / 0.32), 0 0 10px rgb(244 63 94 / 0.28);
   --thinking-ring: rgb(244 63 94 / 0.48);
+  --thinking-fast-accent: var(--thinking-accent);
+  --thinking-fast-glow: rgb(251 113 133 / 0.62);
+  --thinking-particle-color: #fff1f2;
+  --thinking-particle-glow: rgb(254 205 211 / 0.95);
 }
 
 .model-thinking-theme[data-thinking-level='ultra'] {
@@ -60,46 +92,67 @@
   --thinking-fill: linear-gradient(100deg, #3c50e8 0%, #7956ed 36%, #b783f5 64%, #8650e4 100%);
   --thinking-fill-shadow: inset 0 1px 0 #e8d6ff40, inset 0 -1px 0 #40219730, 0 0 12px rgb(139 92 246 / 0.32);
   --thinking-ring: rgb(167 139 250 / 0.5);
+  --thinking-fast-accent: var(--thinking-accent);
+  --thinking-fast-glow: rgb(196 154 255 / 0.65);
+  --thinking-particle-color: #faf5ff;
+  --thinking-particle-glow: rgb(233 213 255 / 0.95);
 }
 
 :root[data-appearance='light'] .model-thinking-theme[data-thinking-level='off'] {
   --thinking-accent: #64748b;
   --thinking-fill: #94a3b8;
+  --thinking-fast-accent: #0284c7;
+  --thinking-fast-glow: rgb(2 132 199 / 0.32);
 }
 
 :root[data-appearance='light'] .model-thinking-theme[data-thinking-level='minimal'] {
   --thinking-accent: #059669;
+  --thinking-fast-glow: rgb(5 150 105 / 0.3);
 }
 
 :root[data-appearance='light'] .model-thinking-theme[data-thinking-level='low'] {
   --thinking-accent: #0284c7;
+  --thinking-fast-glow: rgb(2 132 199 / 0.3);
 }
 
 :root[data-appearance='light'] .model-thinking-theme[data-thinking-level='medium'] {
   --thinking-accent: #2563eb;
+  --thinking-fast-glow: rgb(37 99 235 / 0.32);
 }
 
 :root[data-appearance='light'] .model-thinking-theme[data-thinking-level='high'] {
   --thinking-accent: #b45309;
+  --thinking-fast-glow: rgb(180 83 9 / 0.3);
 }
 
 :root[data-appearance='light'] .model-thinking-theme[data-thinking-level='xhigh'] {
   --thinking-accent: #c2410c;
+  --thinking-fast-glow: rgb(194 65 12 / 0.32);
 }
 
 :root[data-appearance='light'] .model-thinking-theme[data-thinking-level='max'] {
   --thinking-accent: #e11d48;
   --thinking-fill-shadow:
     inset 0 1px 0 rgb(255 243 224 / 0.45), inset 0 -1px 0 rgb(159 18 57 / 0.25), 0 0 8px rgb(225 29 72 / 0.22);
+  --thinking-fast-glow: rgb(225 29 72 / 0.34);
 }
 
 :root[data-appearance='light'] .model-thinking-theme[data-thinking-level='ultra'] {
   --thinking-accent: #7c3aed;
   --thinking-fill-shadow: inset 0 1px 0 #f3e8ff55, inset 0 -1px 0 #40219728, 0 0 8px rgb(124 58 237 / 0.24);
+  --thinking-fast-glow: rgb(124 58 237 / 0.34);
 }
 
 .model-thinking-accent {
   color: var(--thinking-accent);
+}
+
+.model-thinking-fast-toggle[data-fast-active='true'] {
+  color: var(--thinking-fast-accent);
+}
+
+.model-thinking-fast-toggle[data-fast-active='true'] svg {
+  filter: drop-shadow(0 0 5px var(--thinking-fast-glow));
 }
 
 .model-thinking-panel[data-thinking-level='max'] .model-thinking-title {
@@ -177,14 +230,36 @@
   animation: model-thinking-glide 4.4s ease-in-out infinite;
 }
 
-.model-thinking-ultra-particle {
+.model-thinking-particle-layer {
   position: absolute;
-  z-index: 1;
-  border-radius: 50%;
-  background: #f2e6ff;
-  box-shadow: 0 0 3px #f2dcff70;
-  opacity: 0.8;
-  animation: model-thinking-ultra-reaction 2s ease-in-out infinite;
+  inset: 0 10px 0 0;
+  z-index: 2;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 12%, #000 96%, transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 12%, #000 96%, transparent 100%);
+}
+
+.model-thinking-particle-lane {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+  animation: model-thinking-particle-flow-x var(--particle-duration, 1.4s) linear infinite;
+  animation-delay: var(--particle-delay, 0s);
+}
+
+.model-thinking-particle {
+  position: absolute;
+  left: 100%;
+  border-radius: 9999px;
+  background: var(--thinking-particle-color);
+  box-shadow:
+    0 0 var(--particle-glow-blur, 4px) 0.5px var(--thinking-particle-glow),
+    0 0 1.5px rgb(255 255 255 / 0.85);
+  will-change: transform, opacity;
+  animation: model-thinking-particle-pulse var(--particle-duration, 1.4s) ease-in-out infinite;
+  animation-delay: var(--particle-delay, 0s);
 }
 
 @keyframes model-thinking-glide {
@@ -203,44 +278,77 @@
   }
 }
 
-@keyframes model-thinking-ultra-reaction {
-  0%,
+@keyframes model-thinking-particle-flow-x {
+  0% {
+    transform: translate3d(0%, 0, 0);
+  }
   100% {
-    transform: translate(0, 0) scale(0.85);
+    transform: translate3d(-100%, 0, 0);
   }
-  23% {
-    transform: translate(var(--particle-x), var(--particle-y)) scale(1.1);
+}
+
+@keyframes model-thinking-particle-pulse {
+  0% {
+    transform: translate3d(0, -50%, 0) scale(0.72);
+    opacity: 0;
   }
-  37% {
-    transform: translate(calc(var(--particle-x) * -0.45), calc(var(--particle-y) * 0.6)) scale(0.9);
+  12% {
+    transform: translate3d(0, calc(-50% + var(--particle-drift-y, 0px) * 0.4), 0) scale(1);
+    opacity: var(--particle-opacity, 0.85);
   }
-  44% {
-    transform: translate(calc(var(--particle-x) * 0.3), calc(var(--particle-y) * -0.4)) scale(1);
+  50% {
+    transform: translate3d(0, calc(-50% + var(--particle-drift-y, 0px)), 0) scale(1.12);
+    opacity: var(--particle-opacity, 0.85);
   }
-  68% {
-    transform: translate(calc(var(--particle-x) * -0.8), calc(var(--particle-y) * -1)) scale(0.85);
+  84% {
+    transform: translate3d(0, calc(-50% + var(--particle-drift-y, 0px) * -0.45), 0) scale(0.92);
+    opacity: calc(var(--particle-opacity, 0.85) * 0.72);
   }
-  81% {
-    transform: translate(calc(var(--particle-x) * 0.4), calc(var(--particle-y) * -0.25)) scale(1.05);
+  100% {
+    transform: translate3d(0, -50%, 0) scale(0.55);
+    opacity: 0;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .model-thinking-ultra-particle,
+  .model-thinking-particle-lane,
+  .model-thinking-particle,
   .model-thinking-max-fill::after,
   .model-thinking-ultra-fill::after {
     animation: none;
   }
+
+  .model-thinking-particle-lane {
+    transform: none;
+  }
+
+  .model-thinking-particle {
+    left: var(--particle-static-x, 50%);
+    transform: translate3d(0, -50%, 0);
+    opacity: var(--particle-opacity, 0.82);
+  }
 }
 
-:root[data-reduced-motion='true'] .model-thinking-ultra-particle,
+:root[data-reduced-motion='true'] .model-thinking-particle-lane,
+:root[data-reduced-motion='true'] .model-thinking-particle,
 :root[data-reduced-motion='true'] .model-thinking-max-fill::after,
 :root[data-reduced-motion='true'] .model-thinking-ultra-fill::after {
   animation: none;
 }
 
+:root[data-reduced-motion='true'] .model-thinking-particle-lane {
+  transform: none;
+}
+
+:root[data-reduced-motion='true'] .model-thinking-particle {
+  left: var(--particle-static-x, 50%);
+  transform: translate3d(0, -50%, 0);
+  opacity: var(--particle-opacity, 0.82);
+}
+
 /* Portal 退场期间不继续播放特效。关闭后由 Popover 卸载，隐藏聊天也会立即卸载。 */
-[data-state='closed'] .model-thinking-ultra-particle,
+[data-state='closed'] .model-thinking-particle-lane,
+[data-state='closed'] .model-thinking-particle,
 [data-state='closed'] .model-thinking-max-fill::after,
 [data-state='closed'] .model-thinking-ultra-fill::after {
   animation-play-state: paused;

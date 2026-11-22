@@ -11,37 +11,61 @@ import {
   type ServiceTier,
 } from '@pi-meme/contracts/pi'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from '@pi-meme/ui/components/ui/dropdown-menu'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { THINKING_LEVEL_LABELS } from './thinking-config'
 import './model-picker-popover.css'
 
-const speedLabels = { inherit: '跟随默认', standard: '标准', fast: 'Fast' } as const
 const ULTRA_DESCRIPTION = '最高可用思考强度与主动多代理协作，可能增加用量'
 
-const ULTRA_PARTICLES = [
-  [7, 30, 2, 3, -2, 1.9],
-  [13, 68, 1.5, -2, 3, 2.3],
-  [20, 42, 3, 2, -3, 2.7],
-  [28, 76, 2, -3, -2, 1.7],
-  [34, 22, 1.5, 3, 2, 2.5],
-  [41, 56, 2.5, -2, -3, 2.1],
-  [49, 34, 3.5, 2, 3, 2.8],
-  [54, 78, 1.5, -3, -2, 1.8],
-  [60, 48, 2, 3, -3, 2.4],
-  [66, 20, 2.5, -2, 2, 2],
-  [72, 70, 1.5, 2, -3, 2.6],
-  [79, 38, 3, -3, 2, 2.2],
-  [87, 64, 2, 2, 3, 1.9],
-  [94, 28, 1.5, -2, -2, 2.5],
-] as const
+type ParticleProfile = {
+  count: number
+  speedPxPerSec: number
+  sizeScale: number
+  glowBlur: number
+}
+
+// 思考强度从低到高递进的粒子流配置（开启 Fast 模式时每一个思考强度均生效）
+const FAST_PARTICLE_PROFILES: Record<SessionThinkingLevel, ParticleProfile> = {
+  off: { count: 4, speedPxPerSec: 26, sizeScale: 0.85, glowBlur: 3 },
+  minimal: { count: 5, speedPxPerSec: 36, sizeScale: 0.88, glowBlur: 3.5 },
+  low: { count: 6, speedPxPerSec: 54, sizeScale: 0.94, glowBlur: 4 },
+  medium: { count: 8, speedPxPerSec: 78, sizeScale: 1, glowBlur: 4.5 },
+  high: { count: 10, speedPxPerSec: 110, sizeScale: 1.05, glowBlur: 5 },
+  xhigh: { count: 12, speedPxPerSec: 148, sizeScale: 1.08, glowBlur: 5.5 },
+  max: { count: 14, speedPxPerSec: 190, sizeScale: 1.12, glowBlur: 6 },
+  ultra: { count: 16, speedPxPerSec: 232, sizeScale: 1.15, glowBlur: 6.5 },
+}
+
+// Ultra 未开启 Fast 时的基础星尘流配置（同样向左流动，节奏更克制优雅）
+const ULTRA_BASE_PARTICLE_PROFILE: ParticleProfile = {
+  count: 12,
+  speedPxPerSec: 108,
+  sizeScale: 1.05,
+  glowBlur: 5,
+}
+
+// [top%, baseSizePx, phase(0~1), speedScale, driftYPx, opacity]
+const FLOW_PARTICLES: readonly (readonly [number, number, number, number, number, number])[] = [
+  [30, 2.4, 0.12, 1.12, -1.6, 0.9],
+  [68, 1.8, 0.58, 0.86, 1.8, 0.72],
+  [46, 2.8, 0.34, 1.2, -1.2, 0.95],
+  [78, 1.6, 0.81, 0.82, -1.4, 0.65],
+  [22, 2.2, 0.47, 1.04, 1.5, 0.84],
+  [58, 2.6, 0.93, 1.15, -1.8, 0.88],
+  [36, 1.7, 0.23, 0.88, 1.6, 0.68],
+  [72, 2.5, 0.69, 1.1, -1.5, 0.86],
+  [24, 3.0, 0.05, 1.24, 1.2, 0.96],
+  [52, 1.9, 0.41, 0.92, -2.0, 0.75],
+  [82, 2.2, 0.18, 1.02, -1.2, 0.8],
+  [38, 2.7, 0.76, 1.18, 1.7, 0.92],
+  [64, 1.6, 0.29, 0.84, 1.4, 0.64],
+  [18, 2.4, 0.88, 1.14, 1.8, 0.88],
+  [48, 3.1, 0.63, 1.26, -1.6, 0.96],
+  [74, 2.0, 0.09, 0.96, -1.8, 0.78],
+  [28, 1.7, 0.52, 0.85, 1.5, 0.68],
+  [60, 2.6, 0.97, 1.22, -1.3, 0.9],
+]
 
 const KNOWN_PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
@@ -115,11 +139,11 @@ export function ModelPickerPopover({
 
   const selectedModel =
     models.find((model) => model.provider === currentModel?.provider && model.id === currentModel.id) ?? currentModel
-  const showSpeed = Boolean(onSelectServiceTier && (selectedModel?.supportsFastMode || serviceTier !== 'inherit'))
+  const supportsFastMode = Boolean(selectedModel?.supportsFastMode)
+  const showSpeed = Boolean(onSelectServiceTier && (supportsFastMode || serviceTier !== 'inherit'))
   const showFast =
     showSpeed && (serviceTier === 'fast' || (serviceTier === 'inherit' && selectedModel?.defaultServiceTier === 'fast'))
-  const speedMenu = React.useRef<HTMLDivElement>(null)
-  const speedLabel = nextMessageSpeed ? '下一条消息的速度' : '速度'
+  const speedLabel = nextMessageSpeed ? '下一条消息的 Fast 模式' : 'Fast 模式'
   const activeLevels: readonly SessionThinkingLevel[] = allowUltra
     ? modelSessionThinkingLevels(selectedModel)
     : modelThinkingLevels(selectedModel)
@@ -144,6 +168,30 @@ export function ModelPickerPopover({
   const currentLevelLabel = THINKING_LEVEL_LABELS[activeLevel] || '中'
   const isMax = activeLevel === 'max'
   const isUltra = activeLevel === 'ultra'
+  const showParticles = activeLevels.length > 1 && (showFast || isUltra)
+  // 用离散档位比例估算轨道距离，避免拖拽期间每帧改写 animationDuration 引起抖动
+  const activeStepRatio = activeLevels.length > 1 ? activeIndex / (activeLevels.length - 1) : 0.5
+  const flowParticles = React.useMemo(() => {
+    if (!showParticles) return []
+    const profile = isUltra && !showFast ? ULTRA_BASE_PARTICLE_PROFILE : FAST_PARTICLE_PROFILES[activeLevel]
+    const travelDistancePx = Math.max(24, activeStepRatio * 200)
+    return FLOW_PARTICLES.slice(0, profile.count).map(([top, baseSize, phase, speedScale, driftY, opacity]) => {
+      const duration = Number((travelDistancePx / (profile.speedPxPerSec * speedScale)).toFixed(2))
+      const delay = Number((-phase * duration).toFixed(2))
+      const size = Number((baseSize * profile.sizeScale).toFixed(2))
+      const staticX = Math.round(10 + (1 - phase) * 76)
+      return {
+        top,
+        size,
+        duration,
+        delay,
+        driftY,
+        opacity,
+        glowBlur: profile.glowBlur,
+        staticX,
+      }
+    })
+  }, [showParticles, isUltra, showFast, activeLevel, activeStepRatio])
 
   const modelKey = (m: PiModel) => `${m.provider}:${m.id}`
   const choices = React.useMemo(() => {
@@ -269,6 +317,20 @@ export function ModelPickerPopover({
     onSelectThinkingLevel(resolveModelThinkingLevel(selectedModel, 'medium'))
   }
 
+  // 快速模式二态开关（开 / 不开）
+  const handleToggleFastMode = () => {
+    if (disabled || busy || !onSelectServiceTier) return
+    if (!supportsFastMode) {
+      onSelectServiceTier('inherit')
+      return
+    }
+    if (showFast) {
+      onSelectServiceTier(selectedModel?.defaultServiceTier === 'fast' ? 'standard' : 'inherit')
+    } else {
+      onSelectServiceTier('fast')
+    }
+  }
+
   const triggerRef = React.useRef<HTMLButtonElement>(null)
   const contentRef = React.useRef<HTMLDivElement>(null)
   const closedByOutsidePointer = React.useRef(false)
@@ -278,8 +340,7 @@ export function ModelPickerPopover({
     if (!ownerDocument) return
     const dismissOutside = (event: PointerEvent) => {
       const path = event.composedPath()
-      if (path.includes(triggerRef.current!) || path.includes(contentRef.current!) || path.includes(speedMenu.current!))
-        return
+      if (path.includes(triggerRef.current!) || path.includes(contentRef.current!)) return
       closedByOutsidePointer.current = true
       gestureRef.current = null
       setDragRatio(null)
@@ -337,7 +398,9 @@ export function ModelPickerPopover({
             type="button"
             disabled={disabled}
             aria-busy={busy || undefined}
-            aria-label={showSpeed ? `选择模型、思考强度与速度${showFast ? '，Fast' : ''}` : '选择模型与思考强度'}
+            aria-label={
+              showSpeed ? `选择模型、思考强度与 Fast 模式${showFast ? '，已开启' : ''}` : '选择模型与思考强度'
+            }
             data-thinking-level={activeLevel}
             className={cn(
               'model-thinking-theme inline-flex min-w-0 max-w-full whitespace-nowrap items-center justify-center select-none cursor-pointer transition-colors rounded-full',
@@ -382,57 +445,56 @@ export function ModelPickerPopover({
           <div
             className="model-thinking-panel model-thinking-theme flex flex-col gap-3 select-none"
             data-thinking-level={activeLevel}
+            data-fast-mode={showFast ? 'on' : 'off'}
           >
-            {/* 顶栏：中间高亮强度文字与模型入口，右侧重置按钮 */}
-            <div className="flex items-center justify-between px-1">
-              <div className="flex size-6 shrink-0 items-center justify-center self-start">
+            {/* 顶栏：左侧 Fast 开关，中间高亮强度文字与模型入口，右侧重置按钮 */}
+            <div className="flex items-start justify-between px-1">
+              <div className="flex size-6 shrink-0 items-center justify-center">
                 {showSpeed ? (
-                  <DropdownMenu modal={false}>
-                    <TooltipHint
-                      side="top"
-                      content={
+                  <TooltipHint
+                    side="top"
+                    content={
+                      supportsFastMode ? (
                         <span className="flex flex-col">
-                          <span>{nextMessageSpeed ? '下一条消息的速度' : 'Fast 优先处理'}</span>
-                          <span className="text-muted-foreground">用量更多</span>
+                          <span>
+                            {nextMessageSpeed
+                              ? `下一条消息 Fast：${showFast ? '已开启' : '已关闭'}`
+                              : `Fast 模式：${showFast ? '已开启' : '已关闭'}`}
+                          </span>
+                          <span className="text-muted-foreground">优先处理，可能增加用量</span>
                         </span>
-                      }
-                    >
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          disabled={disabled || busy}
-                          aria-label={`${speedLabel}：${speedLabels[serviceTier]}`}
-                          className={cn(
-                            'flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-secondary',
-                            showFast && 'bg-secondary text-foreground',
-                          )}
-                        >
-                          <Zap aria-hidden className={cn('size-4', showFast && 'fill-current')} strokeWidth={1.6} />
-                        </button>
-                      </DropdownMenuTrigger>
-                    </TooltipHint>
-                    <DropdownMenuContent
-                      ref={speedMenu}
-                      side="top"
-                      align="start"
-                      sideOffset={5}
-                      className="min-w-28"
-                      aria-label={speedLabel}
-                    >
-                      <DropdownMenuRadioGroup value={serviceTier}>
-                        {(['inherit', 'standard', 'fast'] as const).map((tier) => (
-                          <DropdownMenuRadioItem
-                            key={tier}
-                            value={tier}
-                            disabled={tier !== 'inherit' && !selectedModel?.supportsFastMode}
-                            onSelect={() => onSelectServiceTier?.(tier)}
-                          >
-                            {speedLabels[tier]}
-                          </DropdownMenuRadioItem>
-                        ))}
-                      </DropdownMenuRadioGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                      ) : (
+                        <span className="flex flex-col">
+                          <span>当前模型不支持 Fast</span>
+                          <span className="text-muted-foreground">点击关闭并恢复默认</span>
+                        </span>
+                      )
+                    }
+                  >
+                    <span className="inline-flex shrink-0" tabIndex={disabled || busy ? 0 : undefined}>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={showFast}
+                        disabled={disabled || busy}
+                        onClick={handleToggleFastMode}
+                        data-fast-active={showFast ? 'true' : 'false'}
+                        aria-label={
+                          supportsFastMode
+                            ? `${speedLabel}：${showFast ? '已开启' : '已关闭'}`
+                            : '当前模型不支持 Fast，点击关闭'
+                        }
+                        className={cn(
+                          'model-thinking-fast-toggle flex size-6 items-center justify-center rounded-md transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50',
+                          showFast
+                            ? 'hover:bg-secondary/60'
+                            : 'text-muted-foreground/75 hover:bg-secondary/60 hover:text-foreground',
+                        )}
+                      >
+                        <Zap aria-hidden className={cn('size-4', showFast && 'fill-current')} strokeWidth={1.75} />
+                      </button>
+                    </span>
+                  </TooltipHint>
                 ) : isUltra ? (
                   <Zap aria-hidden className="model-thinking-accent size-3.5" />
                 ) : null}
@@ -509,25 +571,37 @@ export function ModelPickerPopover({
                     }}
                   >
                     {isMax && <span aria-hidden="true" className="model-thinking-fill model-thinking-max-fill" />}
-                    {isUltra && (
-                      <span aria-hidden="true" className="model-thinking-fill model-thinking-ultra-fill">
-                        {ULTRA_PARTICLES.map(([left, top, size, x, y, duration], index) => (
+                    {isUltra && <span aria-hidden="true" className="model-thinking-fill model-thinking-ultra-fill" />}
+                    {showParticles && (
+                      <span aria-hidden="true" className="model-thinking-particle-layer">
+                        {flowParticles.map((particle, index) => (
                           <span
                             key={index}
-                            className="model-thinking-ultra-particle"
+                            className="model-thinking-particle-lane"
                             style={
                               {
-                                left: `${left}%`,
-                                top: `${top}%`,
-                                width: size,
-                                height: size,
-                                '--particle-x': `${x}px`,
-                                '--particle-y': `${y}px`,
-                                animationDuration: `${duration}s`,
-                                animationDelay: `${-index * 0.37}s`,
+                                '--particle-duration': `${particle.duration}s`,
+                                '--particle-delay': `${particle.delay}s`,
                               } as React.CSSProperties
                             }
-                          />
+                          >
+                            <span
+                              className="model-thinking-particle"
+                              style={
+                                {
+                                  top: `${particle.top}%`,
+                                  width: `${particle.size}px`,
+                                  height: `${particle.size}px`,
+                                  '--particle-duration': `${particle.duration}s`,
+                                  '--particle-delay': `${particle.delay}s`,
+                                  '--particle-drift-y': `${particle.driftY}px`,
+                                  '--particle-opacity': particle.opacity,
+                                  '--particle-glow-blur': `${particle.glowBlur}px`,
+                                  '--particle-static-x': `${particle.staticX}%`,
+                                } as React.CSSProperties
+                              }
+                            />
+                          </span>
                         ))}
                       </span>
                     )}
@@ -549,7 +623,7 @@ export function ModelPickerPopover({
                         }}
                         className={cn(
                           'absolute top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 size-1 rounded-full pointer-events-none transition-colors duration-150',
-                          isUltra ? 'opacity-0' : isPassed ? 'bg-white/80' : 'bg-foreground/25',
+                          isPassed && showParticles ? 'opacity-0' : isPassed ? 'bg-white/80' : 'bg-foreground/25',
                         )}
                       />
                     )
