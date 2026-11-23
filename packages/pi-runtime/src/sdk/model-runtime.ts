@@ -38,10 +38,11 @@ export function createModelCredentialStore(storage: SecureCredentialStorage): Cr
   const locks = new Map<string, Promise<unknown>>()
   const serialize = <T>(id: string, work: () => Promise<T>) => {
     const previous = locks.get(id) ?? Promise.resolve()
-    const next = previous.catch(() => {}).then(work)
-    locks.set(id, next)
-    void next.finally(() => {
-      if (locks.get(id) === next) locks.delete(id)
+    const next = previous.then(work)
+    const settled = next.catch(() => {})
+    locks.set(id, settled)
+    void settled.then(() => {
+      if (locks.get(id) === settled) locks.delete(id)
     })
     return next
   }
@@ -50,8 +51,12 @@ export function createModelCredentialStore(storage: SecureCredentialStorage): Cr
     read: async (providerId) => {
       const value = read(providerId)
       if (!value) return undefined
-      if (value.credential)
-        return { ...value.credential, ...(value.credential.type === 'api_key' ? { env: value.env } : {}) }
+      if (value.credential) {
+        const credential = value.credential
+        return credential.type === 'api_key' && value.env
+          ? { ...credential, env: { ...credential.env, ...value.env } }
+          : credential
+      }
       return value.env ? ({ type: 'api_key', env: value.env } satisfies Credential) : undefined
     },
     list: async () =>

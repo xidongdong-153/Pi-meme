@@ -1388,6 +1388,7 @@ function AppContent({
     ),
   }
 
+  const modelFallback = chat.state?.modelFallback
   // 原位置编辑期间，底部输入区只保留说明，避免两个含义不明的输入区。
   const composer = chat.editing ? (
     <div data-testid="editing-hint" className="px-3 py-2 text-center text-xs text-muted-foreground/70">
@@ -1406,6 +1407,14 @@ function AppContent({
             操作电脑需要普通任务和完全权限，可在输入框下方切换。
           </p>
         )}
+      {modelFallback && (
+        <p role="status" className="break-words px-3 pb-2 text-xs text-muted-foreground">
+          {modelFallback.previous.provider}/{modelFallback.previous.id} 已不可用。
+          {modelFallback.replacement
+            ? `当前使用 ${modelFallback.replacement.provider}/${modelFallback.replacement.id}。`
+            : '请在设置中配置可用模型。'}
+        </p>
+      )}
       {chat.chat.running && liveChanges && <LiveTurnChanges changes={liveChanges} onView={viewChanges} />}
       {turnChanges.error && (
         <p role="status" className="px-3 pb-2 text-xs text-destructive">

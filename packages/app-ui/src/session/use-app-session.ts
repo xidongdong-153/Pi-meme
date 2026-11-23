@@ -1827,7 +1827,12 @@ export function useAppSession(
       })
       if (savedDraft) return savedDraft
       if (!current.current.sessionKey || actionLock.current || selection.current.current) return Promise.resolve(false)
-      if (state?.model?.provider === model.provider && state.model.id === model.id && !state.modelSelectionRequired)
+      if (
+        state?.model?.provider === model.provider &&
+        state.model.id === model.id &&
+        !state.modelSelectionRequired &&
+        !state.modelFallback
+      )
         return Promise.resolve(true)
       const previousModel = state?.model
       const previousRequired = state?.modelSelectionRequired

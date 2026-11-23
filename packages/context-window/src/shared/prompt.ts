@@ -726,6 +726,7 @@ function builder(api: string, body: string, keep: boolean): PromptBuilder | unde
         break
       case 'openai-responses':
       case 'openai-codex-responses':
+      case 'azure-openai-responses':
       case 'responses':
         result.responses(value)
         break

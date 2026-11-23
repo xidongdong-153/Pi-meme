@@ -50,7 +50,10 @@ function statusBadge(provider: BuiltinProviderInfo) {
 
 function methodLabel(provider: BuiltinProviderInfo, type: BuiltinAuthType) {
   const method = provider.methods.find((item) => item.type === type)
-  if (type === 'api_key') return provider.configured ? '更新 Key' : '配置 Key'
+  if (type === 'api_key') {
+    if (provider.id === 'azure') return provider.configured ? '更新配置' : '配置 Azure'
+    return provider.configured ? '更新 Key' : '配置 Key'
+  }
   if (provider.configured) return method?.subscription ? '重新登录' : '重连 OAuth'
   return method?.subscription ? '账号登录' : 'OAuth 登录'
 }
@@ -68,6 +71,8 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
   const [answer, setAnswer] = useState('')
   const [showSecret, setShowSecret] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [loginError, setLoginError] = useState('')
+  const loginRevision = useRef(0)
   const active = useRef(true)
 
   async function load() {
@@ -97,29 +102,31 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
   }, [])
 
   useEffect(() => {
-    if (!login || (login.status !== 'running' && login.status !== 'needs_input')) return
+    if (!login || submitting || (login.status !== 'running' && login.status !== 'needs_input')) return
     let current = true
+    const revision = loginRevision.current
     const timer = setInterval(() => {
       void bridge
         .getBuiltinLogin()
         .then((next) => {
-          if (!current || !next) return
+          if (!current || loginRevision.current !== revision || next?.id !== login.id) return
           setLogin(next)
           if (next.status === 'done') void load()
         })
         .catch((cause: unknown) => {
-          if (current) setError(String(cause))
+          if (current && loginRevision.current === revision) setLoginError(String(cause))
         })
     }, 500)
     return () => {
       current = false
       clearInterval(timer)
     }
-  }, [login?.id, login?.status])
+  }, [login?.id, login?.status, submitting])
 
   useEffect(() => {
     setAnswer('')
     setShowSecret(false)
+    setLoginError('')
   }, [login?.prompt?.id])
 
   async function begin(provider: BuiltinProviderInfo, authType: BuiltinAuthType) {
@@ -134,23 +141,27 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
     }
   }
 
-  async function submit() {
+  async function submit(value = answer) {
     if (!login?.prompt || submitting) return
+    const revision = ++loginRevision.current
     setSubmitting(true)
-    setError('')
+    setLoginError('')
     try {
-      const next = await bridge.respondBuiltinLogin({ id: login.id, promptId: login.prompt.id, value: answer })
+      const next = await bridge.respondBuiltinLogin({ id: login.id, promptId: login.prompt.id, value })
+      if (loginRevision.current !== revision || !active.current) return
       setLogin(next)
       if (next.status === 'done') await load()
     } catch (cause) {
-      setError(String(cause))
+      if (loginRevision.current === revision && active.current) setLoginError(String(cause))
     } finally {
-      setSubmitting(false)
+      if (loginRevision.current === revision && active.current) setSubmitting(false)
     }
   }
 
   async function closeLogin() {
     const current = login
+    loginRevision.current += 1
+    setSubmitting(false)
     setLogin(null)
     if (!current || current.status === 'done' || current.status === 'cancelled' || current.status === 'error') return
     try {
@@ -186,8 +197,9 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
   const unconnectedList = matched.filter((provider) => !provider.configured)
 
   const prompt = login?.prompt
+  const azure = login?.providerId === 'azure' && login.authType === 'api_key'
   const promptMessage =
-    login?.authType === 'api_key' && prompt?.type === 'secret'
+    !azure && login?.authType === 'api_key' && prompt?.type === 'secret'
       ? `请输入 ${login.providerName} API Key`
       : prompt?.message
 
@@ -381,10 +393,14 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
               if (!open) void closeLogin()
             }}
           >
-            <DialogContent aria-label={`${login.providerName} 登录`}>
-              <DialogTitle>登录 {login.providerName}</DialogTitle>
+            <DialogContent>
+              <DialogTitle>{azure ? '配置 Azure OpenAI' : `登录 ${login.providerName}`}</DialogTitle>
               <DialogDescription>
-                {login.authType === 'oauth' ? '按服务商页面完成账号登录。' : '输入服务商提供的 API Key。'}
+                {azure
+                  ? '填写端点或资源名、部署映射和 API Key。'
+                  : login.authType === 'oauth'
+                    ? '按服务商页面完成账号登录。'
+                    : '输入服务商提供的 API Key。'}
               </DialogDescription>
               <div className="space-y-3">
                 {login.notices.map((notice, index) => (
@@ -456,21 +472,11 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                         {prompt.options?.map((option) => (
                           <Button
                             key={option.id}
+                            type="button"
                             variant="outline"
                             className="h-auto w-full justify-start rounded-lg px-3 py-2 text-left text-xs shadow-none"
                             disabled={submitting}
-                            onClick={() => {
-                              setAnswer(option.id)
-                              setSubmitting(true)
-                              void bridge
-                                .respondBuiltinLogin({ id: login.id, promptId: prompt.id, value: option.id })
-                                .then((next) => {
-                                  setLogin(next)
-                                  if (next.status === 'done') return load()
-                                })
-                                .catch((cause: unknown) => setError(String(cause)))
-                                .finally(() => setSubmitting(false))
-                            }}
+                            onClick={() => void submit(option.id)}
                           >
                             <span>
                               {option.label}
@@ -487,10 +493,13 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                       <div className="flex gap-2">
                         <Input
                           className={settingsControlClassName}
+                          key={prompt.id}
                           aria-label={promptMessage}
+                          aria-invalid={Boolean(loginError)}
                           autoFocus
                           type={prompt.type === 'secret' && !showSecret ? 'password' : 'text'}
                           autoComplete="off"
+                          disabled={submitting}
                           value={answer}
                           placeholder={
                             login.authType === 'api_key' && prompt.type === 'secret'
@@ -514,16 +523,18 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                         <Button
                           className={cn(settingsControlClassName, 'shrink-0 whitespace-nowrap')}
                           type="submit"
-                          disabled={submitting || !answer.trim()}
+                          disabled={submitting || (!prompt.optional && !answer.trim())}
                         >
-                          {submitting ? '提交中…' : '继续'}
+                          {submitting ? '提交中…' : prompt.optional && !answer.trim() ? '略过' : '继续'}
                         </Button>
                       </div>
                     )}
                   </form>
                 )}
-                {login.error && login.status !== 'needs_input' && (
-                  <p className="text-xs text-destructive">{login.error}</p>
+                {(login.error || loginError) && (
+                  <p role="alert" className="text-xs text-destructive">
+                    {login.error || loginError}
+                  </p>
                 )}
                 {login.reconnectError && (
                   <div role="alert" className="space-y-2">

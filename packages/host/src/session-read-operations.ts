@@ -315,6 +315,7 @@ function publicAgent(value: unknown): PublicRecord {
 function publicState(value: unknown): PublicRecord {
   const state = object(value)
   const policy = object(state.pluginPolicy)
+  const fallback = object(state.modelFallback)
   const { model, modelServiceTiers } = state as Partial<PiState>
   const tier = modelServiceTier(model, modelServiceTiers)
   return {
@@ -336,6 +337,16 @@ function publicState(value: unknown): PublicRecord {
       'modelSelectionRequired',
     ]),
     model: state.model === undefined ? undefined : publicModel(state.model),
+    modelFallback:
+      state.modelFallback === undefined
+        ? undefined
+        : {
+            previous: scalars(object(fallback.previous), ['provider', 'id']),
+            replacement:
+              fallback.replacement === undefined
+                ? undefined
+                : scalars(object(fallback.replacement), ['provider', 'id']),
+          },
     generationMetrics: publicGeneration(state.generationMetrics),
     retry:
       state.retry === undefined

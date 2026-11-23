@@ -54,9 +54,11 @@ paths:
 
 “设置 → Agent → 模型”管理 Host 的 `config/agent/models.json`（原 `pi/models.json`）。非敏感服务商和模型声明保存在此文件，API Key、OAuth 与敏感请求头由凭据存储管理；界面只返回是否已保存密钥等状态。协议与可编辑字段见 [model-config.ts](../packages/contracts/src/model-config.ts)，校验和保存见 [config-store.ts](../packages/models/src/server/config-store.ts)。
 
-同一页可以登录 Pi 自带目录里的服务商，不把这些服务商写进 `models.json`。API Key 和订阅账号都调用 `ModelRuntime.login`，退出调用 `logout`，凭据进入上面的凭据存储。登录或退出后重连 Pi，模型选择器才会出现新的可用模型。会话正在运行时凭据仍会保存，重连失败时页面会提示稍后再点“重新连接”。OpenAI 等登录用的设备标识写在 `config/agent/device-id`（原 `pi/device-id`）。这里不读取本机环境变量，也不执行 `!command`。实现见 [builtin-auth.ts](../packages/models/src/server/builtin-auth.ts)。
+同一页可以登录 Pi 自带目录里的服务商。登录或退出后重连 Pi，模型选择器会刷新可用模型。会话正在运行时凭据仍会保存，重连失败时页面会提示稍后再点“重新连接”。通用登录调用 `ModelRuntime.login`，退出调用 `logout`。OpenAI 等登录用的设备标识写在 `config/agent/device-id`（原 `pi/device-id`）。
 
-默认模型和原生思考强度写入 `config/agent/settings.json` 的 `defaultProvider`、`defaultModel`、`defaultThinkingLevel`。原生档位为 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；未设置时 Pi 使用 `medium`。同一文件里的 `modelThinkingLevels` 可按 `provider/modelId` 覆盖该模型的启动强度。这些默认值不改变已经打开的会话。对话选择器额外提供的 [Ultra 会话策略](sessions.md#思考强度与-ultra)不属于模型能力或默认原生档位。
+Azure OpenAI 在内置服务商列表使用「配置 Azure」或「更新配置」。依次填写端点或资源名、部署映射和 API Key。多组映射以英文逗号分隔，例如 `gpt-6.2-sol=my-sol,gpt-6.2-astra=my-astra`。部署名称与目录里的模型 ID 相同时可略过映射。三个值一并写入当前 Host 的凭据存储，供模型请求使用。 [内置服务商登录](../packages/models/src/server/builtin-auth.ts)
+
+默认模型和原生思考强度写入 `config/agent/settings.json` 的 `defaultProvider`、`defaultModel`、`defaultThinkingLevel`。原生档位为 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；未设置时 Pi 使用 `medium`。同一文件里的 `modelThinkingLevels` 可按 `provider/modelId` 覆盖该模型的启动强度。新会话优先使用可用的显式默认模型，再按 Pi SDK 的服务商推荐顺序选取可用模型，最后取可用目录的首项。已选定模型的会话沿用自己的配置。对话选择器额外提供的 [Ultra 会话策略](sessions.md#思考强度与-ultra)不属于模型能力或默认原生档位。
 
 自定义提供商的模型使用 OpenAI Responses 或 OpenAI Chat Completions 时，可以在“已选模型”卡片上勾选“支持快速模式”。保存后，在聊天模型面板左上角点击闪电即可开启 Fast。每个模型单独配置，开关与“高级模型参数 → compat JSON”中的 `supportsFastMode` 同步。
 

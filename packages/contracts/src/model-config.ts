@@ -116,6 +116,7 @@ export type ModelLoginPrompt = {
   type: 'text' | 'secret' | 'select' | 'manual_code'
   message: string
   placeholder?: string
+  optional?: boolean
   options?: { id: string; label: string; description?: string }[]
 }
 export type ModelLoginStatus = 'running' | 'needs_input' | 'done' | 'cancelled' | 'error'

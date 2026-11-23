@@ -313,6 +313,10 @@ export type PiState = Pick<
   composerHint?: string
   model?: PiModel
   modelSelectionRequired?: boolean
+  modelFallback?: {
+    previous: Pick<PiModel, 'provider' | 'id'>
+    replacement?: Pick<PiModel, 'provider' | 'id'>
+  }
   thinkingLevel?: SessionThinkingLevel
   modelServiceTiers?: ModelServiceTiers
 }

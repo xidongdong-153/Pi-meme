@@ -11,8 +11,13 @@ import type {
   ModelLoginPrompt,
   ModelLoginState,
 } from '@pi-meme/contracts/model-config'
-import { desktopBuiltinProviderIds, createDesktopModelRuntime } from '@pi-meme/pi-runtime/sdk/model-runtime'
+import {
+  createDesktopModelRuntime,
+  createModelCredentialStore,
+  desktopBuiltinProviderIds,
+} from '@pi-meme/pi-runtime/sdk/model-runtime'
 import { loadPiSdk } from '@pi-meme/pi-runtime/sdk/load'
+import { endpoint } from './config-store'
 
 type DesktopRuntime = Awaited<ReturnType<typeof createDesktopModelRuntime>>
 type LoginAttempt = {
@@ -29,6 +34,7 @@ type LoginAttempt = {
   timedOut: boolean
   resolvePrompt?: (value: string) => void
   rejectPrompt?: (cause: Error) => void
+  validatePrompt?: (value: string) => string
   listeners: Set<() => void>
 }
 
@@ -90,6 +96,105 @@ function wait(attempt: LoginAttempt, timeoutMs: number, until: () => boolean) {
     }, timeoutMs)
     attempt.listeners.add(finish)
     finish()
+  })
+}
+
+function requestInput(
+  attempt: LoginAttempt,
+  prompt: Omit<ModelLoginPrompt, 'id'>,
+  options?: { signal?: AbortSignal; validate?: (value: string) => string },
+) {
+  return new Promise<string>((resolve, reject) => {
+    const signal = attempt.abort.signal
+    if (signal.aborted || options?.signal?.aborted) {
+      reject(new Error('Login cancelled'))
+      return
+    }
+    const listeners = new AbortController()
+    const cleanup = () => {
+      listeners.abort()
+      attempt.resolvePrompt = undefined
+      attempt.rejectPrompt = undefined
+      attempt.validatePrompt = undefined
+    }
+    const onAbort = () => {
+      cleanup()
+      reject(new Error('Login cancelled'))
+    }
+    signal.addEventListener('abort', onAbort, { once: true, signal: listeners.signal })
+    options?.signal?.addEventListener('abort', onAbort, { once: true, signal: listeners.signal })
+    attempt.resolvePrompt = (value) => {
+      cleanup()
+      resolve(value)
+    }
+    attempt.rejectPrompt = (cause) => {
+      cleanup()
+      reject(cause)
+    }
+    attempt.validatePrompt = options?.validate
+    attempt.prompt = { ...prompt, id: randomUUID() }
+    attempt.status = 'needs_input'
+    pulse(attempt)
+  })
+}
+
+function azureEndpoint(input: string) {
+  const value = input.trim()
+  if (/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(value)) {
+    return `https://${value.toLowerCase()}.openai.azure.com/openai/v1`
+  }
+  try {
+    return endpoint(value).href
+  } catch {
+    throw new Error('请输入 Azure 资源名或完整的 HTTP(S) 端点地址。')
+  }
+}
+
+function azureDeployments(input: string) {
+  if (!input.trim()) return ''
+  const deployments = new Map<string, string>()
+  for (const mapping of input.split(',')) {
+    const match = /^\s*([^\s=,]+)\s*=\s*([^\s=,]+)\s*$/.exec(mapping)
+    if (!match) throw new Error('请按 模型 ID=部署名称 填写，多组映射用英文逗号分隔。')
+    const [, model, deployment] = match
+    if (deployments.has(model)) throw new Error('同一个模型 ID 只能填写一组部署映射。')
+    deployments.set(model, deployment)
+  }
+  return [...deployments].map(([model, deployment]) => `${model}=${deployment}`).join(',')
+}
+
+async function configureAzure(attempt: LoginAttempt, storage: SecureCredentialStorage) {
+  const baseUrl = await requestInput(
+    attempt,
+    {
+      type: 'text',
+      message: 'Azure OpenAI 端点或资源名',
+      placeholder: 'https://my-resource.openai.azure.com',
+    },
+    { validate: azureEndpoint },
+  )
+  const deployments = await requestInput(
+    attempt,
+    {
+      type: 'text',
+      message: '部署映射。部署名称与模型 ID 相同时可略过。',
+      placeholder: 'gpt-6.2-sol=my-deployment',
+      optional: true,
+    },
+    { validate: azureDeployments },
+  )
+  const key = await requestInput(attempt, { type: 'secret', message: '请输入 Azure OpenAI API Key' })
+  await createModelCredentialStore(storage).modify('azure', async () => {
+    attempt.abort.signal.throwIfAborted()
+    return {
+      type: 'api_key',
+      key: key.trim(),
+      env: {
+        AZURE_OPENAI_BASE_URL: baseUrl,
+        // SDK 会用非空的请求环境覆盖进程环境，空白会解析为空映射。
+        AZURE_OPENAI_DEPLOYMENT_NAME_MAP: deployments || ' ',
+      },
+    }
   })
 }
 
@@ -175,70 +280,47 @@ export function createBuiltinAuth(options: {
       10 * 60 * 1000,
     )
     try {
-      const active = await runtime()
-      const installation = await deviceId()
-      try {
-        await active.login(
-          current.providerId,
-          current.authType,
-          {
-            signal: current.abort.signal,
-            notify: (event) => {
-              const notice = noticeFromEvent(event)
-              if (!notice) return
-              current.notices.push(notice)
-              if (current.notices.length > 30) current.notices.shift()
-              pulse(current)
-            },
-            prompt: (prompt) =>
-              new Promise((resolve, reject) => {
-                if (current.abort.signal.aborted) {
-                  reject(new Error('Login cancelled'))
-                  return
-                }
-                let onAbort = () => {}
-                const cleanup = () => {
-                  current.abort.signal.removeEventListener('abort', onAbort)
-                  prompt.signal?.removeEventListener('abort', onAbort)
-                  current.resolvePrompt = undefined
-                  current.rejectPrompt = undefined
-                }
-                onAbort = () => {
-                  cleanup()
-                  reject(new Error('Login cancelled'))
-                }
-                current.abort.signal.addEventListener('abort', onAbort, { once: true })
-                prompt.signal?.addEventListener('abort', onAbort, { once: true })
-                current.resolvePrompt = (value) => {
-                  cleanup()
-                  resolve(value)
-                }
-                current.rejectPrompt = (cause) => {
-                  cleanup()
-                  reject(cause)
-                }
-                current.prompt = {
-                  id: randomUUID(),
-                  type: prompt.type,
-                  message: clip(prompt.message) ?? '',
-                  placeholder: prompt.type === 'select' ? undefined : clip(prompt.placeholder, 200),
-                  options:
-                    prompt.type === 'select'
-                      ? prompt.options.map((option) => ({
-                          id: option.id,
-                          label: clip(option.label, 200) ?? option.id,
-                          description: clip(option.description, 500),
-                        }))
-                      : undefined,
-                }
-                current.status = 'needs_input'
+      if (current.providerId === 'azure' && current.authType === 'api_key') {
+        await configureAzure(current, options.credentials)
+      } else {
+        const [active, installation] = await Promise.all([runtime(), deviceId()])
+        try {
+          await active.login(
+            current.providerId,
+            current.authType,
+            {
+              signal: current.abort.signal,
+              notify: (event) => {
+                const notice = noticeFromEvent(event)
+                if (!notice) return
+                current.notices.push(notice)
+                if (current.notices.length > 30) current.notices.shift()
                 pulse(current)
-              }),
-          },
-          { getDeviceId: () => installation, agentName: 'pi-meme' },
-        )
-      } catch (cause) {
-        if (!syncFailure(cause)) throw cause
+              },
+              prompt: (prompt) =>
+                requestInput(
+                  current,
+                  {
+                    type: prompt.type,
+                    message: clip(prompt.message) ?? '',
+                    placeholder: prompt.type === 'select' ? undefined : clip(prompt.placeholder, 200),
+                    options:
+                      prompt.type === 'select'
+                        ? prompt.options.map((option) => ({
+                            id: option.id,
+                            label: clip(option.label, 200) ?? option.id,
+                            description: clip(option.description, 500),
+                          }))
+                        : undefined,
+                  },
+                  { signal: prompt.signal },
+                ),
+            },
+            { getDeviceId: () => installation, agentName: 'pi-meme' },
+          )
+        } catch (cause) {
+          if (!syncFailure(cause)) throw cause
+        }
       }
       runtimeTask = undefined
       current.prompt = undefined
@@ -248,6 +330,7 @@ export function createBuiltinAuth(options: {
       current.prompt = undefined
       current.resolvePrompt = undefined
       current.rejectPrompt = undefined
+      current.validatePrompt = undefined
       if (current.timedOut) {
         current.status = 'error'
         current.error = '登录超时，请重试'
@@ -267,8 +350,6 @@ export function createBuiltinAuth(options: {
     providers,
     state: () => (attempt ? snapshot(attempt) : null),
     async start(value: unknown) {
-      if (attempt && (attempt.status === 'running' || attempt.status === 'needs_input'))
-        throw new Error('已有登录正在进行')
       const input = text(value, '登录参数')
       if (typeof input.providerId !== 'string' || (input.authType !== 'api_key' && input.authType !== 'oauth'))
         throw new Error('登录参数无效')
@@ -277,6 +358,8 @@ export function createBuiltinAuth(options: {
       const method = provider.methods.find((item) => item.type === input.authType)
       if (!method) throw new Error('此服务商不支持该登录方式')
       if (!method.interactive) throw new Error('此服务商不能在应用内登录')
+      if (attempt && (attempt.status === 'running' || attempt.status === 'needs_input'))
+        throw new Error('已有登录正在进行')
       const current: LoginAttempt = {
         id: randomUUID(),
         providerId: provider.id,
@@ -294,20 +377,22 @@ export function createBuiltinAuth(options: {
     },
     async respond(value: unknown) {
       const input = text(value, '登录响应')
-      if (!attempt || input.id !== attempt.id) throw new Error('登录已结束或不存在')
+      const current = attempt
+      if (!current || input.id !== current.id) throw new Error('登录已结束或不存在')
       if (typeof input.promptId !== 'string' || typeof input.value !== 'string') throw new Error('登录响应无效')
-      if (!attempt.prompt || attempt.prompt.id !== input.promptId || !attempt.resolvePrompt)
+      if (!current.prompt || current.prompt.id !== input.promptId || !current.resolvePrompt)
         throw new Error('登录提示已变化，请按当前提示重新提交')
       if (input.value.length > 8000) throw new Error('登录响应过长')
-      if (attempt.prompt.type === 'select') {
-        if (!attempt.prompt.options?.some((option) => option.id === input.value))
+      if (current.prompt.type === 'select') {
+        if (!current.prompt.options?.some((option) => option.id === input.value))
           throw new Error('请选择列出的登录选项')
-      } else if (!input.value.trim()) throw new Error('请输入内容')
-      const resolve = attempt.resolvePrompt
-      attempt.prompt = undefined
-      attempt.status = 'running'
-      resolve(input.value)
-      return wait(attempt, 15000, () => attempt?.status !== 'running')
+      } else if (!current.prompt.optional && !input.value.trim()) throw new Error('请输入内容')
+      const answer = current.validatePrompt ? current.validatePrompt(input.value) : input.value
+      const resolve = current.resolvePrompt
+      current.prompt = undefined
+      current.status = 'running'
+      resolve(answer)
+      return wait(current, 15000, () => current.status !== 'running')
     },
     async cancel() {
       if (!attempt) return null

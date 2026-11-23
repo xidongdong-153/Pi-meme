@@ -25,6 +25,7 @@ import type { ToolExecutionSettings } from '@pi-meme/contracts/settings'
 
 export type ModelRestore = {
   sessionFile?: string
+  sessionStartEvent?: import('@earendil-works/pi-coding-agent').SessionStartEvent
   model?: PiModel
   thinkingLevel?: SessionThinkingLevel
   modelServiceTiers?: ModelServiceTiers

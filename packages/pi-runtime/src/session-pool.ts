@@ -145,6 +145,7 @@ type RuntimeSession = {
   cwd: string
   session: RuntimeSdkSession
   sessionFile?: string
+  sessionStartEvent?: ModelRestore['sessionStartEvent']
   restored: boolean
   dormant: boolean
   starting?: Promise<void>
@@ -953,10 +954,8 @@ export class PiSessionPool implements PiRuntime {
       cancelledPrompt: false,
       state: {
         mode: 'default',
-        model: options?.model ?? history?.model ?? this.defaults?.model,
-        // 已有会话沿用记录；新建会话留给 Pi 默认思考强度，不复制上一次的选择。
-        thinkingLevel:
-          options?.thinkingLevel ?? history?.thinkingLevel ?? (sessionFile ? this.defaults?.thinkingLevel : undefined),
+        model: options?.model ?? history?.model,
+        thinkingLevel: options?.thinkingLevel ?? history?.thinkingLevel,
         modelServiceTiers: history?.modelServiceTiers,
         sessionName: history?.sessionName,
         skillUsages: history?.skillUsages,
@@ -1513,11 +1512,6 @@ export class PiSessionPool implements PiRuntime {
           : undefined
       await this.warmMetadata(record)
       const models = this.localAvailableModels ?? []
-      if (this.localAvailableModels && record.state.model) {
-        record.state.modelSelectionRequired = !models.some(
-          (model) => model.provider === record.state.model?.provider && model.id === record.state.model?.id,
-        )
-      }
       return projectSessionDetails(
         projectSessionWindow(
           {
@@ -1621,37 +1615,27 @@ export class PiSessionPool implements PiRuntime {
         target.state === state &&
         state.model === previousModel &&
         state.thinkingLevel === previousThinking
-      let requestedModel = previousModel
-      let requestedThinking = previousThinking
-      const missingModel =
-        requestedModel &&
-        !models.some((model) => model.id === requestedModel?.id && model.provider === requestedModel?.provider)
-      let usingFallback = false
-      if ((!requestedModel && !target.sessionFile) || missingModel) {
-        const fallback = defaultModelConfiguration(models, preferences)
-        if (fallback) {
-          requestedModel = fallback.model
-          if (missingModel) {
-            requestedThinking =
-              previousThinking === 'ultra'
-                ? resolveSessionThinkingLevel(fallback.model, 'ultra')
-                : fallback.thinkingLevel
-            usingFallback = true
-          }
-        }
-      }
-      if (!target.sessionFile && requestedThinking == null) {
-        const perModel = requestedModel
-          ? preferences.modelThinkingLevels[`${requestedModel.provider}/${requestedModel.id}`]
-          : undefined
-        requestedThinking = perModel ?? preferences.thinkingLevel
-      }
-      const model = models.find(
+      const requestedModel = state.modelFallback?.previous ?? previousModel
+      const available = models.find(
         (entry) => entry.id === requestedModel?.id && entry.provider === requestedModel?.provider,
       )
+      const fallback = available ? undefined : defaultModelConfiguration(models, preferences)
+      const model = available ?? fallback?.model
+      const missingModel = requestedModel && !available ? requestedModel : undefined
+      let thinkingLevel = previousThinking
       if (model) {
-        const thinkingLevel = resolveSessionThinkingLevel(model, requestedThinking ?? 'medium')
-        if (previousThinking === 'ultra' && thinkingLevel === 'off' && target.dormant && target.sessionFile) {
+        const preferred = preferences.modelThinkingLevels[`${model.provider}/${model.id}`] ?? preferences.thinkingLevel
+        const requestedThinking =
+          missingModel && previousThinking !== 'ultra' ? fallback?.thinkingLevel : previousThinking
+        thinkingLevel = resolveSessionThinkingLevel(model, requestedThinking ?? preferred ?? 'medium')
+        if (
+          previousThinking === 'ultra' &&
+          thinkingLevel === 'off' &&
+          !missingModel &&
+          !this.changing &&
+          target.dormant &&
+          target.sessionFile
+        ) {
           syncingUltraTarget = target
           await target.retiring
           await target.workerStopping
@@ -1691,9 +1675,6 @@ export class PiSessionPool implements PiRuntime {
           }
         }
         if (!stillCurrent()) return
-        state.model = model
-        state.thinkingLevel = thinkingLevel
-        if (usingFallback) state.modelSelectionRequired = false
         syncingUltraTarget = undefined
         const usage = target.stats?.contextUsage
         if (usage?.estimated && target.stats) {
@@ -1708,6 +1689,16 @@ export class PiSessionPool implements PiRuntime {
           }
         }
       }
+      if (!stillCurrent()) return
+      state.thinkingLevel = thinkingLevel
+      state.model = model ?? requestedModel
+      state.modelSelectionRequired = Boolean(missingModel && !model)
+      state.modelFallback = missingModel
+        ? {
+            previous: { provider: missingModel.provider, id: missingModel.id },
+            replacement: model && { provider: model.provider, id: model.id },
+          }
+        : undefined
     } catch (cause) {
       if (syncingUltraTarget && this.sessions.has(syncingUltraTarget.key))
         this.notify.error({
@@ -1767,6 +1758,18 @@ export class PiSessionPool implements PiRuntime {
     }
     this.localAvailableModels = snapshot.models
   }
+  private restoreConfiguration(record: RuntimeSession): ModelRestore {
+    const saved = record.restored || record.messages.length > 0 || (record.totalMessages ?? 0) > 0
+    return {
+      sessionFile: record.sessionFile,
+      sessionStartEvent: record.sessionStartEvent,
+      // 存盘历史交给 SDK 恢复（包括扩展模型）。预览目录的替代项不能覆盖原始选择。
+      model: saved ? undefined : (record.state.modelFallback?.previous ?? record.state.model),
+      thinkingLevel: saved ? undefined : record.state.thinkingLevel,
+      modelServiceTiers: record.state.modelServiceTiers,
+    }
+  }
+
   private async ensureRuntime(record: RuntimeSession, executionMode?: TaskMode): Promise<void> {
     // 已预约的消息先运行；随后登记的退役会等待它结束，不能反过来等待退役。
     if (!record.pendingPrompt) await record.retiring
@@ -1778,12 +1781,8 @@ export class PiSessionPool implements PiRuntime {
       await record.accessReady
       this.configureSession(record, executionMode ?? record.state.mode)
       await record.session.setSessionMode(executionMode ?? record.state.mode)
-      await record.session.reconnectModels({
-        sessionFile: record.sessionFile,
-        model: record.state.model,
-        thinkingLevel: record.state.thinkingLevel,
-        modelServiceTiers: record.state.modelServiceTiers,
-      })
+      await record.session.reconnectModels(this.restoreConfiguration(record))
+      record.sessionStartEvent = undefined
       if (record.name && !record.sessionFile) await record.session.setSessionName(record.name)
       if (record.state.steeringMode) await record.session.setSteeringMode(record.state.steeringMode)
       if (record.state.followUpMode) await record.session.setFollowUpMode(record.state.followUpMode)
@@ -2005,19 +2004,9 @@ export class PiSessionPool implements PiRuntime {
   async forkReply(sessionKey: string, userTimestamp: number): Promise<SessionSelectionResult> {
     this.assertNotEditing(sessionKey)
     const source = this.target(sessionKey)
-    if (source.running || this.changing) throw new Error('会话正在运行，请等待完成后新建会话')
+    if (source.running || source.pendingPrompt || source.stopping || this.changing)
+      throw new Error('会话正在运行，请等待完成后新建会话')
     this.changing = true
-    const temporary = this.sessionFactory(
-      source.cwd,
-      {
-        connection: () => {},
-        event: () => {},
-        error: () => {},
-      },
-      this.runtimePaths,
-      this.credentialStorage,
-      this.mcpExtensionFactory,
-    )
     try {
       if (source.dormant) await this.ensureRuntime(source)
       const sourcePath = source.session.getActiveSession().sessionFile ?? source.sessionFile
@@ -2060,25 +2049,17 @@ export class PiSessionPool implements PiRuntime {
       const agentIds = forkAgentIds(throughPoint)
       await this.collaboration?.beforeFork?.(sessionKey, agentIds)
 
-      temporary.configureInlineExtensions(this.inlineExtensions)
-      temporary.configureCapabilities(this.capabilities)
-      temporary.configureAccess(source.accessMode)
-      await temporary.setSessionMode(source.state.mode)
-      temporary.start(source.cwd, sourcePath)
-      await temporary.getEntries()
-      const result = await temporary.forkAtEntry(forkPoint)
+      const result = await source.session.forkAtEntry(forkPoint)
       if (result.cancelled) return { cancelled: true }
-      await temporary.snapshot()
-      const forkedPath = temporary.getActiveSession().sessionFile
-      if (!forkedPath || forkedPath === sourcePath) throw new Error('Pi 没有创建新的会话文件')
+      const forkedPath = result.sessionFile
       const history = await readSessionHistory(forkedPath)
       const selection = ++this.selection
       await this.accessStore.set(forkedPath, source.accessMode)
       const created = this.create(history.cwd, forkedPath, history, source.accessMode)
+      created.sessionStartEvent = { type: 'session_start', reason: 'fork', previousSessionFile: sourcePath }
       await this.collaboration?.forked?.(sessionKey, created.key, agentIds)
       return await this.selectionResult(selection)
     } finally {
-      temporary.stop()
       this.changing = false
     }
   }
@@ -2555,14 +2536,18 @@ export class PiSessionPool implements PiRuntime {
           ...record.state,
           model: selected,
           modelSelectionRequired: false,
+          modelFallback: undefined,
           thinkingLevel,
         }
         return selected
       }
     }
     const selected = await record.session.setModel(model)
+    const { state } = await record.session.snapshot()
     record.state.model = selected
-    record.state.thinkingLevel = (await record.session.snapshot()).state.thinkingLevel
+    record.state.thinkingLevel = state.thinkingLevel
+    record.state.modelSelectionRequired = state.modelSelectionRequired
+    record.state.modelFallback = state.modelFallback
     return selected
   }
   restoreDraftConfiguration(
@@ -2685,13 +2670,7 @@ export class PiSessionPool implements PiRuntime {
     return this.active.session.getSessionStats()
   }
   captureRestoreState() {
-    if (this.active.dormant)
-      return Promise.resolve({
-        sessionFile: this.active.sessionFile,
-        model: this.active.state.model,
-        thinkingLevel: this.active.state.thinkingLevel,
-        modelServiceTiers: this.active.state.modelServiceTiers,
-      })
+    if (this.active.dormant) return Promise.resolve(this.restoreConfiguration(this.active))
     return this.active.session.captureRestoreState()
   }
   private async restoreRuntime(restore: ModelRestore | undefined) {
@@ -2724,14 +2703,8 @@ export class PiSessionPool implements PiRuntime {
       await record.accessReady
       this.configureSession(record)
       await record.session.setSessionMode(record.state.mode)
-      await record.session.reconnectModels(
-        restore ?? {
-          sessionFile: record.sessionFile,
-          model: record.state.model,
-          thinkingLevel: record.state.thinkingLevel,
-          modelServiceTiers: record.state.modelServiceTiers,
-        },
-      )
+      await record.session.reconnectModels(restore ?? this.restoreConfiguration(record))
+      record.sessionStartEvent = undefined
       if (epoch !== this.epoch || !this.sessions.has(record.key)) return
       if (record.session.connection().status !== 'ready') return
       await record.session.setSessionMode(record.state.mode)

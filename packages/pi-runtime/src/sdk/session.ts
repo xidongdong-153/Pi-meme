@@ -109,7 +109,7 @@ import { ExtensionUiBridge } from './ui-bridge'
 import { freezeResourceLoader, snapshotSkills } from './resource-loader'
 import { eventUiSource, persistMessageSource } from './ui-source'
 import { projectStableMessageMetadata, projectStableMessages } from './message-projection'
-import { defaultModelConfiguration, readLocalPreferences } from '../session-metadata'
+import { defaultModelConfiguration, modelPreferenceThinkingLevel, readModelPreferences } from '../session-metadata'
 import {
   appendSessionThinkingSelection,
   projectSessionThinkingLevel,
@@ -139,8 +139,15 @@ async function assertDesktopSessionPath(sessionsDirectory: string, sessionPath: 
   if (!isPathWithin(root, target)) throw new Error('Desktop 只能打开应用内保存的会话')
 }
 
+function configuredModel(model: SessionModel | undefined) {
+  // AgentCore 以 unknown 模型占位，直到会话有真实的模型选择。
+  if (model?.api === 'unknown' && model.provider === 'unknown' && model.id === 'unknown') return undefined
+  return model
+}
+
 function toModel(model: SessionModel | undefined): PiModel | undefined {
-  return model ? projectModel(model) : undefined
+  const selected = configuredModel(model)
+  return selected ? projectModel(selected) : undefined
 }
 
 /**
@@ -298,7 +305,10 @@ export class SdkSession {
   private cachedModels: PiModel[] | null = null
   private cachedCommands: PiSlashCommand[] | null = null
   private modelRestore: ModelRestore | undefined
-  private modelSelectionRequired = false
+  private modelFallback: PiState['modelFallback']
+  private get modelSelectionRequired() {
+    return Boolean(this.modelFallback && !this.modelFallback.replacement)
+  }
   private composerHint?: string
   private composerHintEnabled = true
   private hintController?: AbortController
@@ -411,8 +421,14 @@ export class SdkSession {
     return this.runtime.session
   }
 
-  start(cwd: string, sessionFile?: string, preparing = false, preservePause = false) {
-    this.modelSelectionRequired = false
+  start(cwd: string, sessionFile?: string) {
+    this.startRuntime(cwd, sessionFile)
+  }
+
+  private startRuntime(cwd: string, sessionFile?: string, restore?: ModelRestore) {
+    this.modelRestore = restore
+    const preservePause = restore !== undefined
+    const preparing = preservePause && this.preparationMode !== undefined
     const admission = this.admission
     if (preparing) this.admission = undefined
     const pause = preservePause
@@ -464,7 +480,7 @@ export class SdkSession {
     this.ready = (async () => {
       await this.stopping
       if (generation !== this.generation || seq !== this.startSeq) return
-      await this.createRuntime(sessionFile, seq)
+      await this.createRuntime(sessionFile, seq, restore)
       if (generation !== this.generation || seq !== this.startSeq) return
       this.status = 'ready'
       this.sessionFile = this.runtime?.session.sessionFile ?? sessionFile
@@ -487,45 +503,11 @@ export class SdkSession {
     void this.ready.catch(() => {})
   }
 
-  /** 重建会话对象并恢复 sessionFile、模型与思考等级；不重启进程。 */
+  /** 重建会话对象，在扩展启动前恢复模型与思考等级。 */
   async reconnectModels(restore?: ModelRestore) {
-    restore ??= await this.captureRestoreState()
-    this.modelRestore = restore
-    const generation = this.generation
-    this.start(this.cwd, restore?.sessionFile, this.preparationMode !== undefined, true)
-    try {
-      await this.ready
-      const models = await this.getAvailableModels()
-      const selected = restore?.model
-      const available =
-        selected && models.some((model) => model.provider === selected.provider && model.id === selected.id)
-      const fallback =
-        selected && !available
-          ? defaultModelConfiguration(models, await readLocalPreferences(this.cwd, this.paths.agentDir))
-          : undefined
-      const model = available ? selected : fallback?.model
-      const thinkingLevel =
-        restore?.thinkingLevel === 'ultra' ? 'ultra' : available ? restore?.thinkingLevel : fallback?.thinkingLevel
-      this.modelSelectionRequired = Boolean(selected && !model)
-      if (model) {
-        if (this.preparationMode !== undefined) {
-          const restored = this.session.modelRuntime
-            .getAvailableSnapshot()
-            .find((entry) => entry.provider === model.provider && entry.id === model.id)
-          if (restored) await this.session.setModel(restored)
-        } else await this.setModel(model)
-        this.modelSelectionRequired = false
-        if (thinkingLevel) this.applySessionThinkingLevel(thinkingLevel)
-      } else if (!selected && restore?.thinkingLevel !== undefined) {
-        this.applySessionThinkingLevel(restore.thinkingLevel)
-      } else if (selected) {
-        this.report('当前模型已不可用，请在聊天中重新选择模型')
-      }
-      restoreDraftServiceTiers(this.session.sessionManager, restore?.modelServiceTiers)
-      if (generation === this.generation) this.cachedModels = models
-    } finally {
-      if (this.status === 'ready') this.notify.connection(this.connection())
-    }
+    restore ??= (await this.captureRestoreState()) ?? {}
+    this.startRuntime(this.cwd, restore.sessionFile, restore)
+    await this.ready
   }
 
   private assertPluginAvailability(mode: TaskMode) {
@@ -543,7 +525,7 @@ export class SdkSession {
         throw new Error(`grant-required: 已选择的插件 ${entry.pluginId} 在当前权限或模式不可用`)
   }
 
-  private async createRuntime(sessionFile: string | undefined, seq: number) {
+  private async createRuntime(sessionFile: string | undefined, seq: number, restore?: ModelRestore) {
     this.policy.pluginFailures?.clear()
     const generation = this.generation
     const runtimeMode = this.preparationMode ?? this.mode
@@ -576,7 +558,11 @@ export class SdkSession {
     const agentDir = this.paths.agentDir
     const restricted = executionAccess !== 'full-access'
     let extensionErrors: Array<{ path: string; error: string }> = []
-    const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager }) => {
+    let modelFallback: PiState['modelFallback']
+    let initialRestore = restore
+    const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager, sessionStartEvent }) => {
+      const targetRestore = initialRestore
+      initialRestore = undefined
       const shellDescription = process.platform === 'win32' ? await windowsShellDescription() : undefined
       const extensionFactories = [
         (pi: ExtensionAPI) => {
@@ -814,9 +800,21 @@ export class SdkSession {
       )
       const savedBranch = sessionManager.getBranch()
       const savedThinking = savedBranch.findLast((entry) => entry.type === 'thinking_level_change')
+      const preferences = readModelPreferences(settingsManager)
+      const catalog = modelRuntime.getAvailableSnapshot()
+      const requested = targetRestore?.model
+      const lookup = (model: Pick<PiModel, 'provider' | 'id'> | undefined) =>
+        model && catalog.find((candidate) => candidate.provider === model.provider && candidate.id === model.id)
+      const restored = lookup(requested)
+      const defaults =
+        !restored && (requested || !savedBranch.length)
+          ? defaultModelConfiguration(catalog.map(projectModel), preferences)
+          : undefined
       const created = await sdk.createAgentSessionFromServices({
         services,
         sessionManager,
+        sessionStartEvent,
+        model: restored ?? lookup(defaults?.model),
         // 按当前设置、模式和资源快照装配工具，避免历史清单覆盖本轮工具。
         noTools: 'builtin',
         tools: [
@@ -834,25 +832,44 @@ export class SdkSession {
           '+ls',
         ],
       })
-      const model = created.session.model
+      const model = toModel(created.session.model)
+      const recorded =
+        !requested && created.modelFallbackMessage && savedBranch.length
+          ? sdk.buildSessionProjection(savedBranch, savedBranch.at(-1)?.id).model
+          : undefined
+      const previous = requested ?? (recorded && { provider: recorded.provider, id: recorded.modelId })
+      modelFallback =
+        previous && (previous.provider !== model?.provider || previous.id !== model?.id)
+          ? {
+              previous: { provider: previous.provider, id: previous.id },
+              replacement: model && { provider: model.provider, id: model.id },
+            }
+          : undefined
+      const savedLevel = targetRestore?.thinkingLevel
       this.applySessionThinkingLevel(
-        projectSessionThinkingLevel(
-          savedBranch,
-          (created.modelFallbackMessage
-            ? undefined
-            : thinkingLevels.find((level) => level === savedThinking?.thinkingLevel)) ??
-            (model && settingsManager.getModelThinkingLevel(model.provider, model.id)) ??
-            settingsManager.getDefaultThinkingLevel() ??
-            'medium',
-          this.delegatedTask === undefined,
-        ),
+        savedLevel !== undefined && (!modelFallback || savedLevel === 'ultra')
+          ? savedLevel
+          : projectSessionThinkingLevel(
+              savedBranch,
+              (modelFallback ? undefined : thinkingLevels.find((level) => level === savedThinking?.thinkingLevel)) ??
+                (model ? modelPreferenceThinkingLevel(model, preferences) : preferences.thinkingLevel) ??
+                'medium',
+              this.delegatedTask === undefined,
+            ),
         false,
         created.session,
       )
+      restoreDraftServiceTiers(sessionManager, targetRestore?.modelServiceTiers)
       extensionErrors = services.resourceLoader.getExtensions().errors
       return { ...created, services, diagnostics: services.diagnostics }
     }
-    const runtime = await sdk.createAgentSessionRuntime(createRuntime, { cwd: this.cwd, agentDir, sessionManager })
+    const runtime = await sdk.createAgentSessionRuntime(createRuntime, {
+      cwd: this.cwd,
+      agentDir,
+      sessionManager,
+      sessionStartEvent:
+        restore?.sessionStartEvent ?? (sessionFile ? { type: 'session_start', reason: 'resume' } : undefined),
+    })
     // 并发启动或启动期间被停止时只保留最后一次：过期运行时先释放，避免订阅与状态错位。
     if (seq !== this.startSeq || generation !== this.generation) {
       void runtime.dispose().catch(() => {})
@@ -891,7 +908,8 @@ export class SdkSession {
     }
     this.runtime = runtime
     let boundSessionId = runtime.session.sessionId
-    runtime.setRebindSession(async () => {
+    const bind = async () => {
+      if (this.runtime !== runtime || generation !== this.generation) return
       if (runtime.session.sessionId !== boundSessionId) {
         this.pauseIntervals = []
         this.runIntervals = []
@@ -899,13 +917,17 @@ export class SdkSession {
         boundSessionId = runtime.session.sessionId
         this.emitPause()
       }
+      this.modelFallback = modelFallback
+      const session = runtime.session
       await this.bindSession()
-    })
-    await this.bindSession()
-    const errors = runtime.diagnostics.filter((entry) => entry.type === 'error')
-    if (errors.length) this.report(`Pi 运行时诊断：${errors.map((entry) => entry.message).join('；')}`)
-    if (extensionErrors.length)
-      this.report(`Pi 扩展加载失败：${extensionErrors.map((entry) => `${entry.path}：${entry.error}`).join('；')}`)
+      if (this.runtime !== runtime || generation !== this.generation || runtime.session !== session) return
+      const diagnostics = runtime.takeUnreportedDiagnostics()
+      if (diagnostics.length) this.report(`Pi 运行时诊断：${diagnostics.map((entry) => entry.message).join('；')}`)
+      if (extensionErrors.length)
+        this.report(`Pi 扩展加载失败：${extensionErrors.map((entry) => `${entry.path}：${entry.error}`).join('；')}`)
+    }
+    runtime.setRebindSession(bind)
+    await bind()
   }
 
   /** 绑定扩展与事件订阅；会话被替换后会再次调用。 */
@@ -914,67 +936,65 @@ export class SdkSession {
     if (!runtime) return
     const generation = this.generation
     const session = runtime.session
+    const current = () => this.runtime === runtime && generation === this.generation && runtime.session === session
     this.turnServiceTier = undefined
+    this.cachedModels = null
+    this.cachedCommands = null
+    this.unsubscribe?.()
     this.contextCaptureBinding = {
       session,
       onPayload: session.agent.onPayload,
       streamFunction: session.agent.streamFunction,
     }
     this.bridge?.clear()
-    this.bridge = new ExtensionUiBridge((event) => {
-      if (generation !== this.generation) return
+    const bridge = new ExtensionUiBridge((event) => {
+      if (!current()) return
       if (event.type === 'extension_ui_request' && event.method === 'setTitle') this.notify.title?.(event.title)
       this.notify.event({ generation: this.generation, event: structuredClone(event) })
     })
-    await session.bindExtensions({
-      uiContext: !this.policy.requireRestrictedPolicy || this.policy.uiEnabled ? this.bridge.ui : undefined,
-      mode: 'rpc',
-      commandContextActions: {
-        waitForIdle: () => session.waitForIdle(),
-        newSession: (options) => runtime.newSession(options),
-        fork: async (entryId, forkOptions) => {
-          const result = await runtime.fork(entryId, forkOptions)
-          return { cancelled: result.cancelled }
+    this.bridge = bridge
+    const bindExtensions = () =>
+      session.bindExtensions({
+        uiContext: !this.policy.requireRestrictedPolicy || this.policy.uiEnabled ? bridge.ui : undefined,
+        mode: 'rpc',
+        commandContextActions: {
+          waitForIdle: () => session.waitForIdle(),
+          newSession: (options) => runtime.newSession(options),
+          fork: async (entryId, forkOptions) => {
+            const result = await runtime.fork(entryId, forkOptions)
+            return { cancelled: result.cancelled }
+          },
+          navigateTree: async (targetId, options) => {
+            const result = await session.navigateTree(targetId, {
+              summarize: options?.summarize,
+              customInstructions: options?.customInstructions,
+              replaceInstructions: options?.replaceInstructions,
+              label: options?.label,
+            })
+            if (!result.cancelled) this.synchronizeUltra(session)
+            return { cancelled: result.cancelled }
+          },
+          switchSession: async (sessionPath, options) => {
+            await assertDesktopSessionPath(this.paths.sessionsDirectory, sessionPath)
+            return runtime.switchSession(sessionPath, options)
+          },
+          reload: async () => {
+            await session.reload()
+          },
         },
-        navigateTree: async (targetId, options) => {
-          const result = await session.navigateTree(targetId, {
-            summarize: options?.summarize,
-            customInstructions: options?.customInstructions,
-            replaceInstructions: options?.replaceInstructions,
-            label: options?.label,
+        onError: (error) => {
+          if (!current()) return
+          this.notify.error({
+            generation: this.generation,
+            message: `Pi 扩展异常：${error.extensionPath}\n事件：${error.event}\n${error.error}`,
+            extension: { path: error.extensionPath, event: error.event },
           })
-          if (!result.cancelled) this.synchronizeUltra(session)
-          return { cancelled: result.cancelled }
         },
-        switchSession: async (sessionPath, options) => {
-          await assertDesktopSessionPath(this.paths.sessionsDirectory, sessionPath)
-          return runtime.switchSession(sessionPath, options)
-        },
-        reload: async () => {
-          await session.reload()
-        },
-      },
-      onError: (error) => {
-        if (generation !== this.generation) return
-        this.notify.error({
-          generation: this.generation,
-          message: `Pi 扩展异常：${error.extensionPath}\n事件：${error.event}\n${error.error}`,
-          extension: { path: error.extensionPath, event: error.event },
-        })
-      },
-    })
-    // 绑定期间会话被替换时放弃后续步骤，避免订阅挂到旧运行时。
-    if (this.runtime !== runtime || generation !== this.generation) return
-    this.synchronizeUltra(session)
-    if (!session.getActiveToolNames().includes('codemode')) {
-      if (!session.getAllTools().some((tool) => tool.name === 'codemode')) throw new Error('codemode 内置扩展未加载')
-      session.setActiveToolsByName([...new Set([...session.getActiveToolNames(), 'codemode'])])
-    }
-    this.unsubscribe?.()
+      })
     const publishedEntries = new Set(session.sessionManager.getEntries().map((entry) => entry.id))
     const customEntries = new WeakMap<object, string>()
     const commitMessage = (entryId: string) => {
-      if (this.runtime !== runtime || generation !== this.generation || publishedEntries.has(entryId)) return
+      if (!current() || publishedEntries.has(entryId)) return
       const manager = session.sessionManager
       const message = projectStableMessageMetadata(
         manager.getEntries(),
@@ -1004,7 +1024,7 @@ export class SdkSession {
       )
     }
     this.unsubscribe = session.subscribe((event) => {
-      if (generation !== this.generation) return
+      if (!current()) return
       if (
         event.type === 'entry_appended' &&
         (event.entry.type === 'message' || event.entry.type === 'custom_message')
@@ -1019,14 +1039,13 @@ export class SdkSession {
       )
         this.notify.event({
           generation: this.generation,
-          event: { type: 'skill_usage_update', usages: this.getSkillUsages() },
+          event: { type: 'skill_usage_update', usages: this.getSkillUsages(session) },
         })
       if (event.type === 'entry_appended') {
         const sessionFile = session.sessionManager.getSessionFile()
         if (sessionFile)
           queueMicrotask(() => {
-            if (generation === this.generation)
-              this.notify.event({ generation, event: { type: 'session_saved', sessionFile } })
+            if (current()) this.notify.event({ generation, event: { type: 'session_saved', sessionFile } })
           })
       }
       if (event.type === 'entry_appended' && this.goalRun)
@@ -1053,7 +1072,7 @@ export class SdkSession {
         const captured = customEntries.get(message)
         const source = eventUiSource(desktopEvent, session, this.policy.agentSources)
         queueMicrotask(() => {
-          if (this.runtime !== runtime || generation !== this.generation) return
+          if (!current()) return
           if (source) persistMessageSource(session, desktopEvent, source)
           const entries = session.sessionManager.getEntries()
           const original = entries.find((entry) => entry.type === 'message' && entry.message === message)
@@ -1090,8 +1109,7 @@ export class SdkSession {
         const source = eventUiSource(desktopEvent, session, this.policy.agentSources)
         if (source) {
           queueMicrotask(() => {
-            if (this.runtime === runtime && generation === this.generation)
-              persistMessageSource(session, desktopEvent, source)
+            if (current()) persistMessageSource(session, desktopEvent, source)
           })
           this.handleEvent({
             ...desktopEvent,
@@ -1111,6 +1129,13 @@ export class SdkSession {
         } else this.handleEvent(desktopEvent)
       }
     })
+    await bindExtensions()
+    if (!current()) return
+    this.synchronizeUltra(session)
+    if (!session.getActiveToolNames().includes('codemode')) {
+      if (!session.getAllTools().some((tool) => tool.name === 'codemode')) throw new Error('codemode 内置扩展未加载')
+      session.setActiveToolsByName([...new Set([...session.getActiveToolNames(), 'codemode'])])
+    }
   }
 
   private accountGoalUsage() {
@@ -1315,7 +1340,7 @@ export class SdkSession {
     this.status = 'disconnected'
     this.running = false
     this.pendingSend = false
-    this.modelSelectionRequired = false
+    this.modelFallback = undefined
     this.teardownRuntime()
   }
 
@@ -1341,7 +1366,7 @@ export class SdkSession {
   getState(): SessionState {
     const session = this.session
     return {
-      model: session.model,
+      model: configuredModel(session.model),
       thinkingLevel: this.sessionThinkingLevel(session),
       isStreaming: session.isStreaming,
       isCompacting: session.isCompacting,
@@ -1503,8 +1528,9 @@ export class SdkSession {
             reason: this.policy.pluginFailures?.get(entry.pluginId) ?? '当前模式、权限或信任授权不允许此入口',
           })),
       },
-      model: this.modelSelectionRequired ? this.modelRestore?.model : toModel(state.model),
+      model: this.modelSelectionRequired ? this.modelFallback?.previous : toModel(state.model),
       modelSelectionRequired: this.modelSelectionRequired,
+      modelFallback: this.modelFallback,
       modelServiceTiers: branchServiceTiers(this.session.sessionManager.getBranch()),
       thinkingLevel: state.thinkingLevel,
       isStreaming: state.isStreaming,
@@ -1602,8 +1628,8 @@ export class SdkSession {
     }
   }
 
-  private getSkillUsages() {
-    return branchSkillUsages(this.session.sessionManager.getBranch(), this.conversationOrigin?.inheritedEntryIds)
+  private getSkillUsages(session = this.session) {
+    return branchSkillUsages(session.sessionManager.getBranch(), this.conversationOrigin?.inheritedEntryIds)
   }
 
   private async getAvailableModels(): Promise<PiModel[]> {
@@ -1759,7 +1785,7 @@ export class SdkSession {
               .find((entry) => entry.provider === model.provider && entry.id === model.id)
             if (!selected) throw new Error('模型已不可用，请重新选择模型')
             await this.session.setModel(selected)
-            this.modelSelectionRequired = false
+            this.modelFallback = undefined
           }
           if (options.thinkingLevel !== undefined) this.applySessionThinkingLevel(options.thinkingLevel)
           else this.synchronizeUltra(this.session)
@@ -1776,7 +1802,7 @@ export class SdkSession {
               .find((entry) => entry.provider === model.provider && entry.id === model.id)
             if (!selected) throw new Error('模型已不可用，请重新选择模型')
             await this.session.setModel(selected)
-            this.modelSelectionRequired = false
+            this.modelFallback = undefined
           }
           this.applySessionThinkingLevel(thinking, true)
           // 回退历史后即使运行配置没有变化，也必须记录实际原生档位；ultra 只存于策略 custom entry。
@@ -2762,7 +2788,7 @@ export class SdkSession {
       })
       await this.call(() => this.session.setModel(selected))
       this.synchronizeUltra(this.session)
-      this.modelSelectionRequired = false
+      this.modelFallback = undefined
       return projectModel(selected)
     })
   }
@@ -2865,7 +2891,7 @@ export class SdkSession {
     const timestamp = target.type === 'message' ? target.message.timestamp : undefined
     const previousModel = session.agent.state.model
     const previousThinking = session.thinkingLevel
-    const previousRequired = this.modelSelectionRequired
+    const previousFallback = this.modelFallback
     const original = readFileSync(sessionFile, 'utf8')
     const previousLeaf = manager.getLeafId()
     // 显式技能引用在用户 message_end 落盘前写入，编辑时一并移除该消息自己的引用。
@@ -2921,18 +2947,29 @@ export class SdkSession {
       restore: () => {
         session.agent.state.model = previousModel
         session.agent.state.thinkingLevel = previousThinking
-        this.modelSelectionRequired = previousRequired
+        this.modelFallback = previousFallback
         replace(original, previousLeaf)
       },
     }
   }
 
-  async forkAtEntry(entryId: string) {
+  async forkAtEntry(entryId: string): Promise<{ cancelled: true } | { cancelled: false; sessionFile: string }> {
     return this.call(async () => {
-      const runtime = this.runtime
-      if (!runtime) throw new Error('Pi 尚未就绪')
-      const result = await runtime.fork(entryId, { position: 'at' })
-      return { cancelled: result.cancelled }
+      const session = this.session
+      const source = session.sessionFile
+      if (!source || !session.sessionManager.getEntry(entryId)) throw new Error('找不到要分叉的会话条目')
+      const result = await session.extensionRunner.emit({ type: 'session_before_fork', entryId, position: 'at' })
+      if (result?.cancel) return { cancelled: true }
+      const sdk = await loadPiSdk()
+      // 用独立管理器写出分支，原会话继续持有同一个 Agent 和扩展上下文。
+      const manager = sdk.SessionManager.open(
+        source,
+        session.sessionManager.getSessionDir(),
+        session.sessionManager.getCwd(),
+      )
+      const sessionFile = manager.createBranchedSession(entryId)
+      if (!sessionFile || sessionFile === source) throw new Error('Pi 没有创建新的会话文件')
+      return { cancelled: false, sessionFile }
     })
   }
 
@@ -2941,7 +2978,7 @@ export class SdkSession {
     const state = await this.call(() => this.getState())
     return {
       sessionFile: state.sessionFile,
-      model: toModel(state.model),
+      model: this.modelFallback?.previous ?? toModel(state.model),
       thinkingLevel: state.thinkingLevel,
       modelServiceTiers: branchServiceTiers(this.session.sessionManager.getBranch()),
     }
