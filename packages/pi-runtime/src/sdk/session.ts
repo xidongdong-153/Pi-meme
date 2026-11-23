@@ -63,6 +63,7 @@ import {
   type PlanDocument,
   type PlanRef,
   type MessageOptions,
+  type PromptReceipt,
   type MessageConfiguration,
   type QueuedInput,
   type TaskMode,
@@ -108,7 +109,7 @@ import { readDesktopAgentContextFiles } from './context-files'
 import { ExtensionUiBridge } from './ui-bridge'
 import { freezeResourceLoader, snapshotSkills } from './resource-loader'
 import { eventUiSource, persistMessageSource } from './ui-source'
-import { projectStableMessageMetadata, projectStableMessages } from './message-projection'
+import { projectStableMessageMetadata, projectStableMessages, promptRequestEntry } from './message-projection'
 import { defaultModelConfiguration, modelPreferenceThinkingLevel, readModelPreferences } from '../session-metadata'
 import {
   appendSessionThinkingSelection,
@@ -286,6 +287,7 @@ export class SdkSession {
   private retry?: PiRetryState
   private compactionError?: string
   private pendingSend = false
+  private readonly promptRequests = new WeakMap<object, string>()
   private changing = false
   private preparationMode?: TaskMode
   private delegatedTask?: string
@@ -996,6 +998,14 @@ export class SdkSession {
     const commitMessage = (entryId: string) => {
       if (!current() || publishedEntries.has(entryId)) return
       const manager = session.sessionManager
+      const entry = manager.getEntry(entryId)
+      if (entry?.type === 'message' && entry.message.role === 'user') {
+        const requestId = this.promptRequests.get(entry.message)
+        if (requestId) {
+          manager.appendCustomEntry(promptRequestEntry, { entryId, requestId })
+          this.promptRequests.delete(entry.message)
+        }
+      }
       const message = projectStableMessageMetadata(
         manager.getEntries(),
         manager.buildSessionProjection(),
@@ -1886,6 +1896,10 @@ export class SdkSession {
       this.preparationMode = undefined
       this.changing = false
     }
+    const receipt: (PromptReceipt & { requestId: string }) | undefined =
+      options?.promptRequestId && !continuation && !edit && !command && !options.plan
+        ? { requestId: options.promptRequestId, entryId: null }
+        : undefined
     try {
       let handled = false
       if (command?.name === 'compact') {
@@ -1900,7 +1914,9 @@ export class SdkSession {
         }
       } else if (command?.name === 'name') await this.call(() => this.session.setSessionName(command.args!))
       else
-        handled = (await this.sendPrompt(message, images, continuation, Boolean(edit), recovery?.started)) === 'handled'
+        handled =
+          (await this.sendPrompt(message, images, continuation, Boolean(edit), recovery?.started, receipt)) ===
+          'handled'
       recovery = undefined
       if (handled && edit) throw new Error('Pi 扩展未发送编辑后的消息，已保留原对话')
       edit?.commit()
@@ -1914,6 +1930,7 @@ export class SdkSession {
       const state = this.getState()
       if (!state.isStreaming && !state.isCompacting && (this.running || command || handled))
         this.handleEvent({ type: 'agent_settled' }, Boolean(command || handled))
+      if (receipt) return { entryId: receipt.entryId }
     } catch (cause) {
       if (edit || recovery) this.changing = true
       try {
@@ -1956,6 +1973,7 @@ export class SdkSession {
     continuation: boolean | 'goal' | 'recovery' | 'stopped' = false,
     waitForUserEntry = false,
     onStarted?: () => void,
+    receipt?: PromptReceipt & { requestId: string },
   ) {
     const generation = this.generation
     await this.ready
@@ -2000,34 +2018,50 @@ export class SdkSession {
       })
     return new Promise<'handled' | 'queued' | 'started'>((resolve, reject) => {
       let started = false
-      const unsubscribe = waitForUserEntry
-        ? session.subscribe((event) => {
-            if (event.type === 'agent_settled' && !started) {
-              unsubscribe?.()
-              reject(new Error('编辑后的消息未保存，已保留原对话'))
-            }
-            if (event.type !== 'message_end' || event.message.role !== 'user') return
-            // SDK 在公开 message_end 之后同步 append；下一 microtask 再确认原生节点已落盘。
-            queueMicrotask(() => {
-              if (
-                !session.sessionManager
+      let dispatched = false
+      const unsubscribe =
+        waitForUserEntry || receipt
+          ? session.subscribe((event) => {
+              // 发送前扩展也能触发独立消息。只认本次预检真正启动后的首条用户输入。
+              if (receipt && !dispatched) return
+              if (event.type === 'agent_settled' && !started) {
+                unsubscribe?.()
+                reject(new Error(receipt ? '本次发送未生成用户消息' : '编辑后的消息未保存，已保留原对话'))
+              }
+              if (event.type !== 'message_end' || event.message.role !== 'user') return
+              if (receipt) {
+                dispatched = false
+                this.promptRequests.set(event.message, receipt.requestId)
+              }
+              // SDK 在公开 message_end 之后同步追加节点，回执和实时投影共同使用该原生 ID。
+              queueMicrotask(() => {
+                const entry = session.sessionManager
                   .getBranch()
-                  .some((entry) => entry.type === 'message' && entry.message === event.message)
-              )
-                return
-              started = true
-              unsubscribe?.()
-              resolve('started')
+                  .findLast((entry) => entry.type === 'message' && entry.message === event.message)
+                if (!entry) {
+                  if (receipt) {
+                    unsubscribe?.()
+                    reject(new Error('发送的用户消息未保存'))
+                  }
+                  return
+                }
+                if (receipt) receipt.entryId = entry.id
+                started = true
+                unsubscribe?.()
+                resolve('started')
+              })
             })
-          })
-        : undefined
+          : undefined
       void session
         .prompt(message, {
           images,
           source: 'rpc',
           preflightResult: (disposition) => {
             this.pendingSend = false
-            if (waitForUserEntry && disposition === 'started') return
+            if ((waitForUserEntry || receipt) && disposition === 'started') {
+              dispatched = true
+              return
+            }
             started = true
             unsubscribe?.()
             resolve(disposition)

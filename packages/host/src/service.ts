@@ -154,6 +154,7 @@ const reads = new Set([
   'pi:connection',
   'host:session-ref',
   'pi:snapshot',
+  'pi:prompt-result',
   'temporary-session:get',
   'pi:agents',
   'pi:agent-snapshot',
@@ -1727,6 +1728,7 @@ export async function createHost(options: HostOptions = {}) {
         sessionAttention:
           appSession && !appSession.temporary ? await sessionAttention.forSnapshot(appSession, value) : undefined,
         goalsSupported: true,
+        promptReceiptsSupported: true,
         goal: appSession ? goals.get(appSession) : undefined,
         connection: {
           ...value.connection,
@@ -2724,6 +2726,27 @@ export async function createHost(options: HostOptions = {}) {
     )
     await refreshPluginThemes()
     const registry = new RequestRegistry(hostId, storagePaths.requestsFile)
+    const readPromptResult = async (request: HostRpcRequest) => {
+      const [key, id, sessionId] = request.args
+      if (
+        !request.sessionId ||
+        key !== request.sessionId ||
+        typeof id !== 'string' ||
+        !id ||
+        id.length > 128 ||
+        (sessionId != null && typeof sessionId !== 'string')
+      )
+        throw new Error('发送回执参数无效')
+      const response = await registry.promptResult(request.clientId, request.sessionId, id)
+      if (response && !response.error) return response.result
+      // Host 重启、结果缓存淘汰或提交后的操作失败时，以分支上的原生消息为准。
+      const snapshot =
+        typeof sessionId === 'string' && !pi.hasSession(request.sessionId)
+          ? await appControl!.apiFor(request.clientId).sessions.snapshot({ hostId, sessionId })
+          : await pi.snapshot()
+      const message = snapshot.messages.find((item) => item.role === 'user' && item.sourceEntry?.promptRequestId === id)
+      return message?.sourceEntry ? { entryId: message.sourceEntry.id } : null
+    }
     const client = async (clientId: string) => {
       let view = views.get(clientId)
       if (!view) {
@@ -2969,8 +2992,20 @@ export async function createHost(options: HostOptions = {}) {
             }
             const view = await client(request.clientId)
             if (closing) throw new Error('服务正在退出，操作未执行')
+            if (request.method === 'pi:prompt') {
+              const options = request.args[4]
+              if (
+                options &&
+                typeof options === 'object' &&
+                'promptRequestId' in options &&
+                options.promptRequestId !== request.requestId
+              )
+                throw new Error('发送标识与请求不匹配')
+            }
             const action =
-              handlers[request.method] ?? builtins!.handlers[request.method] ?? plugins.handlers()[request.method]
+              request.method === 'pi:prompt-result'
+                ? () => readPromptResult(request)
+                : (handlers[request.method] ?? builtins!.handlers[request.method] ?? plugins.handlers()[request.method])
             if (!action) throw new Error(`服务方法不存在：${request.method}`)
             if (sessionWrites.has(request.method) && (!request.sessionId || request.args[0] !== request.sessionId))
               throw new Error('会话写操作必须携带匹配的 sessionId')

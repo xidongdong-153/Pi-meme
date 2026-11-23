@@ -15,6 +15,7 @@ import {
   type ChatUploadedFile,
 } from '@pi-meme/contracts/chat-attachments'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
+import type { PromptReceipt } from '@pi-meme/contracts/plan'
 import type {
   Connection,
   DesktopBridge,
@@ -41,6 +42,8 @@ import { visualizationClientOperationDefinitions } from '@pi-meme/contracts/visu
 import { SystemReadError } from '@pi-meme/contracts/system-read'
 import type { PluginClient } from './plugin-client'
 import { createResourceClient, type ResourceClient } from './resource-client'
+
+class HostTransportError extends Error {}
 
 type SystemClient = {
   handler: Parameters<NonNullable<DesktopBridge['registerSystemClient']>>[0]
@@ -367,12 +370,12 @@ export class HostClient {
           body: JSON.stringify({ token: this.options.connection.token }),
         })
       } catch (cause) {
-        throw new Error('无法连接，请确认应用已启动后重试', { cause })
+        throw new HostTransportError('无法连接，请确认应用已启动后重试', { cause })
       }
       if (response.status === 502 || response.status === 503) {
         const value: unknown = await response.json().catch(() => undefined)
         const message = value && typeof value === 'object' && 'error' in value ? value.error : undefined
-        throw new Error(typeof message === 'string' ? message : '连接尚未就绪，请稍后重试')
+        throw new HostTransportError(typeof message === 'string' ? message : '连接尚未就绪，请稍后重试')
       }
       this.assertAvailable(epoch)
       if (!response.ok) throw new Error('服务认证失败，请检查访问令牌')
@@ -425,6 +428,7 @@ export class HostClient {
     args: unknown[] = [],
     sessionId: string | null | undefined = this.selected?.sessionKey,
     signal?: AbortSignal,
+    requestId: string = crypto.randomUUID(),
   ): Promise<T> {
     const epoch = this.networkEpoch
     this.assertAvailable(epoch)
@@ -433,7 +437,6 @@ export class HostClient {
     await this.authenticate()
     this.assertAvailable(epoch)
     requestSignal.throwIfAborted()
-    const requestId = crypto.randomUUID()
     const send = async () => {
       this.assertAvailable(epoch)
       requestSignal.throwIfAborted()
@@ -455,7 +458,7 @@ export class HostClient {
         })
       } catch (cause) {
         this.assertAvailable(epoch)
-        throw new Error(`无法连接服务，操作没有自动重发：${String(cause)}`)
+        throw new HostTransportError(`无法连接服务，操作没有自动重发：${String(cause)}`, { cause })
       }
     }
     let response = await send()
@@ -467,9 +470,12 @@ export class HostClient {
     }
     this.assertAvailable(epoch)
     if (response.status === 401) throw new Error('服务登录已失效，请重新连接')
-    const value: unknown = await response.json()
+    const value: unknown = await response.json().catch((cause: unknown) => {
+      throw new HostTransportError(`无法读取服务回执：HTTP ${response.status}`, { cause })
+    })
     this.assertAvailable(epoch)
     if (!value || typeof value !== 'object' || !('requestId' in value)) {
+      if (response.status >= 500) throw new HostTransportError(`服务请求失败：HTTP ${response.status}`)
       const error = value && typeof value === 'object' && 'error' in value ? value.error : undefined
       throw new Error(typeof error === 'string' ? error : `服务请求失败：HTTP ${response.status}`)
     }
@@ -479,6 +485,41 @@ export class HostClient {
     if (envelope.error) throw Object.assign(new Error(envelope.error.message), { code: envelope.error.code })
     if (!response.ok) throw new Error(`服务请求失败：HTTP ${response.status}`)
     return envelope.result as T
+  }
+
+  private async sendPrompt(
+    key: string,
+    args: unknown[],
+    requestId?: string,
+    sessionId?: string,
+  ): Promise<void | PromptReceipt> {
+    const signal = this.lifetime.signal
+    try {
+      return await this.rpc<void | PromptReceipt>('pi:prompt', args, key, signal, requestId)
+    } catch (cause) {
+      if (!requestId) throw cause
+      // 回执丢失时只查询原请求。Host 会等待已接纳的操作结束，重启后可从原生分支恢复。
+      let delay = 1000
+      while (!signal.aborted) {
+        try {
+          const receipt = await this.rpc<PromptReceipt | null>(
+            'pi:prompt-result',
+            [key, requestId, sessionId],
+            key,
+            signal,
+          )
+          if (receipt) return receipt
+          break
+        } catch (readError) {
+          if (!(readError instanceof HostTransportError)) throw readError
+          const wake = AbortSignal.any([signal, AbortSignal.timeout(delay)])
+          if (!wake.aborted)
+            await new Promise<void>((resolve) => wake.addEventListener('abort', () => resolve(), { once: true }))
+          delay = Math.min(delay * 2, 15_000)
+        }
+      }
+      throw cause
+    }
   }
 
   private async uploadAttachment(
@@ -1549,8 +1590,13 @@ export class HostClient {
       prefetchSession: (path) => rpc('session:prefetch', [path]),
       togglePin: (path) => rpc('settings:toggle-pin', [path]),
       uploadAttachment: (key, input, signal, onProgress) => this.uploadAttachment(key, input, signal, onProgress),
-      prompt: (key, message, images, skills, options) =>
-        rpc('pi:prompt', [key, message, images ?? [], skills ?? [], ...(options === undefined ? [] : [options])], key),
+      prompt: (key, message, images, skills, options, sessionId) =>
+        this.sendPrompt(
+          key,
+          [key, message, images ?? [], skills ?? [], ...(options === undefined ? [] : [options])],
+          options?.promptRequestId,
+          sessionId,
+        ),
       steer: (key, message, images, skills, options) =>
         rpc('pi:steer', [key, message, images ?? [], skills ?? [], ...(options === undefined ? [] : [options])], key),
       followUp: (key, message, images, skills, options) =>

@@ -353,6 +353,7 @@ export function SideChatSession({
     <Conversation
       chat={chat.chat}
       stream={chat.chatStream}
+      pendingPrompt={chat.pendingPrompt}
       scrollToBottomVersion={chat.scrollToBottomVersion}
       onLoadOlder={chat.loadOlderMessages}
       historyLoading={chat.historyLoading}
@@ -419,7 +420,9 @@ export function SideChatSession({
       )}
     </>
   )
-  const hasConversation = Boolean(chat.chat.messages.length || chat.chat.live || chat.chat.running)
+  const hasConversation = Boolean(
+    chat.chat.messages.length || chat.chat.live || chat.chat.running || chat.pendingPrompt,
+  )
   const hasAgents = chat.chat.agents?.some(
     (agent) => agent.parentAgentId && agent.rootSessionKey === chat.connection.sessionKey,
   )

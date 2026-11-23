@@ -1082,7 +1082,9 @@ function AppContent({
     ready || chat.connection.sessionKey
       ? sessionName || titlePreview.split('\n', 1)[0].slice(0, 32) || '新会话'
       : status
-  const hasConversation = chat.chat.messages.length > 0 || chat.chat.live !== null || chat.chat.running
+  const hasConversation = Boolean(
+    chat.chat.messages.length || chat.chat.live || chat.chat.running || chat.pendingPrompt,
+  )
   // 新聊天预览出现时，侧栏摘要可能仍属于上一个会话。
   const showWorkspaceSlot = !hasConversation && (chat.isNewChat || !activeSummary?.messageCount)
   const sourcePath = activeSummary?.parentSessionPath
@@ -1641,6 +1643,7 @@ function AppContent({
           {...{
             chat: chat.chat,
             stream: chat.chatStream,
+            pendingPrompt: chat.pendingPrompt,
             scrollToBottomVersion: chat.scrollToBottomVersion,
             onLoadOlder: chat.loadOlderMessages,
             historyLoading: chat.historyLoading,

@@ -206,7 +206,7 @@ export function groupConversationTurns(
       chunks.push({
         type: 'user',
         message: msg,
-        key: `user-${msg.timestamp ?? i}-${i + messageOffset}`,
+        key: msg.sourceEntry?.promptRequestId ?? `user-${msg.timestamp ?? i}-${i + messageOffset}`,
       })
       turnKey = `turn-${msg.timestamp ?? i}-${i + messageOffset}`
       turnStartTimestamp = msg.timestamp

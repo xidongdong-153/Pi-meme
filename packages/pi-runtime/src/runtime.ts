@@ -1,6 +1,7 @@
 import type { SessionWindow } from '@pi-meme/contracts/sessions'
 import type {
   MessageOptions,
+  PromptReceipt,
   QueuedInput,
   TaskMode,
   EditMessageOptions,
@@ -66,7 +67,7 @@ export interface PiRuntime {
     images?: PiImage[],
     skills?: SkillReference[],
     options?: MessageOptions,
-  ) => Promise<void>
+  ) => Promise<void | PromptReceipt>
   steer: (
     sessionKey: string,
     message: string,

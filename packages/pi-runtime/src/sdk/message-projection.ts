@@ -11,6 +11,15 @@ import { createHash } from 'node:crypto'
 import { projectMessageSources } from './ui-source'
 import { loadPiSdk, type PiSdk } from './load'
 
+export const promptRequestEntry = 'pi-meme.prompt-request'
+
+export function readPromptRequest(entry: SessionEntry) {
+  if (entry.type !== 'custom' || entry.customType !== promptRequestEntry) return
+  const data = entry.data as { entryId?: unknown; requestId?: unknown } | undefined
+  if (typeof data?.entryId === 'string' && typeof data.requestId === 'string')
+    return { entryId: data.entryId, requestId: data.requestId }
+}
+
 const revisions = new WeakMap<SessionEntry, { original: string; edited: Map<string, string> }>()
 function contentHash(message: object) {
   const content = 'content' in message ? message.content : undefined
@@ -102,12 +111,15 @@ export function projectStableMessageMetadata(
   }
   // Resolve the original user input on its native branch, including model switches and explicit resets.
   const speeds = new Map<string, NonNullable<PiMessage['sourceEntry']>['speed']>()
+  const promptRequests = new Map<string, string>()
   let model = initialModel
   let selections: ModelServiceTiers | undefined
   for (const id of [...seen].reverse()) {
     const entry = byId.get(id)!
     if (entry.type === 'model_change') model = { provider: entry.provider, id: entry.modelId }
     else if (entry.type === 'custom') {
+      const receipt = readPromptRequest(entry)
+      if (receipt) promptRequests.set(receipt.entryId, receipt.requestId)
       const data = readServiceTierEntry(entry)
       if (data) selections = updateModelServiceTier(data, data.tier, selections)
     } else if (model && entry.type === 'message' && entry.message.role === 'user')
@@ -125,6 +137,7 @@ export function projectStableMessageMetadata(
               id: sourceEntry.id,
               type: sourceEntry.type as 'message' | 'custom_message',
               ...(speeds.has(sourceEntry.id) ? { speed: speeds.get(sourceEntry.id) } : {}),
+              ...(promptRequests.has(sourceEntry.id) ? { promptRequestId: promptRequests.get(sourceEntry.id) } : {}),
               revision: stableMessageRevision(sourceEntry, message, edits.get(sourceEntry.id)),
             },
           }

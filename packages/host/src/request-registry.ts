@@ -93,7 +93,10 @@ export async function importLegacyRequests(legacyDirectory: string, journalFile:
  * 读请求不落盘；512 内存结果缓存不淘汰执行中请求；不可读或中段损坏时拒绝写请求。
  */
 export class RequestRegistry {
-  private readonly requests = new Map<string, { input: string; result: Promise<HostRpcResponse> }>()
+  private readonly requests = new Map<
+    string,
+    { input: string; promptSession?: string; result: Promise<HostRpcResponse> }
+  >()
   private readonly expired = new Set<string>()
   private readonly completed: string[] = []
   private readonly persistedKeys = new Set<string>()
@@ -182,6 +185,11 @@ export class RequestRegistry {
     return pending
   }
 
+  promptResult(clientId: string, sessionId: string, requestId: string) {
+    const record = this.requests.get(`${clientId}:${requestId}`)
+    return record?.promptSession === sessionId ? record.result : undefined
+  }
+
   run(request: HostRpcRequest, action: () => Promise<unknown>, retain = true): Promise<HostRpcResponse> {
     const key = `${request.clientId}:${request.requestId}`
     const input = JSON.stringify([request.method, request.sessionId, request.args])
@@ -239,7 +247,8 @@ export class RequestRegistry {
       })
 
     if (retain) {
-      this.requests.set(key, { input, result })
+      const promptSession = request.method === 'pi:prompt' ? request.sessionId : undefined
+      this.requests.set(key, { input, promptSession, result })
       void result.then(() => {
         this.completed.push(key)
         if (this.completed.length > this.capacity) {

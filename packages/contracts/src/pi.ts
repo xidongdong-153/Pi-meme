@@ -92,6 +92,7 @@ export type PiMessage = AgentSession['messages'][number] & {
     id: string
     type: 'message' | 'custom_message'
     revision: string
+    promptRequestId?: string
     speed?: { provider: string; id: string; tier: ServiceTier }
   }
 }

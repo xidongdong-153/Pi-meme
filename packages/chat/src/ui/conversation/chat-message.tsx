@@ -24,6 +24,7 @@ export function ChatMessage({
   message,
   tools,
   live = false,
+  pending = false,
   className,
   onEdit,
   canEdit,
@@ -32,6 +33,7 @@ export function ChatMessage({
   message: PiMessage
   tools: ChatState['tools']
   live?: boolean
+  pending?: boolean
   className?: string
   onEdit?: (message: PiMessage) => void
   canEdit?: boolean
@@ -142,7 +144,12 @@ export function ChatMessage({
             )}
           </div>
         )}
-        {isUser && (
+        {pending && (
+          <span role="status" className="ui-loading-delayed mt-1 flex h-7 items-center text-xs text-muted-foreground">
+            等待确认
+          </span>
+        )}
+        {isUser && !pending && (
           <div className="mt-1 flex h-7 items-center gap-1 text-sm text-muted-foreground/70 opacity-0 transition-opacity focus-within:opacity-100 group-hover/message:opacity-100">
             <MessageActions
               onCopy={() => navigator.clipboard.writeText(messageText(message))}

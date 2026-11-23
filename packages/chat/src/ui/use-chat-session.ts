@@ -4,6 +4,7 @@ import { parseGoalCommand, validateGoalInput, type GoalEdit } from '@pi-meme/con
 import { visibleComposerHint } from './composer/composer-hint'
 import { queuedDraft } from './composer/restore-queued-input'
 import { ChatStream } from './model/chat-stream'
+import { PendingPrompts } from './model/pending-prompts'
 import { messageAttachmentParts } from './model/message-attachments'
 import type { ChatState } from './model/types'
 import { prepareComposerMessage } from './composer/plan-input'
@@ -114,6 +115,7 @@ export type ChatSessionOptions = {
   /** 存在后台会话切换时先等待其结束 */
   awaitPendingSwitch: () => Promise<void>
   currentGeneration: () => number
+  sessionId?: string
   currentSessionKey: () => string | undefined
   onModeConfirmed?: (sessionKey: string, generation: number, mode: TaskMode) => void
   onError: (message: string) => void
@@ -121,8 +123,8 @@ export type ChatSessionOptions = {
   onBackgroundEdit?: (sessionKey: string, composer: ComposerSnapshot) => void
   /** 请求返回前保留待发送草稿；返回的函数在请求结束后释放保留记录。 */
   onSendStarted?: (sessionKey: string, composer: ComposerSnapshot) => (accepted?: boolean) => void
-  /** 发送失败并回滚草稿后触发，由 desktop 重新读取快照。 */
-  onSendFailed?: (sessionKey: string | undefined, composer: ComposerSnapshot) => void
+  /** 刷新当前会话或保存后台草稿；原位置已有新草稿时将失败的输入单独保留。 */
+  onSendFailed?: (sessionKey: string | undefined, composer: ComposerSnapshot) => 'occupied' | void
 }
 
 /**
@@ -138,6 +140,9 @@ export function useChatSession(options: ChatSessionOptions) {
   }, [])
   const [chat, setRenderedChat] = useState(emptyChat)
   const [chatStream] = useState(() => new ChatStream(emptyChat))
+  const [outgoing] = useState(() => new PendingPrompts())
+  const pendingPrompts = useSyncExternalStore(outgoing.subscribe, outgoing.getSnapshot, outgoing.getSnapshot)
+  const promptReceiptsSupported = useRef(false)
   const [scrollRequest, setScrollRequest] = useState<{ sessionKey: string; version: number }>()
   const setChat = useCallback(
     (value: ChatState | ((state: ChatState) => ChatState)) => {
@@ -258,6 +263,7 @@ export function useChatSession(options: ChatSessionOptions) {
     (snapshot: Snapshot, buffered: DesktopEvent[] | null, readModeRevision = modes.current.revision) => {
       const next = restoreSnapshot(snapshot, buffered)
       const key = snapshot.connection.sessionKey
+      promptReceiptsSupported.current = snapshot.promptReceiptsSupported === true
       const previousKey = hintSession.current
       if (previousKey !== key) {
         hintSession.current = key
@@ -268,6 +274,7 @@ export function useChatSession(options: ChatSessionOptions) {
         !next.composerHint && previousKey === key && !next.running ? chatStream.getSnapshot().composerHint : undefined
       const merged = kept ? { ...next, composerHint: kept } : next
       setChat(merged)
+      outgoing.observe(key, merged.messages, snapshot.appSession?.sessionId)
       activeMode.current = snapshot.state.activeMode
       const nextMode = modes.current.snapshot(
         key,
@@ -279,7 +286,7 @@ export function useChatSession(options: ChatSessionOptions) {
       setMode(nextMode)
       return merged
     },
-    [chatStream, setChat],
+    [chatStream, setChat, outgoing],
   )
 
   const applyEvent = useCallback(
@@ -562,7 +569,8 @@ export function useChatSession(options: ChatSessionOptions) {
     ) => {
       const sourceRevision = composerStore.getSnapshot().revision
       const planAction = prepared?.plan
-      const { draft, selectedSkills, pluginMentions, attachments, queueMode } = prepared ?? composerStore.getSnapshot()
+      const { draft, selectedSkills, pluginMentions, pluginAnchors, attachments, queueMode } =
+        prepared ?? composerStore.getSnapshot()
       const { bridge, canSend, isSwitching, awaitPendingSwitch, currentGeneration, onError, onSendFailed } =
         optionsRef.current
       const selectedGeneration = currentGeneration()
@@ -804,21 +812,29 @@ export function useChatSession(options: ChatSessionOptions) {
       }
 
       const running =
-        !currentChat.stopped &&
-        (currentChat.running || currentChat.paused || currentChat.queuePaused || promptPending.current)
+        Boolean(outgoing.forSession(sessionKey)) ||
+        (!currentChat.stopped &&
+          (currentChat.running || currentChat.paused || currentChat.queuePaused || promptPending.current))
       if (planAction && (running || editingEntryId !== null || queueEdit.current)) return false
       const sendMode = running ? 'followUp' : 'prompt'
       const generation = currentGeneration()
       setScrollRequest((previous) => ({ sessionKey, version: (previous?.version ?? 0) + 1 }))
+      const submittedDraft = { draft, selectedSkills, pluginMentions, pluginAnchors, attachments, queueMode }
       const finishSend =
-        !feedback && !planAction
-          ? optionsRef.current.onSendStarted?.(sessionKey, {
-              draft,
-              selectedSkills,
-              attachments,
-              queueMode,
-              ...(pluginMentions.length ? { pluginMentions } : {}),
-            })
+        !feedback && !planAction ? optionsRef.current.onSendStarted?.(sessionKey, submittedDraft) : undefined
+      const commandName = message.match(/^\/(\S+)/)?.[1]
+      const extensionCommand =
+        commandName &&
+        optionsRef.current.commands.some((command) => command.source === 'extension' && command.name === commandName)
+      const pending =
+        !running &&
+        !planAction &&
+        !feedback &&
+        !startingGoal &&
+        !slashCommand &&
+        !extensionCommand &&
+        promptReceiptsSupported.current
+          ? outgoing.start(sessionKey, optionsRef.current.sessionId, message, images, skills)
           : undefined
       if (attachments.length > 0) setSendingAttachments((current) => [...current, ...attachments])
       onError('')
@@ -874,12 +890,29 @@ export function useChatSession(options: ChatSessionOptions) {
           })
         else {
           activeMode.current = messageMode
-          await bridge.prompt(sessionKey, message, images, skills, {
-            mode: messageMode,
-            ...audit,
-            ...submittedConfiguration,
-            ...(visualization ? { visualization } : {}),
-          })
+          const receipt = await bridge.prompt(
+            sessionKey,
+            message,
+            images,
+            skills,
+            {
+              mode: messageMode,
+              ...audit,
+              ...submittedConfiguration,
+              ...(pending ? { promptRequestId: pending.requestId } : {}),
+              ...(visualization ? { visualization } : {}),
+            },
+            pending?.sessionId,
+          )
+          if (pending && outgoing.forSession(sessionKey) === pending) {
+            if (receipt?.entryId) {
+              pending.entryId = receipt.entryId
+              if (sessionKey === optionsRef.current.currentSessionKey()) {
+                outgoing.observe(sessionKey, chatStream.getSnapshot().messages)
+                if (outgoing.forSession(sessionKey) === pending) void optionsRef.current.refresh?.()
+              } else outgoing.remove(pending)
+            } else outgoing.remove(pending)
+          }
         }
         accepted = true
         if (sessionKey === optionsRef.current.currentSessionKey() && generation === currentGeneration())
@@ -890,25 +923,26 @@ export function useChatSession(options: ChatSessionOptions) {
           changeMode(messageMode)
         return true
       } catch (cause) {
-        const sameSession = sessionKey
-          ? sessionKey === optionsRef.current.currentSessionKey()
-          : generation === currentGeneration()
-        if (!feedback && !planAction)
-          onSendFailed?.(sessionKey, {
-            draft,
-            selectedSkills,
-            attachments,
-            queueMode,
-            ...(pluginMentions.length ? { pluginMentions } : {}),
-          })
+        if (pending) {
+          outgoing.remove(pending)
+          if (pending.entryId) {
+            accepted = true
+            return true
+          }
+        }
+        const currentKey = optionsRef.current.currentSessionKey()
+        const sameSession =
+          sessionKey === currentKey ||
+          Boolean(currentKey && pending?.sessionId && pending.sessionId === optionsRef.current.sessionId)
+        const draftKey = sameSession && currentKey ? currentKey : sessionKey
+        if (!feedback && !planAction) {
+          const background = onSendFailed?.(draftKey, submittedDraft)
+          if (sameSession && composerStore.getSnapshot().revision === clearedRevision)
+            composerStore.patch(submittedDraft)
+          else if (sameSession || background === 'occupied')
+            setFailedDrafts((values) => [...values, { sessionKey: draftKey, composer: submittedDraft }])
+        }
         if (sameSession) {
-          if (!feedback && !planAction && composerStore.getSnapshot().revision === clearedRevision)
-            composerStore.patch({ draft, selectedSkills, pluginMentions, attachments, queueMode })
-          else if (!feedback && !planAction)
-            setFailedDrafts((values) => [
-              ...values,
-              { sessionKey, composer: { draft, selectedSkills, pluginMentions, attachments, queueMode } },
-            ])
           if (!running) {
             promptPending.current = false
             if (planAction) {
@@ -930,6 +964,7 @@ export function useChatSession(options: ChatSessionOptions) {
       goalAction,
       activateGoal,
       chatStream,
+      outgoing,
       draft,
       planDraft,
       selectedSkills,
@@ -1341,6 +1376,10 @@ export function useChatSession(options: ChatSessionOptions) {
   return {
     chat,
     chatStream,
+    pendingPrompts,
+    observePrompt: (key: string | undefined, event: DesktopEvent['event']) => {
+      if (event.type === 'message_end' && event.message.role === 'user') outgoing.observe(key, [event.message])
+    },
     scrollToBottomVersion:
       scrollRequest && scrollRequest.sessionKey === options.currentSessionKey() ? scrollRequest.version : 0,
     composerStore,
@@ -1373,6 +1412,7 @@ export function useChatSession(options: ChatSessionOptions) {
         draft: value.draft,
         selectedSkills: value.selectedSkills,
         pluginMentions: value.pluginMentions ?? [],
+        pluginAnchors: value.pluginAnchors ?? {},
         attachments: value.attachments,
         queueMode: value.queueMode,
       })

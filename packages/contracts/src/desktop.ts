@@ -12,6 +12,7 @@ import type {
 } from './collaboration'
 import type {
   MessageOptions,
+  PromptReceipt,
   MessageConfiguration,
   QueuedInput,
   PlanDocument,
@@ -174,6 +175,7 @@ export type SessionPluginDescriptor = {
   error?: string
 }
 export type Snapshot = {
+  promptReceiptsSupported?: boolean
   sessionAttention?: import('./sessions').SessionAttention
   totalMessages?: number
   historyRevision?: string
@@ -291,7 +293,8 @@ export interface ChatBridge {
     images?: PiImage[],
     skills?: SkillReference[],
     options?: MessageOptions,
-  ) => Promise<void>
+    receiptSessionId?: string,
+  ) => Promise<void | PromptReceipt>
   steer: (
     sessionKey: string,
     message: string,

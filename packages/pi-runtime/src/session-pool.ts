@@ -4,6 +4,7 @@ import {
   normalizePlanMessage,
   type TaskMode,
   type MessageOptions,
+  type PromptReceipt,
   type MessageConfiguration,
   type EditMessageOptions,
   type EditMessageResult,
@@ -2123,6 +2124,7 @@ export class PiSessionPool implements PiRuntime {
       await this.collaboration?.beforePrompt(sessionKey, { mode: normalized.mode, message })
       if (record.cancelledPrompt || !this.sessions.has(record.key)) throw new Error('消息发送已取消')
       record.state.activeMode = normalized.mode
+      let receipt: PromptReceipt | undefined
       if (recoveryEntryId) await record.session.recover(recoveryEntryId)
       else if (goalControl) await record.session.continueGoalTask(message, goalControl, options)
       else {
@@ -2141,10 +2143,13 @@ export class PiSessionPool implements PiRuntime {
         if (command && command.name === 'name' && command.args) {
           const key = record.sessionFile ?? record.key
           this.titles.cancel(key)
-          await this.titles.write(key, send)
-        } else await send()
+          await this.titles.write(key, async () => {
+            await send()
+          })
+        } else receipt = await send()
       }
       await record.session.setSessionMode(record.state.mode)
+      return receipt
     } catch (cause) {
       if (!this.sessions.has(record.key)) throw cause
       // 失败只通知当前客户端。写进连接状态的话，之后每次刷新都会把同一条错误再显示出来。
@@ -2187,14 +2192,14 @@ export class PiSessionPool implements PiRuntime {
       this.signalSettled()
     }
   }
-  recover(sessionKey: string, failureEntryId: string) {
+  async recover(sessionKey: string, failureEntryId: string) {
     const record = this.target(sessionKey)
     const recovery = record.state.recovery
     if (!this.isSessionIdle(sessionKey) || !recovery || recovery.entryId !== failureEntryId)
       throw new Error('当前失败已失效或会话正在运行，请重新读取状态')
     if (recovery.mode !== record.state.mode)
       throw new Error(`恢复任务需要${recovery.mode === 'plan' ? '规划' : '普通'}模式，请先手动切换模式再恢复`)
-    return this.prompt(
+    await this.prompt(
       sessionKey,
       recoveryMessage,
       undefined,
@@ -2205,8 +2210,8 @@ export class PiSessionPool implements PiRuntime {
       failureEntryId,
     )
   }
-  continueGoalTask(key: string, message: string, control: GoalControl, configuration?: MessageConfiguration) {
-    return this.prompt(key, message, undefined, [], { mode: 'default', ...configuration }, control)
+  async continueGoalTask(key: string, message: string, control: GoalControl, configuration?: MessageConfiguration) {
+    await this.prompt(key, message, undefined, [], { mode: 'default', ...configuration }, control)
   }
   async steer(
     sessionKey: string,
@@ -2217,10 +2222,11 @@ export class PiSessionPool implements PiRuntime {
   ) {
     this.assertNotEditing(sessionKey)
     const record = this.target(sessionKey)
-    if (this.isSessionIdle(sessionKey)) return this.prompt(sessionKey, message, images, skills, options)
-    if (record.session.connection().status !== 'ready') {
+    if (!this.isSessionIdle(sessionKey) && record.session.connection().status !== 'ready')
       await this.ensureRuntime(record, options?.mode)
-      if (this.isSessionIdle(sessionKey)) return this.prompt(sessionKey, message, images, skills, options)
+    if (this.isSessionIdle(sessionKey)) {
+      await this.prompt(sessionKey, message, images, skills, options)
+      return
     }
     return record.session.steer(message, images, skills, {
       ...options,
@@ -2236,10 +2242,11 @@ export class PiSessionPool implements PiRuntime {
   ) {
     this.assertNotEditing(sessionKey)
     const record = this.target(sessionKey)
-    if (this.isSessionIdle(sessionKey)) return this.prompt(sessionKey, message, images, skills, options)
-    if (record.session.connection().status !== 'ready') {
+    if (!this.isSessionIdle(sessionKey) && record.session.connection().status !== 'ready')
       await this.ensureRuntime(record, options?.mode)
-      if (this.isSessionIdle(sessionKey)) return this.prompt(sessionKey, message, images, skills, options)
+    if (this.isSessionIdle(sessionKey)) {
+      await this.prompt(sessionKey, message, images, skills, options)
+      return
     }
     return record.session.followUp(message, images, skills, {
       ...options,

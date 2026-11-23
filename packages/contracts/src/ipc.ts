@@ -53,14 +53,26 @@ export function messageOptions(value: unknown): MessageOptions | undefined {
     Array.isArray(value) ||
     Object.keys(value).some(
       (key) =>
-        !['mode', 'plan', 'visualization', 'clientProcessingAudit', 'model', 'thinkingLevel', 'serviceTier'].includes(
-          key,
-        ),
+        ![
+          'mode',
+          'plan',
+          'visualization',
+          'clientProcessingAudit',
+          'model',
+          'thinkingLevel',
+          'serviceTier',
+          'promptRequestId',
+        ].includes(key),
     )
   )
     throw new Error('消息模式参数无效')
-  const { mode, plan, visualization, clientProcessingAudit, model, thinkingLevel, serviceTier } =
+  const { mode, plan, visualization, clientProcessingAudit, model, thinkingLevel, serviceTier, promptRequestId } =
     value as MessageOptions
+  if (
+    promptRequestId !== undefined &&
+    (typeof promptRequestId !== 'string' || !/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(promptRequestId))
+  )
+    throw new Error('发送请求标识无效')
   if (serviceTier !== undefined && !isServiceTier(serviceTier)) throw new Error('速度选择无效')
   if (visualization !== undefined) validateVisualizationContext(visualization)
   if (mode !== undefined && !isTaskMode(mode)) throw new Error('消息模式无效')
@@ -113,6 +125,7 @@ export function messageOptions(value: unknown): MessageOptions | undefined {
     throw new Error('客户端处理来源记录无效')
   return {
     mode,
+    ...(promptRequestId ? { promptRequestId } : {}),
     ...(plan ? { plan } : {}),
     ...(visualization ? { visualization: structuredClone(visualization) } : {}),
     ...(clientProcessingAudit === undefined ? {} : { clientProcessingAudit }),

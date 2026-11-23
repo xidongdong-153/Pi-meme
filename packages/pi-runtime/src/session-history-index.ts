@@ -6,7 +6,7 @@ import type { PiBranchEntry, PiMessage } from '@pi-meme/contracts/pi'
 import type { SessionHistoryData, SessionWindow } from '@pi-meme/contracts/sessions'
 import { projectSessionWindow, projectSessionDetails } from '@pi-meme/contracts/session-window'
 import { loadPiSdk, getPiVersion } from './sdk/load'
-import { projectConversationEntries, projectStableMessageMetadata } from './sdk/message-projection'
+import { projectConversationEntries, projectStableMessageMetadata, readPromptRequest } from './sdk/message-projection'
 import { projectSessionHistory, computeHistoryStats } from './history-projection'
 import { projectBranchEntries } from './session-tree-entries'
 import { projectBranchAttachments } from './session-attachments'
@@ -116,6 +116,14 @@ function remember(file: string, value: Index) {
   while (cache.size > 20) cache.delete(cache.keys().next().value!)
 }
 
+function canAppendEntry(entry: SessionEntry, added?: ReadonlyMap<string, Location>) {
+  if (entry.type !== 'custom')
+    return ['message', 'model_change', 'thinking_level_change', 'usage', 'session_info'].includes(entry.type)
+  const receipt = readPromptRequest(entry)
+  // 单独追加到已索引消息的回执需要重建，以更新旧行的来源数据。
+  return Boolean(receipt && (!added || added.has(receipt.entryId)))
+}
+
 async function build(file: string, expected: string, version: string): Promise<Index | undefined> {
   const sdk = await loadPiSdk()
   const bytes = await readFile(file)
@@ -168,9 +176,7 @@ async function build(file: string, expected: string, version: string): Promise<I
     fileSize: bytes.length,
     tail: bytes.subarray(Math.max(0, bytes.length - 64)).toString('base64'),
     appendSafe: history.every(
-      (entry, index) =>
-        ['message', 'model_change', 'thinking_level_change', 'usage', 'session_info'].includes(entry.type) &&
-        entry.parentId === (index ? history[index - 1].id : null),
+      (entry, index) => canAppendEntry(entry) && entry.parentId === (index ? history[index - 1].id : null),
     ),
     entries: (sessionEntries?.entries ?? []).map(({ preview: _preview, ...entry }) => entry),
     leafId: sessionEntries?.leafId ?? null,
@@ -211,12 +217,7 @@ async function appendIndex(file: string, previous: Index, expected: string): Pro
       } catch {
         return
       }
-      if (
-        !['message', 'model_change', 'thinking_level_change', 'usage', 'session_info'].includes(entry.type) ||
-        !entry.id ||
-        entry.parentId !== parent
-      )
-        return
+      if (!canAppendEntry(entry, locations) || !entry.id || entry.parentId !== parent) return
       locations.set(entry.id, { offset: previous.fileSize + start, length: end - start })
       entries.push(entry)
       parent = entry.id

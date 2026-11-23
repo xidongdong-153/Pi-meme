@@ -503,6 +503,7 @@ export function useAppSession(
       await selection.current.pending
     },
     currentGeneration: () => current.current.generation,
+    sessionId: appSession?.sessionId,
     currentSessionKey: () => (selection.current.current || preview.current ? undefined : current.current.sessionKey),
     onModeConfirmed: (key, generation, mode) => {
       const cached = views.current.get(key)
@@ -548,11 +549,23 @@ export function useAppSession(
       }
     },
     onSendFailed: (key, composer) => {
-      if (!key || key === current.current.sessionKey) void refresh()
-      else {
-        const saved = drafts.get(key)
-        drafts.set(key, saved && (saved.draft || saved.pluginMentions?.length) ? saved : composer)
+      if (!key || (key === current.current.sessionKey && !selection.current.current && !preview.current)) {
+        void refresh()
+        return
       }
+      const saved = drafts.get(key)
+      if (
+        saved &&
+        (saved.draft ||
+          saved.planDraft ||
+          saved.editing ||
+          saved.goalDraft ||
+          saved.pluginMentions?.length ||
+          saved.selectedSkills.length ||
+          saved.attachments.length)
+      )
+        return 'occupied'
+      drafts.set(key, composer)
     },
   })
   chatRef.current = chat
@@ -769,6 +782,7 @@ export function useAppSession(
         cached.chat = reduceEvent(cached.chat, event)
       }
       if (cached) cached.sequence = record.sequence ?? cached.sequence
+      if (!visible) chatRef.current?.observePrompt(record.sessionKey, event)
       if (selection.current.current || preview.current) return
       if (event.type === 'access_mode_changed') {
         if (record.sessionKey === current.current.sessionKey && record.generation === current.current.generation) {
@@ -855,6 +869,7 @@ export function useAppSession(
         return
       if (event.type === 'agent_settled') chatRef.current?.clearPromptPending()
       applyCurrent(event)
+      chatRef.current?.observePrompt(record.sessionKey, event)
       if (event.type === 'message_end' && event.message.role === 'assistant') void refreshStats()
       if (event.type === 'agent_settled' || event.type === 'compaction_end') {
         setRefreshToken((value) => value + 1)
@@ -1580,6 +1595,7 @@ export function useAppSession(
     activeConfiguration,
     appSession,
     chatStream: chat.chatStream,
+    pendingPrompt: chat.pendingPrompts.find((prompt) => prompt.sessionKey === connection.sessionKey),
     loadOlderMessages,
     historyLoading,
     historyError,

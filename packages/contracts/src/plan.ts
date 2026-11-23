@@ -11,7 +11,10 @@ export type ClientProcessingAudit = {
   reason?: string
   userConfirmedAt?: string
 }
+export type PromptReceipt = { entryId: string | null }
 export type MessageOptions = MessageConfiguration & {
+  /** 发起窗口用于核对本次普通发送的 RPC 请求 ID。 */
+  promptRequestId?: string
   /** 仅由 Host 从已认证的提交上下文写入。 */
   sourceClientId?: string
   visualization?: import('./visualize').VisualizationMessageContext

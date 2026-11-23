@@ -1,4 +1,5 @@
 import type { ChatStream } from '../model/chat-stream'
+import { confirmsPrompt, type PendingPrompt } from '../model/pending-prompts'
 import * as React from 'react'
 import { ArrowDown } from 'lucide-react'
 import type { ChatState, ConversationOutlineEntry, TurnChunk } from '../model/types'
@@ -74,6 +75,7 @@ export const Conversation = React.memo(
   ({
     chat: initialChat,
     stream,
+    pendingPrompt,
     canEditMessages,
     canForkReplies = canEditMessages,
     onEditMessage,
@@ -103,6 +105,7 @@ export const Conversation = React.memo(
   }: {
     chat: ChatState
     stream?: ChatStream
+    pendingPrompt?: PendingPrompt
     canEditMessages: boolean
     canForkReplies?: boolean
     onEditMessage: (message: Extract<TurnChunk, { type: 'user' }>['message']) => void
@@ -165,6 +168,14 @@ export const Conversation = React.memo(
         // 主对话原来分别投影历史与实时消息；缓存不能让两者意外共享用于思考状态判断的身份。
         live: !readOnly && live && stableView.messages.includes(live) ? { ...live } : live,
       }
+      const preview =
+        !readOnly &&
+        !agentOnly &&
+        pendingPrompt &&
+        pendingPrompt.sessionKey === sessionKey &&
+        !view.messages.some((message) => confirmsPrompt(pendingPrompt, message))
+          ? pendingPrompt
+          : undefined
       const grouped =
         agentOnly && agent
           ? projectAgentConversation(chat, agent)
@@ -172,14 +183,14 @@ export const Conversation = React.memo(
               view.messages,
               view.live,
               view.tools,
-              chat.running,
+              chat.running && !preview,
               chat.stream.completed,
               'agentStatuses' in view ? view.agentStatuses : [],
               chat.runIntervals,
               modelChanges,
             )
       const finalReplyKeys = new Set<string>()
-      let canBeFinal = !chat.running && !chat.live
+      let canBeFinal = Boolean(preview) || (!chat.running && !chat.live)
       // 压缩与模型变更等边界可能切分展示段，每条用户输入仅最后一个已完成的助手段保留消息操作。
       for (let index = grouped.length - 1; index >= 0; index--) {
         const turn = grouped[index]!
@@ -197,10 +208,12 @@ export const Conversation = React.memo(
                 turn.type !== 'user' &&
                 !(turn.type === 'custom' && turn.message.customType === 'pi-meme-collaboration'),
             )
-          : grouped,
+          : preview
+            ? [...grouped, { type: 'user' as const, key: preview.requestId, message: preview.message }]
+            : grouped,
         finalReplyKeys,
       }
-    }, [chat, readOnly, agentOnly, agent, stableView, modelChanges, groupTurns])
+    }, [chat, readOnly, agentOnly, agent, stableView, modelChanges, groupTurns, pendingPrompt, sessionKey])
     const outline = React.useMemo(() => (agentOnly ? [] : conversationOutline(turns)), [turns, agentOnly])
     const progressByUser = React.useMemo(() => {
       const result = new Map<string, TaskProgress>()
@@ -528,6 +541,7 @@ export const Conversation = React.memo(
                         ) : (
                           <ChatMessage
                             message={turn.message}
+                            pending={turn.message === pendingPrompt?.message}
                             tools={chat.tools}
                             onEdit={readOnly ? undefined : onEditMessage}
                             canEdit={canEditMessages}
