@@ -107,7 +107,7 @@ export function projectAgentConversation(chat: ChatState, agent: AgentSummary): 
     messages,
     chat.live,
     chat.tools,
-    chat.running,
+    chat.running && chat.turnStarted,
     chat.stream.completed,
     [],
     chat.runIntervals,

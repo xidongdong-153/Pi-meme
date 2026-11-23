@@ -537,7 +537,7 @@ export function useChatSession(options: ChatSessionOptions) {
     const generation = currentGeneration()
     onError('')
     promptPending.current = true
-    setChat((value) => ({ ...value, running: true }))
+    setChat((value) => ({ ...value, running: true, turnStarted: false }))
     try {
       await bridge.prompt(sessionKey, '/compact', [], [], { mode: modeRef.current })
     } catch (cause) {
@@ -845,7 +845,7 @@ export function useChatSession(options: ChatSessionOptions) {
       const clearedRevision = composerStore.getSnapshot().revision
       if (!running) {
         promptPending.current = true
-        setChat((value) => ({ ...value, running: true, activeMode: messageMode }))
+        setChat((value) => ({ ...value, running: true, turnStarted: false, activeMode: messageMode }))
       }
       try {
         if (planAction && optionsRef.current.submitPlan) {

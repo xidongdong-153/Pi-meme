@@ -63,6 +63,8 @@ export type ChatState = {
   generationMetrics?: PiGenerationMetrics & { receivedAt: number }
   activeMode?: import('@pi-meme/contracts/plan').TaskMode
   running: boolean
+  /** 本次运行已收到对话消息或工具活动，用于把运行状态归到实际轮次。 */
+  turnStarted: boolean
   compacting: ChatCompactionState | null
   retry?: PiRetryState
   recovery?: PiState['recovery']

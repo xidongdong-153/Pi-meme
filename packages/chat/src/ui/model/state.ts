@@ -16,9 +16,21 @@ export const emptyChat: ChatState = {
   stream: { arguments: {}, completed: {} },
   tools: {},
   running: false,
+  turnStarted: false,
   compacting: null,
   steering: [],
   followUp: [],
+}
+
+function snapshotTurnStarted(snapshot: Snapshot) {
+  if (!snapshot.state.isStreaming) return false
+  const last = snapshot.messages.findLast((message) => message.role === 'user' || message.role === 'assistant')
+  if (last?.role !== 'assistant') return last?.role === 'user'
+  // 重连时历史和运行状态可能分属两轮。当前运行的助手消息和回放的实时事件都能确认归属。
+  const run = snapshot.state.runIntervals?.at(-1)
+  if (run) return run.endedAt === undefined && last.timestamp >= run.startedAt
+  // 较早的快照没有运行区间，末条未完成的助手消息仍属于当前工作过程。
+  return last.stopReason === 'toolUse' || last.stopReason === undefined
 }
 
 export function fromSnapshot(snapshot: Snapshot): ChatState {
@@ -41,6 +53,7 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
     branchAttachments: snapshot.branchAttachments ?? [],
     skillUsages: snapshot.state.skillUsages,
     running: snapshot.state.isStreaming || isCompacting || Boolean(snapshot.state.retry),
+    turnStarted: snapshotTurnStarted(snapshot),
     paused: snapshot.state.isPaused ?? false,
     queuePaused: snapshot.state.queuePaused ?? false,
     stopped: snapshot.state.stopped ?? false,
@@ -319,6 +332,7 @@ export function applyEvent(
         ...state,
         runIntervals: mergeRunIntervals(state.runIntervals, event.runIntervals),
         running: false,
+        turnStarted: false,
         activeMode: undefined,
         compacting: null,
         retry: undefined,
@@ -342,9 +356,10 @@ export function applyEvent(
     case 'stop_update':
       return { ...state, stopped: event.stopped }
     case 'message_start':
-      if (event.message.role !== 'assistant' || state.messages.some((message) => sameMessage(message, event.message)))
-        return state
-      return { ...state, live: event.message, stream: { arguments: {}, completed: {} } }
+      if (event.message.role !== 'assistant') return state
+      if (state.messages.some((message) => sameMessage(message, event.message)))
+        return state.running && !state.turnStarted ? { ...state, turnStarted: true } : state
+      return { ...state, live: event.message, turnStarted: state.running, stream: { arguments: {}, completed: {} } }
     case 'message_update':
       return state.live ? { ...state, ...updateLiveMessage(state.live, state.stream, event) } : state
     case 'message_end': {
@@ -372,6 +387,9 @@ export function applyEvent(
       const next: ChatState = {
         ...state,
         messages,
+        turnStarted:
+          state.turnStarted ||
+          (state.running && index === -1 && (message.role === 'user' || message.role === 'assistant')),
         live: event.message.role === 'assistant' ? null : state.live,
         stream: event.message.role === 'assistant' ? emptyChat.stream : state.stream,
       }
@@ -411,6 +429,7 @@ export function applyEvent(
       if (previous && previous.status !== 'running' && event.type !== 'tool_execution_end') return state
       return {
         ...state,
+        turnStarted: state.turnStarted || (state.running && event.type !== 'tool_execution_end'),
         tools: {
           ...state.tools,
           [id]: {

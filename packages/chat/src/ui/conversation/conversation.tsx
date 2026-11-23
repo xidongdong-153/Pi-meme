@@ -183,14 +183,14 @@ export const Conversation = React.memo(
               view.messages,
               view.live,
               view.tools,
-              chat.running && !preview,
+              chat.running && chat.turnStarted && !preview,
               chat.stream.completed,
               'agentStatuses' in view ? view.agentStatuses : [],
               chat.runIntervals,
               modelChanges,
             )
       const finalReplyKeys = new Set<string>()
-      let canBeFinal = Boolean(preview) || (!chat.running && !chat.live)
+      let canBeFinal = true
       // 压缩与模型变更等边界可能切分展示段，每条用户输入仅最后一个已完成的助手段保留消息操作。
       for (let index = grouped.length - 1; index >= 0; index--) {
         const turn = grouped[index]!
