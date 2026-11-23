@@ -200,6 +200,63 @@
   animation: none !important;
 }
 
+/* 任务进度分段轨扫光与进行中节点呼吸，减少动态效果时自动静默。 */
+@keyframes task-progress-bar-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+@keyframes task-progress-dot-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.25);
+  }
+}
+
+.task-progress-segment-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.task-progress-segment-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 55%;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, #ffffff 48%, transparent), transparent);
+  animation: task-progress-bar-sweep 2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.task-progress-dot-pulse {
+  animation: task-progress-dot-pulse 2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-reduced-motion]) .task-progress-segment-shimmer::after {
+    display: none;
+  }
+  :root:not([data-reduced-motion]) .task-progress-dot-pulse {
+    animation: none;
+  }
+}
+
+:root[data-reduced-motion='true'] .task-progress-segment-shimmer::after {
+  display: none;
+}
+
+:root[data-reduced-motion='true'] .task-progress-dot-pulse {
+  animation: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root:not([data-reduced-motion]) *,
   :root:not([data-reduced-motion]) *::before,
