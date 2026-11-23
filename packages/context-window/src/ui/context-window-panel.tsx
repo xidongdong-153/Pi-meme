@@ -103,6 +103,10 @@ function useMeasure(ref: RefObject<HTMLDivElement | null>, initial: { width: num
   }, [ref])
   return size
 }
+function cacheHitPercent(read: number, total: number) {
+  const percent = Math.round((read / total) * 100)
+  return percent === 100 && read < total ? '>99%' : `${percent}%`
+}
 function Count({ value, quiet }: { value: number; quiet: boolean }) {
   const node = useRef<HTMLSpanElement>(null)
   const previous = useRef(value)
@@ -430,7 +434,7 @@ const Card = memo(
               <div className={`ctx-stat ctx-cache${shownCache && !cache ? ' was' : !shownCache ? ' none' : ''}`}>
                 <div className="ctx-k">提示词缓存</div>
                 <div className="ctx-big">
-                  <b>{shownCache ? pct(shownCache.read / shownCache.total) : '—'}</b>
+                  <b>{shownCache ? cacheHitPercent(shownCache.read, shownCache.total) : '—'}</b>
                   <span>命中</span>
                 </div>
                 <div className="ctx-bar">
@@ -438,7 +442,7 @@ const Card = memo(
                 </div>
                 <div className="ctx-sub">
                   {cache
-                    ? `${fmtK(cache.read)} 来自缓存 · ${fmtK(cache.total - cache.read)} 新增`
+                    ? `${fmtK(cache.read)} 来自缓存 · ${fmtK(cache.total - cache.read)} 未从缓存读取`
                     : shownCache
                       ? '上一个请求的 · 本次请求进行中'
                       : request.done

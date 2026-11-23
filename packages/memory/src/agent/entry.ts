@@ -80,14 +80,10 @@ export function create({ requestMemory }: Context): InlineExtension[] {
             admissions.delete(snapshotId)
             admissions.set(snapshotId, current)
             if (admissions.size > maxAdmissionHistory) admissions.delete(admissions.keys().next().value!)
-            // Anchor request-only memory to the latest user turn. Compaction can remove every
-            // native user message; keep memory after its summary instead of moving it past
-            // each new assistant/tool result during continuations. A moving suffix invalidates
-            // the previous request's cache boundary even when the older history is unchanged.
-            const userIndex = messages.findLastIndex((message) => message.role === 'user')
+            // Recall follows the latest user input. Placement follows the start of the retained history.
             const summaryIndex = messages.findLastIndex((message) => message.role === 'compactionSummary')
-            const historyIndex = messages.findIndex((message) => message.role !== 'system')
-            const memoryIndex = userIndex >= 0 ? userIndex : summaryIndex >= 0 ? summaryIndex + 1 : historyIndex
+            const memoryIndex =
+              summaryIndex >= 0 ? summaryIndex + 1 : messages.findIndex((message) => message.role !== 'system')
             messages.splice(memoryIndex < 0 ? messages.length : memoryIndex, 0, {
               role: 'custom',
               customType,
