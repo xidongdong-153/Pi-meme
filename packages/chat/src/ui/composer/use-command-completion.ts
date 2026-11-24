@@ -1,5 +1,6 @@
 import { desktopComputer } from '@pi-meme/contracts/computer-use'
 import { goalCommands } from '@pi-meme/contracts/goal'
+import { mcpMention, type McpCatalog, type McpService } from '@pi-meme/contracts/mcp'
 import { planCompletion } from './plan-input'
 import * as React from 'react'
 import type { ProjectFile } from '@pi-meme/contracts/desktop'
@@ -11,7 +12,9 @@ import { completionQuery, computerMention } from './completion-query'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 
 export type CompletionItem =
-  { kind: 'command' | 'skill'; command: PiSlashCommand } | { kind: 'plugin'; plugin: AgentPluginOption }
+  | { kind: 'command' | 'skill'; command: PiSlashCommand }
+  | { kind: 'plugin'; plugin: AgentPluginOption }
+  | { kind: 'mcp'; service: McpService; action: 'mention' | 'settings' | 'unavailable' }
 
 export function useCommandCompletion({
   composerStore,
@@ -30,6 +33,7 @@ export function useCommandCompletion({
   onSkills,
   selectedSkills,
   agentPlugins,
+  mcp,
   onPluginPosition,
   commands,
   focusVersion,
@@ -50,6 +54,7 @@ export function useCommandCompletion({
   | 'onSkills'
   | 'selectedSkills'
   | 'agentPlugins'
+  | 'mcp'
   | 'commands'
   | 'focusVersion'
   | 'onClearQueue'
@@ -124,6 +129,35 @@ export function useCommandCompletion({
       clearTimeout(timer)
     }
   }, [fileCompletion, projectPath, fileQuery, loadProjectFiles])
+  const catalogOpen = suggestionsOpen && query?.kind === 'command'
+  const loadMcp = mcp?.load
+  const mcpKey = mcp?.sessionKey
+  const [mcpResult, setMcpResult] = React.useState<{
+    key?: string
+    load: typeof loadMcp
+    catalog?: McpCatalog
+    error?: string
+  }>()
+  React.useEffect(() => {
+    if (!catalogOpen || !loadMcp || !mcpKey) return
+    let active = true
+    void loadMcp(mcpKey).then(
+      (catalog) => {
+        if (active) setMcpResult({ key: mcpKey, load: loadMcp, catalog })
+      },
+      (cause) => {
+        if (active) setMcpResult({ key: mcpKey, load: loadMcp, error: String(cause) })
+      },
+    )
+    return () => {
+      active = false
+    }
+  }, [catalogOpen, loadMcp, mcpKey])
+  const currentMcp = mcpResult?.key === mcpKey && mcpResult?.load === loadMcp ? mcpResult : undefined
+  const selectionContext = React.useMemo(() => ({}), [mcpKey, loadMcp, mcp?.available, draft, draftCaret, catalogOpen])
+  const currentSelection = React.useRef(selectionContext)
+  currentSelection.current = selectionContext
+  const [checking, setChecking] = React.useState<{ context: typeof selectionContext; name: string }>()
   const skillCompletion = query?.kind === 'skill'
   const commandCompletion = suggestionsOpen && Boolean(query && query.kind !== 'file')
   const matches = React.useMemo<CompletionItem[]>(() => {
@@ -170,18 +204,45 @@ export function useCommandCompletion({
       : []
     top.sort(
       (left, right) =>
-        Number(right.kind !== 'plugin' && right.command.source === 'builtin') -
-        Number(left.kind !== 'plugin' && left.command.source === 'builtin'),
+        Number('command' in right && right.command.source === 'builtin') -
+        Number('command' in left && left.command.source === 'builtin'),
     )
     const plugins: CompletionItem[] = (agentPlugins?.options ?? [])
       .filter((plugin) =>
         [plugin.id, plugin.name, plugin.description].some((value) => value?.toLowerCase().includes(prefix)),
       )
       .map((plugin) => ({ kind: 'plugin', plugin }))
-    return [...top, ...skills, ...plugins]
-  }, [commands, editing, query?.kind, query?.query, sessionStarted, suggestionsOpen, agentPlugins?.options])
+    const services: CompletionItem[] = (currentMcp?.catalog?.services ?? [])
+      .filter((s) => [s.name, s.description, 'mcp'].some((value) => value?.toLowerCase().includes(prefix)))
+      .map((service) => ({
+        kind: 'mcp',
+        service,
+        action: !mcp?.available
+          ? 'unavailable'
+          : !service.enabled ||
+              !service.visible ||
+              service.error ||
+              service.check?.state === 'needs-auth' ||
+              service.check?.state === 'failed'
+            ? 'settings'
+            : 'mention',
+      }))
+    return [...top, ...skills, ...services, ...plugins]
+  }, [
+    commands,
+    editing,
+    query?.kind,
+    query?.query,
+    sessionStarted,
+    suggestionsOpen,
+    agentPlugins?.options,
+    currentMcp,
+    mcp?.available,
+  ])
   const selectable = matches.flatMap((item, index) =>
-    item.kind === 'plugin' && agentPlugins?.disabledReason ? [] : [index],
+    (item.kind === 'plugin' && agentPlugins?.disabledReason) || (item.kind === 'mcp' && item.action === 'unavailable')
+      ? []
+      : [index],
   )
   const matchCount = fileCompletion ? fileMatches.length + Number(computerMatch) : selectable.length
   const activeIndex = fileCompletion
@@ -195,6 +256,40 @@ export function useCommandCompletion({
 
   function completeItem(item: CompletionItem) {
     if (!query) return
+    if (item.kind === 'mcp') {
+      if (!mcp?.available || item.action === 'unavailable') return
+      const target = { name: item.service.name, revision: item.service.revision, sessionKey: mcp.sessionKey }
+      const manage = () => {
+        setSuggestionsOpen(false)
+        mcp.openSettings(target)
+      }
+      if (item.action === 'settings') {
+        manage()
+        return
+      }
+      if (item.service.transport === 'http' && !item.service.check) {
+        if (checking?.context === selectionContext) return
+        setChecking({ context: selectionContext, name: item.service.name })
+        const stillActive = () =>
+          !!editor.current && currentSelection.current === selectionContext && document.activeElement === editor.current
+        void mcp
+          .check(target)
+          .then(
+            (check) => {
+              if (!stillActive()) return
+              if (check.state === 'connected') replaceQuery(`${mcpMention(item.service)} `)
+              else manage()
+            },
+            () => {
+              if (stillActive()) manage()
+            },
+          )
+          .finally(() => setChecking((current) => (current?.context === selectionContext ? undefined : current)))
+        return
+      }
+      replaceQuery(`${mcpMention(item.service)} `)
+      return
+    }
     if (item.kind === 'plugin') {
       if (!agentPlugins || agentPlugins.disabledReason) return
       const { id } = item.plugin
@@ -363,6 +458,12 @@ export function useCommandCompletion({
     editor,
     matches,
     commandCompletion,
+    mcpStatus:
+      catalogOpen && loadMcp && mcpKey
+        ? checking?.context === selectionContext
+          ? `正在检查 ${checking.name}…`
+          : (currentMcp?.error ?? (!currentMcp ? '正在读取 MCP 服务…' : undefined))
+        : undefined,
     fileCompletion,
     fileMatches,
     fileQuery,

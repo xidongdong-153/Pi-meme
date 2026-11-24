@@ -155,7 +155,9 @@ HTTP 接入使用 `POST /api/auth` 登录后返回的 Cookie，向 `POST /api/rp
 
 ## MCP 配置与授权
 
-MCP 合并 Host `config/agent/mcp.json`（原 `pi/mcp.json`）、项目只读 `.pi/mcp.json` 和 Host 侧 `config/workspaces/<cwd-hash>/mcp-overrides.json`。界面从“设置 → Agent → MCP”管理服务；项目覆盖不写回项目文件。
+从「设置 → Agent → MCP」新增全局服务，或查看当前项目合并后的服务。HTTP 支持自动检测 OAuth、请求头凭据和服务商账号，本地进程支持命令、参数、工作目录和环境变量。「保存并检查」连接所选服务，显示检查时间和工具数量。OAuth 在详情页发起，在客户端浏览器授权，回调到达后自动检查连接。远程 Host 收不到回调时，可在同一详情粘贴完整回调地址。重新登录、取消和退出也在详情页操作。
+
+MCP 合并 Host `config/agent/mcp.json`（原 `pi/mcp.json`）、项目只读 `.pi/mcp.json` 和 Host 侧 `config/workspaces/<cwd-hash>/mcp-overrides.json`。项目级启停写入 Host 的覆盖配置。设置显示最近一次检查的结果与时间。
 
 逐服务启停与明确授权分开校验，授权绑定配置摘要；外部修改配置后旧授权不能继续使用。旧 `mcpEnabled: false` 保留不连接未重新授权服务的选择，升级不会自动连接。MCP 只在完全权限的普通任务中装配，规划模式不运行 MCP。
 

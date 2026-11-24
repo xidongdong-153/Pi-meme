@@ -55,6 +55,8 @@ export type SessionWorkerContext = {
     signal?: AbortSignal,
   ) => Promise<import('@pi-meme/contracts/user-input').UserInputResult>
   taskProgressEnabled: () => boolean
+  acquireMcpRefreshLock: import('@pi-meme/contracts/mcp').AcquireMcpRefreshLock
+  registerMcpReferences: (validate: NonNullable<RuntimePolicy['validateMcpReferences']>) => void
   registerInteractionPolicy: (enabled: boolean) => void
   registerResourcePolicy: (value: RuntimePolicy['resourcePaths']) => void
   registerSandbox: (factory: RuntimePolicy['createSandbox']) => void
@@ -84,24 +86,26 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
   const pendingCredentials = new Map<number, { resolve: () => void; reject: (cause: Error) => void }>()
   let credentialId = 0
   let credentialWrites: Promise<void> = Promise.resolve()
-  function mutate(key: string, value?: string) {
+  function mutate(key: string, value?: string, previous?: string) {
     const id = ++credentialId
     const pending = new Promise<void>((resolve, reject) => {
       pendingCredentials.set(id, { resolve, reject })
     })
     credentialWrites = Promise.all([credentialWrites, pending]).then(() => {})
     void credentialWrites.catch(() => {})
-    port.postMessage({ credential: { id, key, value } })
+    port.postMessage({ credential: { id, key, value, previous } })
   }
   const localSet = credentials.set.bind(credentials)
   credentials.set = (key, value) => {
+    const previous = key.startsWith('mcp-oauth:') ? credentials.get(key) : undefined
     localSet(key, value)
-    mutate(key, value)
+    mutate(key, value, previous)
   }
   const localDelete = credentials.delete.bind(credentials)
   credentials.delete = (key) => {
+    const previous = key.startsWith('mcp-oauth:') ? credentials.get(key) : undefined
     const deleted = localDelete(key)
-    if (deleted) mutate(key)
+    if (deleted) mutate(key, undefined, previous)
     return deleted
   }
   let taskProgressEnabled = data.settings.taskProgressEnabled !== false
@@ -170,6 +174,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
   function hostRequest(
     kind:
       | 'contextCapture'
+      | 'mcpRefresh'
       | 'turnChange'
       | 'collaboration'
       | 'savePlan'
@@ -251,6 +256,21 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
             ) as Promise<PlanDocument>,
           requestUserInput: (questions, signal) => session.requestUserInput(questions, signal),
           taskProgressEnabled: () => taskProgressEnabled,
+          acquireMcpRefreshLock: async (key) => {
+            const lock = (await hostRequest('mcpRefresh', { mcpKey: key })) as { id: string; value?: string }
+            if (lock.value === undefined) localDelete(key)
+            else localSet(key, lock.value)
+            return async () => {
+              try {
+                await credentialWrites
+              } finally {
+                await hostRequest('mcpRefresh', { releaseLock: lock.id })
+              }
+            }
+          },
+          registerMcpReferences: (validate) => {
+            policy.validateMcpReferences = validate
+          },
           registerInteractionPolicy: (enabled) => {
             policy.uiEnabled = enabled
           },
@@ -357,12 +377,21 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
       method: string
       args: unknown[]
       credentialReply?: number
+      mcpCredential?: { key: string; value?: string }
       hostReply?: string
       result?: unknown
       error?: string
       errorCode?: ReadErrorCode
       errorDetails?: SystemReadErrorDetails
     }) => {
+      if (request.mcpCredential) {
+        const { key, value } = request.mcpCredential
+        if (key.startsWith('mcp-oauth:')) {
+          if (value === undefined) localDelete(key)
+          else localSet(key, value)
+        }
+        return
+      }
       if (request.hostReply) {
         const pending = pendingHost.get(request.hostReply)
         pendingHost.delete(request.hostReply)

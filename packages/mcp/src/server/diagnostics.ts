@@ -55,7 +55,7 @@ function parseServers(contents: string): { servers: ServerConfig[]; error?: stri
 
 async function checkServer(config: ServerConfig, timeoutMs: number) {
   if (config.needsAuth)
-    return { lines: [`${config.name}: 该服务需要 OAuth 登录，请在 Desktop 会话中完成认证后再检查`], failed: true }
+    return { lines: [`${config.name}: 请在设置 → Agent → MCP 中检查此服务，使用它配置的认证方式`], failed: true }
   const transport = config.url
     ? new StreamableHttpTransport({ url: config.url, headers: config.headers })
     : new StdioTransport({
@@ -93,7 +93,7 @@ async function checkServer(config: ServerConfig, timeoutMs: number) {
 /**
  * 进程内检查 Desktop 全局 mcp.json 里的服务：逐个连接并列出工具，产出诊断文本。
  *
- * 检查不经过会话，也不会启动 Pi 进程；需要 OAuth 登录的服务提示在 Desktop 会话中完成认证。
+ * 检查不经过会话，也不会启动 Pi 进程；带认证配置的服务使用设置页的逐服务检查。
  */
 export async function checkMcpServers(filePath: string, timeoutMs = 90_000): Promise<McpDiagnostic> {
   const checkedAt = new Date().toISOString()

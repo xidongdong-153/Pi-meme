@@ -58,6 +58,13 @@ export type ComposerProps = {
   selectedSkills: PiSlashCommand[]
   onSkills: (skills: PiSlashCommand[]) => void
   agentPlugins?: ComposerAgentPlugins
+  mcp?: {
+    load: import('@pi-meme/contracts/mcp').McpBridge['getMcpCatalog']
+    check: import('@pi-meme/contracts/mcp').McpBridge['checkMcpService']
+    sessionKey?: string
+    available: boolean
+    openSettings: (target: import('@pi-meme/contracts/mcp').McpTarget) => void
+  }
   draft: string
   onDraft: (value: string) => void
   /** 空草稿时显示的下一步提示。Tab 填入草稿，不发送。 */
@@ -135,6 +142,7 @@ export function Composer({
   selectedSkills,
   onSkills,
   agentPlugins,
+  mcp,
   draft,
   onDraft,
   hint,
@@ -353,6 +361,7 @@ export function Composer({
             disabled={editorDisabled}
             sessionKey={editorKey ?? sessionKey}
             agentPlugins={agentPlugins}
+            mcp={mcp}
             onPlanCommand={onPlanCommand}
             onGoalCommand={onGoalCommand}
             onCompact={onCompact}

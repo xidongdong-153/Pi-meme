@@ -29,14 +29,24 @@ export function ServerForm({
   const [args, setArgs] = useState(() => stringify(initial.args, []))
   const [env, setEnv] = useState(() => stringify(initial.env, {}))
   const [headers, setHeaders] = useState(() => stringify(initial.headers, {}))
+  const [authMode, setAuthMode] = useState<'auto' | 'headers' | 'provider'>(() =>
+    initial.auth
+      ? 'provider'
+      : object(initial.headers) && Object.keys(initial.headers).some((key) => key.toLowerCase() === 'authorization')
+        ? 'headers'
+        : 'auto',
+  )
   const [advanced, setAdvanced] = useState(false)
   const [json, setJson] = useState(() => stringify(initial, {}))
   const [error, setError] = useState('')
   const http = 'url' in config || !('command' in config)
   const compose = () => {
     const next = { ...config }
-    if (http) next.headers = JSON.parse(headers)
-    else {
+    if (http) {
+      next.headers = JSON.parse(headers)
+      if (authMode !== 'provider') delete next.auth
+      if (authMode !== 'auto') delete next.oauth
+    } else {
       next.args = JSON.parse(args)
       next.env = JSON.parse(env)
     }
@@ -48,6 +58,13 @@ export function ServerForm({
         const next: unknown = JSON.parse(json)
         if (!object(next)) throw new Error('高级配置必须是 JSON 对象')
         setConfig(next)
+        setAuthMode(
+          next.auth
+            ? 'provider'
+            : object(next.headers) && Object.keys(next.headers).some((key) => key.toLowerCase() === 'authorization')
+              ? 'headers'
+              : 'auto',
+        )
         setArgs(stringify(next.args, []))
         setEnv(stringify(next.env, {}))
         setHeaders(stringify(next.headers, {}))
@@ -159,7 +176,73 @@ export function ServerForm({
           {http ? (
             <>
               {field('MCP URL', config.url, 'url')}
-              <FormField label="Headers（JSON 字符串键值对象）">
+              <FormField label="认证方式">
+                <Select
+                  value={authMode}
+                  disabled={busy}
+                  onValueChange={(value: typeof authMode) => {
+                    try {
+                      const nextHeaders: unknown = JSON.parse(headers)
+                      if (!object(nextHeaders)) throw new Error('请求头必须是 JSON 对象')
+                      if (value !== 'headers')
+                        for (const key of Object.keys(nextHeaders))
+                          if (key.toLowerCase() === 'authorization') delete nextHeaders[key]
+                      if (
+                        value === 'headers' &&
+                        !Object.keys(nextHeaders).some((key) => key.toLowerCase() === 'authorization')
+                      )
+                        nextHeaders.Authorization = ''
+                      setHeaders(stringify(nextHeaders, {}))
+                      setAuthMode(value)
+                      setError('')
+                      if (value === 'provider' && !config.auth) setConfig({ ...config, auth: { provider: '' } })
+                    } catch {
+                      setError('请先修正请求头 JSON')
+                    }
+                  }}
+                >
+                  <SelectTrigger aria-label="认证方式" className={settingsControlClassName}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">自动检测 / OAuth</SelectItem>
+                    <SelectItem value="headers">请求头凭据</SelectItem>
+                    <SelectItem value="provider">使用服务商账号</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormField>
+              {authMode === 'provider' && (
+                <FormField label="服务商 ID">
+                  <Input
+                    aria-label="服务商 ID"
+                    disabled={busy}
+                    value={object(config.auth) ? String(config.auth.provider ?? '') : ''}
+                    onChange={(event) => setConfig({ ...config, auth: { provider: event.target.value } })}
+                  />
+                </FormField>
+              )}
+              {authMode === 'auto' && (
+                <details className="space-y-3">
+                  <summary className="cursor-pointer text-muted-foreground">OAuth 客户端设置</summary>
+                  {(['clientId', 'clientSecret', 'scope'] as const).map((key, i) => (
+                    <FormField key={key} label={['客户端 ID', '客户端密钥', '授权范围'][i]}>
+                      <Input
+                        disabled={busy}
+                        type={key === 'clientSecret' ? 'password' : 'text'}
+                        autoComplete="off"
+                        value={object(config.oauth) ? String(config.oauth[key] ?? '') : ''}
+                        onChange={(event) => {
+                          const oauth = { ...(object(config.oauth) ? config.oauth : {}) }
+                          if (event.target.value) oauth[key] = event.target.value
+                          else delete oauth[key]
+                          setConfig({ ...config, oauth })
+                        }}
+                      />
+                    </FormField>
+                  ))}
+                </details>
+              )}
+              <FormField label="请求头（JSON）">
                 <Textarea
                   aria-label="MCP Headers"
                   rows={4}
@@ -202,9 +285,7 @@ export function ServerForm({
             </>
           )}
           {field('服务说明', config.description, 'description')}
-          <p className="text-[11px] text-muted-foreground">
-            OAuth、超时和工具暴露方式在高级 JSON 中编辑；其他原生字段会保留。
-          </p>
+          <p className="text-[11px] text-muted-foreground">可在高级 JSON 中设置超时、回调地址和各工具的暴露方式。</p>
         </>
       )}
       {error && (
@@ -214,7 +295,7 @@ export function ServerForm({
       )}
       <div className="flex flex-wrap gap-2">
         <Button className={settingsControlClassName} type="submit" disabled={busy}>
-          保存服务
+          保存并检查
         </Button>
         <Button className={settingsControlClassName} type="button" variant="outline" disabled={busy} onClick={onCancel}>
           取消编辑

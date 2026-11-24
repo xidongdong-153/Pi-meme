@@ -1,6 +1,6 @@
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import type { ReactNode } from 'react'
-import { Monitor } from 'lucide-react'
+import { Monitor, Network } from 'lucide-react'
 import { FileIcon } from '@pi-meme/ui/components/file-icon'
 import { composerReferences } from '../composer/completion-query'
 
@@ -22,6 +22,22 @@ export function FileReferences({ text }: { text: string }) {
   const parts: ReactNode[] = []
   let offset = 0
   for (const reference of composerReferences(text)) {
+    if (reference.mcp) {
+      parts.push(
+        text.slice(offset, reference.start),
+        <TooltipHint key={reference.start} content={`MCP 服务 · ${reference.mcp}`}>
+          <span
+            className="inline-flex items-center gap-1 rounded-md bg-white/15 px-1.5 py-0.5 text-[0.92em] font-medium align-baseline"
+            aria-label={`MCP 服务 ${reference.mcp}`}
+          >
+            <Network aria-hidden="true" className="size-3.5" />
+            {reference.mcp}
+          </span>
+        </TooltipHint>,
+      )
+      offset = reference.end
+      continue
+    }
     if (reference.computer) {
       parts.push(
         text.slice(offset, reference.start),

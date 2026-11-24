@@ -22,6 +22,7 @@ export function ComposerEditor({
   disabled,
   sessionKey,
   agentPlugins,
+  mcp,
   onPlanCommand,
   onGoalCommand,
   onCompact,
@@ -60,6 +61,7 @@ export function ComposerEditor({
   | 'onRenameSession'
   | 'sessionKey'
   | 'agentPlugins'
+  | 'mcp'
   | 'projectPath'
   | 'loadProjectFiles'
   | 'draft'
@@ -105,6 +107,7 @@ export function ComposerEditor({
     completeComputer,
     fileQuery,
     fileError,
+    mcpStatus,
     filesLoading,
     completeFile,
     replaceFileQuery,
@@ -140,6 +143,7 @@ export function ComposerEditor({
     onSkills,
     selectedSkills,
     agentPlugins,
+    mcp,
     onPluginPosition: (id, offset) => {
       positions.current.offsets.set(id, offset)
       composerStore?.setPluginAnchors(Object.fromEntries(positions.current.offsets))
@@ -314,6 +318,7 @@ export function ComposerEditor({
       {commandCompletion && (
         <CommandSuggestions
           matches={matches}
+          mcpStatus={mcpStatus}
           skillCompletion={skillCompletion}
           agentPlugins={agentPlugins}
           suggestionIndex={suggestionIndex}

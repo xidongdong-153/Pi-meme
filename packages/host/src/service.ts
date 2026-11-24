@@ -91,6 +91,7 @@ import { SessionAttentionStore } from '@pi-meme/workspace/server/session-attenti
 import { mergeRuntimeSessions } from '@pi-meme/workspace/server/session-groups'
 import { SessionAttentionService } from './session-attention'
 import { McpConfigStore } from '@pi-meme/mcp/server/config-store'
+import { createMcpRefreshLocks } from '@pi-meme/mcp/server/runtime-config'
 import { optionalRuntimeExtensions } from './runtime-extensions'
 import { RequestRegistry } from './request-registry'
 import { ConnectionCredentialStore } from './connection-credentials'
@@ -181,6 +182,8 @@ const reads = new Set([
   'settings:instructions',
   'settings:fonts',
   'mcp:get',
+  'mcp:catalog',
+  'mcp:login-state',
   'host:directories',
   'host:storage-info',
   'plugins:list',
@@ -339,6 +342,11 @@ export async function createHost(options: HostOptions = {}) {
       } finally {
         if (gitWrites.get(commonDirectory) === pending) gitWrites.delete(commonDirectory)
       }
+    }
+    const acquireMcpRefreshLock = createMcpRefreshLocks()
+    const mcpCredentialListeners = new Set<(key: string, value?: string) => void>()
+    const notifyMcpCredential = (key: string, value?: string) => {
+      for (const listener of mcpCredentialListeners) listener(key, value)
     }
     let mcp: McpConfigStore
     let terminal: TerminalService
@@ -678,6 +686,15 @@ export async function createHost(options: HostOptions = {}) {
       }
     })
     const pluginCalls = new Map<string, { pluginId: string; controller: AbortController }>()
+    const mcpConfigurationChanged = (cwd?: string) => {
+      void pi
+        .retireSessions((key) => {
+          const actor = pi.getSessionContext(key)
+          return actor.accessMode === 'full-access' && (!cwd || actor.cwd === cwd)
+        })
+        .catch((cause) => emit('error', { generation: 0, message: `MCP 配置已更新，刷新会话失败：${String(cause)}` }))
+      systemChanged()
+    }
     const pluginClient = new AsyncLocalStorage<string>()
     const goalRuns = new WeakMap<RuntimeSdkSession, GoalRun>()
     const admittedGoalRuns = new WeakMap<RuntimeSdkSession, Set<string>>()
@@ -807,6 +824,12 @@ export async function createHost(options: HostOptions = {}) {
         workerPluginBridges.set(sessionKey, pluginBridge)
         return {
           credentials,
+          acquireMcpRefreshLock,
+          watchMcpCredentials: (listener) => {
+            mcpCredentialListeners.add(listener)
+            return () => mcpCredentialListeners.delete(listener)
+          },
+          notifyMcpCredential,
           dataRoot: root,
           settings: settings.settings,
           agentEntries: lease.agentEntries,
@@ -1069,6 +1092,12 @@ export async function createHost(options: HostOptions = {}) {
               pluginDiagnostics: () => plugins.diagnostics(),
               sessionPlugins: () => workerPlugins.get(actor.rootSessionKey) ?? [],
               mcp: () => mcp.snapshot(),
+              mcpCatalog: () =>
+                (
+                  builtins!.services['mcp.catalog'] as {
+                    read: (cwd: string) => import('@pi-meme/contracts/mcp').McpCatalog
+                  }
+                ).read(actor.cwd),
               usage: () => builtins!.handlers['settings:usage-stats'](),
               instructions: () => instructions.snapshot(actor.cwd),
               captured: () => workerReadSnapshots.get(actor.rootSessionKey),
@@ -1321,9 +1350,11 @@ export async function createHost(options: HostOptions = {}) {
                     result = await profile()
                   } else if (operation === 'mcp.save') {
                     await mcp.save(args[0] as import('@pi-meme/contracts/mcp').SaveMcpServer)
+                    mcpConfigurationChanged()
                     result = { ...(await safeMcp()), reload: '新会话或重新加载后生效；当前执行保持原资源快照' }
                   } else if (operation === 'mcp.delete') {
                     await mcp.delete(args[0] as import('@pi-meme/contracts/mcp').DeleteMcpServer)
+                    mcpConfigurationChanged()
                     result = { ...(await safeMcp()), reload: '新会话或重新加载后生效；当前执行保持原资源快照' }
                   } else if (operation === 'instructions.save') {
                     await instructions.save(parseSaveInstruction(args[0]))
@@ -2061,7 +2092,21 @@ export async function createHost(options: HostOptions = {}) {
           (await optionalRuntimeExtensions(value, path.join(paths.agentDir, 'subagents'))).catalog,
       },
       'host.interaction': { pi },
-      'host.mcp': { pi, store: mcp },
+      'host.mcp': {
+        pi,
+        store: mcp,
+        paths,
+        credentials,
+        legacyDisabled: () => settings.settings.mcpEnabled === false,
+        cwd: (key: string) => {
+          checkSessionAuthorization(key, pluginClient.getStore()!)
+          return pi.getSessionContext(key).cwd
+        },
+        owner: () => pluginClient.getStore()!,
+        credentialChanged: notifyMcpCredential,
+        configurationChanged: mcpConfigurationChanged,
+        acquireMcpRefreshLock,
+      },
     }
     builtins = await createBuiltinModules(root, sharedContexts, () => {
       if (!appControl) throw new Error('服务 API 尚未初始化')

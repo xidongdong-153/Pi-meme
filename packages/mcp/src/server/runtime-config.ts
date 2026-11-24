@@ -1,4 +1,6 @@
 import { mcpAuthorization } from '../shared/authorization'
+import type { McpReference, AcquireMcpRefreshLock } from '@pi-meme/contracts/mcp'
+import { serverError } from '../shared/config'
 import { createHash, randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
@@ -80,56 +82,93 @@ function applyConfigFile(
 
 export function loadDesktopMcpConfig(
   paths: PiRuntimePaths,
-  cwd: string,
+  cwd: string | undefined,
   credentials: SecureCredentialStorage,
   legacyDisabled = false,
-): LoadedMcpConfig {
+) {
   const servers = new Map<string, McpServerEntry>()
   const errors: string[] = []
   const globalPath = path.join(paths.agentDir, 'mcp.json')
-  const projectPath = path.join(cwd, '.pi', 'mcp.json')
-  const overridePath = path.join(paths.workspaceDirectory(cwd), 'mcp-overrides.json')
   const globalData = applyConfigFile(servers, globalPath, 'global', errors)
-  const projectData = applyConfigFile(servers, projectPath, 'project', errors)
-  const overrideData = applyConfigFile(servers, overridePath, 'project', errors)
-
+  const projectData = cwd ? applyConfigFile(servers, path.join(cwd, '.pi', 'mcp.json'), 'project', errors) : undefined
+  const overrideData = cwd
+    ? applyConfigFile(servers, path.join(paths.workspaceDirectory(cwd), 'mcp-overrides.json'), 'project', errors)
+    : undefined
+  const services = []
+  const namespaces = new Set<string>()
+  const collisions = new Set<string>()
+  for (const name of servers.keys()) {
+    const namespace = name.replaceAll('-', '_')
+    if (namespaces.has(namespace)) collisions.add(namespace)
+    namespaces.add(namespace)
+  }
   for (const [name, entry] of servers) {
     const config = structuredClone(entry.config) as unknown as Record<string, unknown>
-    if (legacyDisabled) {
-      const authorization = mcpAuthorization(config)
-      const globalAuthorizations = isObject(globalData?.desktopAuthorizedServers)
-        ? globalData.desktopAuthorizedServers
-        : {}
-      const workspaceAuthorizations = isObject(overrideData?.desktopAuthorizedServers)
-        ? overrideData.desktopAuthorizedServers
-        : {}
-      if (globalAuthorizations[name] !== authorization && workspaceAuthorizations[name] !== authorization)
-        config.enabled = false
+    const authorization = mcpAuthorization(config)
+    const authorized =
+      (!legacyDisabled && !(entry.source !== globalPath && config.auth)) ||
+      [globalData, overrideData].some(
+        (data) => isObject(data?.desktopAuthorizedServers) && data.desktopAuthorizedServers[name] === authorization,
+      )
+    if (!authorized) config.enabled = false
+    const namespace = name.replaceAll('-', '_')
+    const error =
+      serverError(name, config) ?? (collisions.has(namespace) ? '服务名称与其他服务的工具命名空间冲突' : undefined)
+    if (error) {
+      errors.push(`${name}：${error}`)
+      config.enabled = false
     }
-    const oauth = isObject(config.oauth) ? { ...config.oauth } : undefined
-    if (oauth) {
+    const revision = createHash('sha256')
+      .update(
+        JSON.stringify([
+          entry.source,
+          'command' in config ? cwd : null,
+          authorization,
+          config.exposure,
+          config.toolExposure,
+        ]),
+      )
+      .digest('hex')
+    if (isObject(config.oauth)) {
+      const oauth = { ...config.oauth }
       delete oauth.clientSecret
-      const secret = credentials.get(`mcp-oauth-client:${name}`)
+      const secret = entry.source === globalPath ? credentials.get(`mcp-oauth-client:${name}`) : undefined
       if (secret) oauth.clientSecret = secret
       config.oauth = oauth
     }
-    servers.set(name, { ...entry, config: config as unknown as McpServerConfig })
+    services.push({ ...entry, config: config as unknown as McpServerConfig, revision, authorized, error })
   }
 
   const codemode = [globalData, projectData, overrideData]
     .reverse()
     .find((data) => isObject(data) && typeof data.autoEnableCodemode === 'boolean')
   return {
-    servers: [...servers.values()],
+    servers: services,
     autoEnableCodemode: isObject(codemode) ? (codemode.autoEnableCodemode as boolean) : undefined,
     errors,
   }
 }
 
-class DesktopMcpOAuthCredentials {
-  private locks = new Map<string, Promise<unknown>>()
+export function createMcpRefreshLocks(): AcquireMcpRefreshLock {
+  const tails = new Map<string, Promise<void>>()
+  return async (key) => {
+    const previous = tails.get(key) ?? Promise.resolve()
+    const { promise, resolve } = Promise.withResolvers<void>()
+    tails.set(key, promise)
+    await previous
+    return () => {
+      resolve()
+      if (tails.get(key) === promise) tails.delete(key)
+    }
+  }
+}
 
-  constructor(private readonly storage: SecureCredentialStorage) {}
+export class DesktopMcpOAuthCredentials {
+  constructor(
+    private readonly storage: SecureCredentialStorage,
+    private readonly changed?: (key: string, value?: string) => void,
+    private readonly acquire: AcquireMcpRefreshLock = createMcpRefreshLocks(),
+  ) {}
 
   private key(name: string, serverUrl: string) {
     const id = createHash('sha256').update(`${name}\0${serverUrl}`).digest('hex')
@@ -148,19 +187,17 @@ class DesktopMcpOAuthCredentials {
     const key = this.key(name, serverUrl)
     return {
       load: () => this.state(key),
-      save: (value: McpOAuthState) => this.storage.set(key, JSON.stringify(value)),
+      save: (state: McpOAuthState) => {
+        const value = JSON.stringify(state)
+        this.storage.set(key, value)
+        this.changed?.(key, value)
+      },
       withRefreshLock: async <T>(fn: () => Promise<T>): Promise<T> => {
-        const previous = this.locks.get(key) ?? Promise.resolve()
-        let release!: () => void
-        const lock = new Promise<void>((resolve) => (release = resolve))
-        const tail = previous.catch(() => {}).then(() => lock)
-        this.locks.set(key, tail)
-        await previous.catch(() => {})
+        const release = await this.acquire(key)
         try {
           return await fn()
         } finally {
-          release()
-          if (this.locks.get(key) === tail) this.locks.delete(key)
+          await release()
         }
       },
     }
@@ -171,7 +208,10 @@ class DesktopMcpOAuthCredentials {
   }
 
   remove(name: string, serverUrl: string) {
-    return this.storage.delete(this.key(name, serverUrl))
+    const key = this.key(name, serverUrl)
+    const removed = this.storage.delete(key)
+    this.changed?.(key)
+    return removed
   }
 }
 
@@ -179,7 +219,9 @@ function writeWorkspaceOverride(filePath: string, name: string, patch: McpConfig
   let data: Record<string, unknown> = {}
   try {
     const parsed: unknown = JSON.parse(readFileSync(filePath, 'utf8'))
-    if (isObject(parsed) && isObject(parsed.mcpServers)) data = parsed
+    if (!isObject(parsed) || (parsed.mcpServers !== undefined && !isObject(parsed.mcpServers)))
+      throw new Error('覆盖配置无效')
+    data = parsed
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('Desktop MCP 工作区覆盖配置无效')
   }
@@ -213,25 +255,48 @@ export function writeDesktopMcpWorkspaceOverride(
   writeWorkspaceOverride(path.join(paths.workspaceDirectory(cwd), 'mcp-overrides.json'), name, patch, authorization)
 }
 
+export function mcpToolsVisible(config: McpServerConfig) {
+  return config.exposure !== 'hidden' || Object.values(config.toolExposure ?? {}).some((mode) => mode !== 'hidden')
+}
+
 export function createDesktopMcpExtension(
   sdk: typeof import('@earendil-works/pi-coding-agent'),
   paths: PiRuntimePaths,
   credentials: SecureCredentialStorage,
-  cwd: string,
   legacyDisabled = false,
+  registerReferences?: (validate: (refs: McpReference[]) => void) => void,
+  acquire?: AcquireMcpRefreshLock,
 ): InlineExtension {
   const options: NonNullable<Parameters<typeof sdk.createMcpExtension>[0]> = {
-    loadConfig: (context) => loadDesktopMcpConfig(paths, context.cwd, credentials, legacyDisabled),
-    credentials: new DesktopMcpOAuthCredentials(credentials) as unknown as NonNullable<
+    loadConfig: (context): LoadedMcpConfig => {
+      const loaded = loadDesktopMcpConfig(paths, context.cwd, credentials, legacyDisabled)
+      registerReferences?.((refs) => {
+        const current = loadDesktopMcpConfig(paths, context.cwd, credentials, legacyDisabled)
+        for (const ref of refs) {
+          const matches = (entry: (typeof loaded.servers)[number]) =>
+            entry.name === ref.name &&
+            entry.revision === ref.revision &&
+            entry.config.enabled !== false &&
+            mcpToolsVisible(entry.config)
+          if (!loaded.servers.some(matches) || !current.servers.some(matches))
+            throw new Error(`MCP 服务 ${ref.name} 已改变或不可用，请移除引用并重新选择`)
+        }
+      })
+      return loaded
+    },
+    credentials: new DesktopMcpOAuthCredentials(credentials, undefined, acquire) as unknown as NonNullable<
       NonNullable<Parameters<typeof sdk.createMcpExtension>[0]>['credentials']
     >,
     logPath: path.join(paths.dataRoot, 'logs', 'mcp.log'),
-    updateConfig: (entry: McpServerEntry, patch: McpConfigPatch) => {
-      writeDesktopMcpWorkspaceOverride(paths, cwd, entry.name, patch, mcpAuthorization({ ...entry.config, ...patch }))
-    },
   }
   return {
     name: 'pi-meme-mcp',
-    factory: sdk.createMcpExtension(options),
+    factory: (pi) =>
+      sdk.createMcpExtension(options)({
+        ...pi,
+        registerCommand: (name, command) => {
+          if (name !== 'mcp') pi.registerCommand(name, command)
+        },
+      }),
   }
 }

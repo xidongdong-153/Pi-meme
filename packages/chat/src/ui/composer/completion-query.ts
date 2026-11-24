@@ -1,18 +1,25 @@
+import { mcpReferences } from '@pi-meme/contracts/mcp'
+
 export const computerMention = '@[电脑]'
 
 export function composerReferences(text: string) {
-  return [...text.matchAll(/(?:^|[\s\uFFFC])(@"([^"\n]+)"|@\[电脑\])/gu)].map((match) => ({
+  const files = [...text.matchAll(/(?:^|[\s\uFFFC])(@"([^"\n]+)"|@\[电脑\])/gu)].map((match) => ({
     text: match[1],
     computer: match[1] === computerMention,
+    mcp: undefined as string | undefined,
     path: match[2] ?? '',
     start: match.index + match[0].length - match[1].length,
     end: match.index + match[0].length,
   }))
+  const servers = mcpReferences(text)
+    .filter((ref) => !files.some((file) => file.start <= ref.start && file.end > ref.start))
+    .map((ref) => ({ ...ref, computer: false, path: '', mcp: ref.name }))
+  return [...files, ...servers].sort((a, b) => a.start - b.start)
 }
 
 export function fileReferences(text: string) {
   return composerReferences(text)
-    .filter((ref) => !ref.computer)
+    .filter((ref) => !ref.computer && !ref.mcp)
     .map(({ text, path, start, end }) => ({ text, path, start, end }))
 }
 

@@ -21,6 +21,7 @@ export type SettingsReadContext = {
   pluginDiagnostics?: Reader
   sessionPlugins?: Reader
   mcp?: Reader
+  mcpCatalog?: () => import('@pi-meme/contracts/mcp').McpCatalog
   usage?: Reader
   instructions?: Reader
   captured?: Reader
@@ -163,6 +164,9 @@ const itemFields: Record<string, Record<string, string>> = {
     environmentConfigured: 'boolean',
     headersConfigured: 'boolean',
     connection: 'string',
+    source: 'string',
+    signedIn: 'boolean',
+    lastCheck: 'object',
   },
   'mcp.tools': { name: 'string', description: 'string', server: 'string', enabled: 'boolean' },
   'usage.details': { date: 'string', tokens: 'number' },
@@ -803,6 +807,7 @@ export function createSettingsReads(context: SettingsReadContext) {
             )
           case 'mcp.status': {
             const configured = row(await read(context.mcp))
+            const catalog = context.mcpCatalog?.()
             const settings = await configuration()
             const captured = await capture()
             return {
@@ -810,29 +815,44 @@ export function createSettingsReads(context: SettingsReadContext) {
               captured: captured.mcp
                 ? { status: 'captured', ...fields(captured.mcp, ['enabled']) }
                 : { status: 'unknown' },
-              ...(configured.error ? { error: { code: 'mcp-config-unavailable' } } : {}),
+              ...(configured.error || catalog?.errors.length ? { error: { code: 'mcp-config-unavailable' } } : {}),
               configurationRevision: text(configured.revision),
               ...page(
-                rows(configured.servers).map((entry) => {
-                  const config = row(entry.config)
-                  return {
-                    name: text(entry.name),
-                    enabled: bool(config.enabled) ?? true,
-                    authorized: bool(config.desktopAuthorized) ?? false,
-                    transport:
-                      typeof config.command === 'string'
-                        ? 'stdio'
-                        : typeof config.url === 'string'
-                          ? 'http'
-                          : 'unknown',
-                    endpointConfigured: typeof config.url === 'string' || typeof config.command === 'string',
-                    authenticationConfigured: Boolean(config.oauth || config.auth),
-                    environmentConfigured: Object.keys(row(config.env)).length > 0,
-                    headersConfigured: Object.keys(row(config.headers)).length > 0,
-                    connection: 'unknown',
-                    ...(entry.error ? { error: { code: 'mcp-server-config-invalid' } } : {}),
-                  }
-                }),
+                catalog?.services.map((service) => ({
+                  name: service.name,
+                  source: service.source,
+                  enabled: service.enabled,
+                  authorized: service.authorized,
+                  transport: service.transport,
+                  endpointConfigured: !!service.endpoint,
+                  authenticationConfigured: service.authenticationConfigured,
+                  environmentConfigured: service.environmentConfigured,
+                  headersConfigured: service.headersConfigured,
+                  signedIn: service.signedIn,
+                  connection: 'unknown',
+                  ...(service.check ? { lastCheck: fields(row(service.check), ['state', 'checkedAt', 'tools']) } : {}),
+                  ...(service.error ? { error: { code: 'mcp-server-config-invalid' } } : {}),
+                })) ??
+                  rows(configured.servers).map((entry) => {
+                    const config = row(entry.config)
+                    return {
+                      name: text(entry.name),
+                      enabled: bool(config.enabled) ?? true,
+                      authorized: bool(config.desktopAuthorized) ?? false,
+                      transport:
+                        typeof config.command === 'string'
+                          ? 'stdio'
+                          : typeof config.url === 'string'
+                            ? 'http'
+                            : 'unknown',
+                      endpointConfigured: typeof config.url === 'string' || typeof config.command === 'string',
+                      authenticationConfigured: Boolean(config.oauth || config.auth),
+                      environmentConfigured: Object.keys(row(config.env)).length > 0,
+                      headersConfigured: Object.keys(row(config.headers)).length > 0,
+                      connection: 'unknown',
+                      ...(entry.error ? { error: { code: 'mcp-server-config-invalid' } } : {}),
+                    }
+                  }),
                 query(args[0]),
               ),
             }

@@ -20,6 +20,7 @@ export type MessageEditorState = Pick<
   | 'composerStore'
   | 'files'
   | 'agentPlugins'
+  | 'mcp'
 > & {
   entryId: string
   model?: ReactNode
@@ -130,6 +131,7 @@ export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) 
           disabled={editor.disabled}
           sessionKey={editor.sessionKey}
           agentPlugins={editor.agentPlugins}
+          mcp={editor.mcp}
           projectPath={editor.projectPath}
           loadProjectFiles={editor.loadProjectFiles}
           selectedSkills={editor.selectedSkills}

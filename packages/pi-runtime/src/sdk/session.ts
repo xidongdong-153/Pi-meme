@@ -5,6 +5,7 @@ import {
   type VisualizationRef,
 } from '@pi-meme/contracts/visualize'
 import type { SessionWindow } from '@pi-meme/contracts/sessions'
+import { mcpReferences, mcpSettingsHint, type McpReference } from '@pi-meme/contracts/mcp'
 import type { ContextRuntimeCapture } from '@pi-meme/contracts/context-window'
 import { projectSessionWindow, projectSessionDetails } from '@pi-meme/contracts/session-window'
 import {
@@ -158,6 +159,7 @@ function toModel(model: SessionModel | undefined): PiModel | undefined {
  * 替换后通过 `setRebindSession` 重新订阅事件并绑定扩展。
  */
 export type RuntimePolicy = {
+  validateMcpReferences?: (refs: McpReference[]) => void
   onContextCapture?: (event: ContextRuntimeCapture) => void
   recordTurnChange?: (change: import('../turn-change-store').FileChangeRecord) => Promise<string>
   readVisualization?: (reference: VisualizationRef) => Promise<VisualizationDocument>
@@ -743,6 +745,9 @@ export class SdkSession {
               )
                 sections[ultraPromptSection] = ultraDelegationPrompt
             }
+            if (!restricted)
+              sections.app_mcp_references =
+                'A user message may reference an MCP server as @[MCP:name#revision]. Use that server for the requested task. The reference applies to that message only.'
             if (shellDescription) sections.app_shell = shellDescription
             sections.app_runtime = [
               'For App Host tools, paths and commands refer to the current session working directory on the Host. The Host may be remote from the user’s browser or desktop.',
@@ -1757,6 +1762,7 @@ export class SdkSession {
         this.running = true
         throw new Error('Pi 正在运行，请先停止当前任务')
       }
+      this.validateMcpMessage(message, normalized.mode)
       message = await this.prepareSkills(message, skills)
       if (options?.clientProcessingAudit?.length) this.persistClientProcessingAudit(options.clientProcessingAudit)
       this.running = true
@@ -2074,6 +2080,16 @@ export class SdkSession {
     })
   }
 
+  private validateMcpMessage(message: string, mode: TaskMode) {
+    if (/^\/mcp(?:\s|$)/.test(message.trimStart())) throw new Error(mcpSettingsHint)
+    const refs = mcpReferences(message)
+    if (!refs.length) return
+    if (!canUseExternalAgentTools(this.accessMode, mode))
+      throw new Error('MCP 引用需要完全权限的普通任务，请移除引用或调整权限')
+    if (!this.policy.validateMcpReferences) throw new Error('此会话尚未加载 MCP，请重新连接后发送')
+    this.policy.validateMcpReferences(refs)
+  }
+
   private async prepareSkills(message: string, skills: SkillReference[]) {
     if (!skills.length) return message
     const generation = this.generation
@@ -2173,6 +2189,7 @@ export class SdkSession {
       return
     }
     if (builtinCommand(normalized.text)) throw new Error('内置命令不能插话或排队，请等待当前任务完成后执行')
+    this.validateMcpMessage(normalized.text, normalized.mode)
     const input: QueuedInput = {
       sourceClientId: options?.sourceClientId,
       id: randomUUID(),
@@ -2325,6 +2342,7 @@ export class SdkSession {
       if (normalized.mode !== (this.activeMode ?? this.mode))
         throw new Error('排队输入必须使用当前任务模式；请先清空队列再手动切换模式')
       if (normalized.commandOnly || builtinCommand(normalized.text)) throw new Error('排队输入必须包含任务正文')
+      this.validateMcpMessage(normalized.text, normalized.mode)
       Object.assign(input, {
         text: normalized.text,
         mode: normalized.mode,
@@ -2406,6 +2424,7 @@ export class SdkSession {
       return
     }
     try {
+      this.validateMcpMessage(selected.input.text, selected.input.mode ?? this.mode)
       const prepared = await this.prepareSkills(selected.input.text, selected.input.skills ?? [])
       await this.withQueueLock(() => {
         if (

@@ -58,7 +58,17 @@ function methodLabel(provider: BuiltinProviderInfo, type: BuiltinAuthType) {
   return method?.subscription ? '账号登录' : 'OAuth 登录'
 }
 
-export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; disabled: boolean }) {
+export function BuiltinProviders({
+  bridge,
+  disabled,
+  providerId,
+  onConnected,
+}: {
+  bridge: LoginBridge
+  disabled: boolean
+  providerId?: string
+  onConnected?: () => void
+}) {
   const [providers, setProviders] = useState<BuiltinProviderInfo[] | null>(null)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<'all' | 'connected'>('all')
@@ -111,7 +121,10 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
         .then((next) => {
           if (!current || loginRevision.current !== revision || next?.id !== login.id) return
           setLogin(next)
-          if (next.status === 'done') void load()
+          if (next.status === 'done') {
+            void load()
+            onConnected?.()
+          }
         })
         .catch((cause: unknown) => {
           if (current && loginRevision.current === revision) setLoginError(String(cause))
@@ -133,7 +146,12 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
     setBusyId(provider.id)
     setError('')
     try {
-      setLogin(await bridge.startBuiltinLogin({ providerId: provider.id, authType }))
+      const next = await bridge.startBuiltinLogin({ providerId: provider.id, authType })
+      setLogin(next)
+      if (next.status === 'done') {
+        await load()
+        onConnected?.()
+      }
     } catch (cause) {
       setError(String(cause))
     } finally {
@@ -150,7 +168,10 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
       const next = await bridge.respondBuiltinLogin({ id: login.id, promptId: login.prompt.id, value })
       if (loginRevision.current !== revision || !active.current) return
       setLogin(next)
-      if (next.status === 'done') await load()
+      if (next.status === 'done') {
+        await load()
+        onConnected?.()
+      }
     } catch (cause) {
       if (loginRevision.current === revision && active.current) setLoginError(String(cause))
     } finally {
@@ -189,6 +210,7 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
   const connectedCount = allProviders.filter((provider) => provider.configured).length
   const search = query.trim().toLowerCase()
   const matched = allProviders.filter((provider) => {
+    if (providerId) return provider.id === providerId
     if (filter === 'connected' && !provider.configured) return false
     if (!search) return true
     return `${provider.name} ${provider.id}`.toLowerCase().includes(search)
@@ -258,50 +280,51 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
   return (
     <TooltipProvider delayDuration={150}>
       <div className="space-y-4" aria-busy={loading}>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-44 flex-1">
-            <Search
-              aria-hidden="true"
-              className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
-            />
-            <Input
-              aria-label="搜索内置服务商"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索内置服务商"
-              className="h-8 max-w-full rounded-lg bg-secondary/40 pl-8 text-xs shadow-none"
-            />
+        {!providerId && (
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-44 flex-1">
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+              />
+              <Input
+                aria-label="搜索内置服务商"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索内置服务商"
+                className="h-8 max-w-full rounded-lg bg-secondary/40 pl-8 text-xs shadow-none"
+              />
+            </div>
+            <div
+              role="group"
+              aria-label="筛选服务商状态"
+              className="inline-flex shrink-0 gap-1 rounded-lg bg-secondary/50 p-0.5"
+            >
+              {(
+                [
+                  { id: 'all', label: '全部', count: allProviders.length },
+                  { id: 'connected', label: '已连接', count: connectedCount },
+                ] as const
+              ).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-pressed={filter === item.id}
+                  onClick={() => setFilter(item.id)}
+                  className={cn(
+                    'whitespace-nowrap rounded-md px-2.5 py-1 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                    filter === item.id
+                      ? 'bg-card font-medium text-foreground shadow-xs'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {item.label}
+                  {providers !== null && <span className="ml-1 text-[10px] opacity-70 tabular-nums">{item.count}</span>}
+                </button>
+              ))}
+            </div>
           </div>
-          <div
-            role="group"
-            aria-label="筛选服务商状态"
-            className="inline-flex shrink-0 gap-1 rounded-lg bg-secondary/50 p-0.5"
-          >
-            {(
-              [
-                { id: 'all', label: '全部', count: allProviders.length },
-                { id: 'connected', label: '已连接', count: connectedCount },
-              ] as const
-            ).map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                aria-pressed={filter === item.id}
-                onClick={() => setFilter(item.id)}
-                className={cn(
-                  'whitespace-nowrap rounded-md px-2.5 py-1 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-                  filter === item.id
-                    ? 'bg-card font-medium text-foreground shadow-xs'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {item.label}
-                {providers !== null && <span className="ml-1 text-[10px] opacity-70 tabular-nums">{item.count}</span>}
-              </button>
-            ))}
-          </div>
-        </div>
-
+        )}
         {error && (
           <div
             role="alert"
@@ -349,8 +372,15 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
           </p>
         )}
 
-        <RevealContent ready={providers !== null}>
-          {providers && (
+        {providerId &&
+          providers &&
+          (matched[0] ? (
+            renderProviderRow(matched[0])
+          ) : (
+            <p className="text-xs text-muted-foreground">未找到内置服务商 {providerId}，请核对服务商 ID。</p>
+          ))}
+        <RevealContent ready={!providerId && providers !== null}>
+          {!providerId && providers && (
             <div className="space-y-4">
               {!matched.length ? (
                 <SettingsCard>

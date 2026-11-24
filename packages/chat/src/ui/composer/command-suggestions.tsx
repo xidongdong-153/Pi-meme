@@ -1,4 +1,4 @@
-import { Box } from 'lucide-react'
+import { Box, Network } from 'lucide-react'
 import { builtinCommandIcons } from '@pi-meme/assets/builtin'
 import { Badge } from '@pi-meme/ui/components/ui/badge'
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
@@ -17,11 +17,13 @@ const builtinCommandLabels: Record<string, string> = {
 export function CommandSuggestions({
   matches,
   skillCompletion,
+  mcpStatus,
   agentPlugins,
   suggestionIndex,
   onComplete,
 }: {
   matches: CompletionItem[]
+  mcpStatus?: string
   skillCompletion: boolean
   agentPlugins?: ComposerAgentPlugins
   suggestionIndex: number
@@ -31,16 +33,33 @@ export function CommandSuggestions({
 
   function option(item: CompletionItem, index: number) {
     const plugin = item.kind === 'plugin' ? item.plugin : undefined
-    const command = item.kind === 'plugin' ? undefined : item.command
+    const server = item.kind === 'mcp' ? item.service : undefined
+    const command = 'command' in item ? item.command : undefined
     const resource = item.kind !== 'command'
-    const key = plugin ? `plugin-${plugin.id}` : `${command!.source}-${command!.name}-${command!.sourceInfo.path}`
+    const key = server
+      ? `mcp-${server.name}`
+      : plugin
+        ? `plugin-${plugin.id}`
+        : `${command!.source}-${command!.name}-${command!.sourceInfo.path}`
     const commandTitle =
       command?.source === 'builtin' ? (builtinCommandLabels[command.name] ?? `/${command.name}`) : `/${command?.name}`
     const commandIcon = command?.source === 'builtin' ? builtinCommandIcons[command.name] : undefined
     const title =
-      plugin?.name ?? (resource ? (command!.displayName ?? command!.name.replace(/^skill:/, '')) : commandTitle)
+      server?.name ??
+      plugin?.name ??
+      (resource ? (command!.displayName ?? command!.name.replace(/^skill:/, '')) : commandTitle)
     const description =
-      plugin?.description ?? (resource ? (command?.shortDescription ?? command?.description) : command?.description)
+      (item.kind === 'mcp'
+        ? item.action === 'unavailable'
+          ? '完全权限的普通任务可用'
+          : item.action === 'settings'
+            ? server?.check?.state === 'needs-auth'
+              ? '去设置认证'
+              : '去设置处理'
+            : server?.description
+        : undefined) ??
+      plugin?.description ??
+      (resource ? (command?.shortDescription ?? command?.description) : command?.description)
     const sourceLabel =
       item.kind === 'skill' && command
         ? command.builtin
@@ -49,7 +68,8 @@ export function CommandSuggestions({
         : item.kind === 'command' && command
           ? { builtin: '内置', extension: '扩展', prompt: '提示词', skill: '技能' }[command.source]
           : undefined
-    const disabled = Boolean(plugin && agentPlugins?.disabledReason)
+    const disabled =
+      Boolean(plugin && agentPlugins?.disabledReason) || (item.kind === 'mcp' && item.action === 'unavailable')
     const button = (
       <button
         key={key}
@@ -80,6 +100,8 @@ export function CommandSuggestions({
                 draggable={false}
                 className="size-6 object-contain"
               />
+            ) : server ? (
+              <Network className="size-4 text-muted-foreground" />
             ) : plugin?.iconUrl ? (
               <img src={plugin.iconUrl} alt="" className="size-4 object-contain" />
             ) : resource ? (
@@ -109,6 +131,7 @@ export function CommandSuggestions({
 
   const commands = matches.flatMap((item, index) => (item.kind === 'command' ? [option(item, index)] : []))
   const skills = matches.flatMap((item, index) => (item.kind === 'skill' ? [option(item, index)] : []))
+  const services = matches.flatMap((item, index) => (item.kind === 'mcp' ? [option(item, index)] : []))
   const plugins = matches.flatMap((item, index) => (item.kind === 'plugin' ? [option(item, index)] : []))
   return (
     <div
@@ -120,7 +143,7 @@ export function CommandSuggestions({
       id="composer-suggestions"
       role="listbox"
       style={{ scrollbarWidth: 'thin', maxHeight: maxHeight ?? 'min(22rem,50vh)' }}
-      aria-label={skillCompletion ? '技能选择' : '命令、技能与插件选择'}
+      aria-label={skillCompletion ? '技能选择' : '命令、技能、插件与 MCP 服务选择'}
     >
       {skillCompletion ? (
         skills.length ? (
@@ -148,6 +171,17 @@ export function CommandSuggestions({
               </div>
             )}
           </div>
+          {(services.length > 0 || mcpStatus) && (
+            <div role="group" aria-label="MCP 服务">
+              <div className="px-3 pt-2 pb-1 text-xs text-muted-foreground">MCP 服务</div>
+              {services}
+              {mcpStatus && (
+                <p role="status" className="px-3 py-2 text-xs text-muted-foreground">
+                  {mcpStatus}
+                </p>
+              )}
+            </div>
+          )}
           <div role="group" aria-label="插件">
             <div className="px-3 pt-2 pb-1 text-xs text-muted-foreground">插件</div>
             {plugins.length ? (

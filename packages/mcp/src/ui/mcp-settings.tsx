@@ -1,367 +1,444 @@
-import { useEffect, useState } from 'react'
-import { CollapsibleSection } from '@pi-meme/ui/components/ui/collapsible'
-import { Settings, RefreshCw, ArrowLeft } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { ArrowLeft, ChevronRight, Network, RefreshCw, Terminal } from 'lucide-react'
 import { IntegrationHeader } from '@pi-meme/ui/components/integration-header'
 import { Switch } from '@pi-meme/ui/components/ui/switch'
-import type { McpBridge, McpConfigSnapshot, McpDiagnostic, McpServerEntry } from '@pi-meme/contracts/mcp'
-import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
-import type { ToolExecutionSettings } from '@pi-meme/contracts/settings'
+import type {
+  McpBridge,
+  McpCatalog,
+  McpConfigSnapshot,
+  McpService,
+  McpTarget,
+  SaveMcpServer,
+} from '@pi-meme/contracts/mcp'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { SettingsCard, SettingsGroup, SettingsRow, settingsControlClassName } from '@pi-meme/ui/components/settings'
 import { ServerForm } from './server-form'
-import { object } from '../shared/config'
-import { cn } from '@pi-meme/ui/lib/utils'
-import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
-import { RevealContent } from '@pi-meme/ui/components/reveal-content'
+import { McpLoginPanel } from './login-panel'
 
+export type McpSettingsLocation = { name: string; sessionKey?: string; revision?: string }
+function checkLabel(service: McpService) {
+  const check = service.check
+  if (!check) return '尚未检查'
+  if (check.state === 'connected') return `检查成功 · ${check.tools} 个工具`
+  return check.message
+}
+function summary(service: McpService) {
+  if (service.error) return service.error
+  if (!service.enabled) return service.authorized ? '已停用' : '待启用授权'
+  if (service.loginId) return '授权进行中'
+  return checkLabel(service)
+}
 export function McpSettings({
   bridge,
-  busy,
-  saving,
-  mode,
   sessionKey,
-  capabilities,
+  projectLabel,
+  initial,
+  renderProvider,
 }: {
   bridge: McpBridge
-  busy: boolean
-  saving: boolean
-  mode?: AgentAccessMode
   sessionKey?: string
-  capabilities: ToolExecutionSettings
-  onCapabilities: (value: ToolExecutionSettings) => void
+  projectLabel?: string
+  initial?: McpSettingsLocation
+  renderProvider?: (id: string, onConnected: () => void) => ReactNode
 }) {
-  const [snapshot, setSnapshot] = useState<McpConfigSnapshot | null>(null)
-  const [error, setError] = useState('')
-  const [working, setWorking] = useState(false)
-  const [refreshing, setRefreshing] = useState(false)
-  const [editing, setEditing] = useState<McpServerEntry | 'new' | null>(null)
-  const [deleting, setDeleting] = useState<string | null>(null)
-  const [diagnostic, setDiagnostic] = useState<McpDiagnostic | null>(null)
+  const [scope, setScope] = useState<'global' | 'project'>(sessionKey ? 'project' : 'global')
+  const key = scope === 'project' ? sessionKey : undefined
+  const [catalog, setCatalog] = useState<McpCatalog>()
+  const [global, setGlobal] = useState<McpConfigSnapshot>()
+  const [name, setName] = useState<string | undefined>(initial?.name)
+  const [expectedRevision, setExpectedRevision] = useState(initial?.revision)
   const [query, setQuery] = useState('')
-  const [copied, setCopied] = useState<string | null>(null)
-  useEffect(() => {
-    let active = true
-    bridge
-      .getMcpConfig()
-      .then((value) => {
-        if (active) setSnapshot(value)
-      })
-      .catch((cause) => {
-        if (active) setError(String(cause))
-      })
-    return () => {
-      active = false
-    }
-  }, [bridge])
-  const blocked = busy || saving || working
-
-  async function refresh() {
-    if (refreshing || blocked) return
-    setRefreshing(true)
-    setError('')
+  const [editing, setEditing] = useState<'new' | 'edit'>()
+  const [error, setError] = useState('')
+  const [working, setWorking] = useState('')
+  const [login, setLogin] = useState<{ id: string; name: string }>()
+  const [confirm, setConfirm] = useState<'delete' | 'logout'>()
+  const sequence = useRef(0)
+  const active = useRef(true)
+  const load = useCallback(async () => {
+    const seq = ++sequence.current
     try {
-      setSnapshot(await bridge.getMcpConfig())
-    } catch (cause) {
-      setError(String(cause))
-    } finally {
-      setRefreshing(false)
-    }
-  }
-  const act = async (work: () => Promise<void>) => {
-    if (blocked) return
-    setWorking(true)
-    setError('')
-    try {
-      await work()
-    } catch (cause) {
-      setError(String(cause))
-      // 保存成功而重连失败时，仍读取已落盘的配置，避免再次用旧 revision 保存。
-      if (String(cause).includes('配置已保存')) {
-        try {
-          setSnapshot(await bridge.getMcpConfig())
-          setEditing(null)
-        } catch {
-          /* 保留操作错误。 */
-        }
+      const [list, config] = await Promise.all([bridge.getMcpCatalog(key), bridge.getMcpConfig()])
+      if (seq === sequence.current && active.current) {
+        setCatalog(list)
+        setGlobal(config)
       }
+      return list
+    } catch (cause) {
+      if (seq === sequence.current && active.current) setError(String(cause))
+      throw cause
+    }
+  }, [bridge, key])
+  useEffect(() => {
+    active.current = true
+    setCatalog(undefined)
+    void load().catch(() => {})
+    return () => {
+      active.current = false
+      sequence.current++
+    }
+  }, [load])
+  const refresh = useCallback(() => {
+    void load().catch(() => {})
+  }, [load])
+  const selected = catalog?.services.find(
+    (s) => s.name === name && (!expectedRevision || s.revision === expectedRevision),
+  )
+  const globalEntry = global?.servers.find((s) => s.name === name)
+  const target = (service: McpService): McpTarget => ({
+    name: service.name,
+    revision: service.revision,
+    sessionKey: key,
+  })
+  const run = async (label: string, action: () => Promise<unknown>) => {
+    if (working) return
+    setWorking(label)
+    setError('')
+    try {
+      await action()
+    } catch (cause) {
+      if (active.current) setError(String(cause))
     } finally {
-      setWorking(false)
+      if (active.current) {
+        await load().catch(() => {})
+        setWorking('')
+      }
     }
   }
-  const selected = editing && editing !== 'new' ? editing : undefined
-  const servers =
-    snapshot?.servers.filter((entry) => entry.name.toLowerCase().includes(query.trim().toLowerCase())) ?? []
-  const config = selected && object(selected.config) ? selected.config : {}
+  const reset = () => {
+    setExpectedRevision(undefined)
+    setName(undefined)
+    setEditing(undefined)
+    setConfirm(undefined)
+    setLogin(undefined)
+    setError('')
+  }
+  const open = (s: McpService) => {
+    setExpectedRevision(s.revision)
+    setName(s.name)
+    setLogin(undefined)
+    setEditing(undefined)
+    setConfirm(undefined)
+    setError('')
+  }
+  const save = (input: SaveMcpServer) =>
+    run('保存中…', async () => {
+      await bridge.saveMcpServer(input)
+      setExpectedRevision(undefined)
+      setEditing(undefined)
+      setName(input.name)
+      const list = await bridge.getMcpCatalog()
+      const service = list.services.find((s) => s.name === input.name)
+      if (service?.enabled && !service.error)
+        await bridge.checkMcpService({ name: service.name, revision: service.revision })
+    })
+  const startLogin = (service: McpService) =>
+    void run('准备授权…', async () => {
+      const result = await bridge.startMcpLogin(target(service))
+      setLogin({ id: result.id, name: service.name })
+    })
+  const check = (service: McpService) => void run('正在检查…', () => bridge.checkMcpService(target(service)))
+  const authId = selected && (login?.name === selected.name ? login.id : selected.loginId)
+  const providerFinished = useCallback(() => {
+    if (selected)
+      void bridge
+        .checkMcpService({ name: selected.name, revision: selected.revision, sessionKey: key })
+        .then(refresh, (cause) => setError(String(cause)))
+  }, [bridge, key, selected?.name, selected?.revision, refresh])
+  const notices = [...new Set([error, global?.error, ...(catalog?.errors ?? [])].filter(Boolean))]
+  const disabled = !!working
+  const list = (catalog?.services ?? []).filter((s) =>
+    [s.name, s.description].some((v) => v?.toLowerCase().includes(query.toLowerCase().trim())),
+  )
   return (
-    <section aria-label="MCP 管理" className="space-y-6" aria-busy={blocked || refreshing || (!snapshot && !error)}>
-      {!editing && (
-        <IntegrationHeader
-          query={query}
-          onQuery={setQuery}
-          searchLabel="搜索 MCP 服务器"
-          searchClassName="h-9 rounded-lg border-border/80 bg-secondary/50 text-xs focus-visible:bg-secondary/80"
-          actions={
-            <>
-              <Button
-                className="rounded-lg text-xs shadow-none"
-                variant="ghost"
-                size="icon"
-                aria-label="重新加载 MCP 配置"
-                disabled={refreshing || blocked}
-                onClick={() => void refresh()}
-              >
-                <RefreshCw className={cn(refreshing && 'animate-spin')} />
-              </Button>
-              <Button
-                className={settingsControlClassName}
-                disabled={blocked || !snapshot || Boolean(snapshot.error)}
-                onClick={() => {
-                  setEditing('new')
-                  setDeleting(null)
-                }}
-              >
-                新增 MCP 服务
-              </Button>
-            </>
-          }
-        />
-      )}
-      <RevealContent ready={Boolean(snapshot?.error || error)}>
-        <p role="alert" className="text-xs text-destructive">
-          <CrossfadeText>{snapshot?.error || error}</CrossfadeText>
-        </p>
-      </RevealContent>
-      {snapshot && editing ? (
-        <div className="space-y-5">
-          <Button
-            className={settingsControlClassName}
-            variant="ghost"
-            disabled={blocked}
-            onClick={() => {
-              setEditing(null)
-              setDeleting(null)
-            }}
-          >
-            <ArrowLeft />
-            返回 MCP
-          </Button>
-          <Button
-            className={settingsControlClassName}
-            variant="outline"
-            size="sm"
-            disabled={blocked}
-            onClick={() =>
-              void act(async () => {
-                setSnapshot(await bridge.getMcpConfig())
-                setEditing(null)
-                setDeleting(null)
-              })
-            }
-          >
-            重新加载配置
-          </Button>
-          <h3 className="break-words text-xs font-semibold text-muted-foreground">
-            {selected?.name ?? '新增 MCP 服务'}
-          </h3>
-          {selected?.error && (
-            <p role="alert" className="text-xs text-destructive">
-              {selected.error}
-            </p>
-          )}
-          {selected && (
-            <div className="flex flex-wrap gap-2">
-              {typeof config.url === 'string' && (
+    <section aria-label="MCP 管理" className="space-y-5 text-xs" aria-busy={disabled}>
+      {!name && !editing ? (
+        <>
+          <IntegrationHeader
+            query={query}
+            onQuery={setQuery}
+            searchLabel="搜索 MCP 服务"
+            actions={
+              <>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="刷新 MCP 服务"
+                  disabled={disabled}
+                  onClick={() => void run('刷新中…', load)}
+                >
+                  <RefreshCw />
+                </Button>
                 <Button
                   className={settingsControlClassName}
-                  variant="outline"
-                  disabled={blocked}
+                  disabled={disabled || !global || !!global.error}
                   onClick={() => {
-                    void navigator.clipboard
-                      .writeText(`/mcp login ${selected.name}`)
-                      .then(() => setCopied(selected.name))
-                      .catch(() => setError('复制失败，请手动复制登录命令'))
+                    setScope('global')
+                    setEditing('new')
                   }}
                 >
-                  <CrossfadeText>
-                    {copied === selected.name ? '已复制登录命令' : `复制 ${selected.name} 登录命令`}
-                  </CrossfadeText>
+                  新增 MCP 服务
+                </Button>
+              </>
+            }
+          />
+          <div role="group" aria-label="配置范围" className="flex flex-wrap gap-1">
+            {(['global', 'project'] as const)
+              .filter((s) => s === 'global' || sessionKey)
+              .map((s) => (
+                <Button
+                  key={s}
+                  variant={scope === s ? 'secondary' : 'ghost'}
+                  className={settingsControlClassName}
+                  disabled={disabled}
+                  aria-pressed={scope === s}
+                  onClick={() => {
+                    setScope(s)
+                    reset()
+                  }}
+                >
+                  {s === 'global' ? '全局服务' : `当前项目${projectLabel ? ` · ${projectLabel}` : ''}`}
+                </Button>
+              ))}
+          </div>
+          <SettingsGroup title="服务">
+            <SettingsCard>
+              {list.map((service) => {
+                const Icon = service.transport === 'http' ? Network : Terminal
+                return (
+                  <SettingsRow key={service.name} className="flex-nowrap">
+                    <Icon className="size-4 shrink-0 text-muted-foreground" />
+                    <button type="button" className="min-w-0 flex-1 text-left" onClick={() => open(service)}>
+                      <strong className="block truncate">{service.name}</strong>
+                      <span className="block truncate text-muted-foreground">
+                        {service.source === 'global' ? '全局' : '项目'} · {summary(service)}
+                      </span>
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={disabled}
+                      onClick={() => {
+                        open(service)
+                        if (
+                          service.check?.state === 'needs-auth' &&
+                          service.authentication === 'auto' &&
+                          !service.loginId
+                        )
+                          startLogin(service)
+                      }}
+                    >
+                      {service.check?.state === 'needs-auth' && service.authentication === 'auto' ? '登录' : '查看'}
+                      <ChevronRight className="size-4" />
+                    </Button>
+                  </SettingsRow>
+                )
+              })}
+              {!list.length && (
+                <p role="status" className="p-4 text-muted-foreground">
+                  {!catalog ? '正在读取服务…' : query ? '没有匹配的服务' : '尚未配置 MCP 服务'}
+                </p>
+              )}
+            </SettingsCard>
+          </SettingsGroup>
+        </>
+      ) : (
+        <>
+          <Button variant="ghost" className={settingsControlClassName} disabled={disabled} onClick={reset}>
+            <ArrowLeft />
+            返回 MCP 服务
+          </Button>
+          {editing ? (
+            <SettingsGroup title={editing === 'new' ? '新增全局服务' : `编辑 ${name}`}>
+              {global && (
+                <ServerForm
+                  key={`${editing}:${global.revision}`}
+                  revision={global.revision}
+                  entry={editing === 'edit' ? globalEntry : undefined}
+                  busy={disabled}
+                  onSave={save}
+                  onCancel={() => setEditing(undefined)}
+                />
+              )}
+            </SettingsGroup>
+          ) : selected ? (
+            <>
+              <div className="min-w-0 space-y-1">
+                <h3 className="break-words text-base font-semibold">{selected.name}</h3>
+                <p className="break-all text-muted-foreground">
+                  {selected.source === 'global' ? '全局配置' : '项目配置'} ·{' '}
+                  {selected.transport === 'http' ? 'HTTP' : '本地进程'} · {selected.endpoint}
+                </p>
+                {selected.description && <p>{selected.description}</p>}
+              </div>
+              <SettingsGroup title="使用与连接">
+                <SettingsCard>
+                  <SettingsRow>
+                    <span>{key ? '允许当前项目使用' : '允许使用此服务'}</span>
+                    <Switch
+                      label={`启用 ${selected.name}`}
+                      checked={selected.enabled}
+                      disabled={disabled || !!selected.error}
+                      onChange={(value) =>
+                        void run('保存中…', () => bridge.setMcpServiceEnabled(target(selected), value))
+                      }
+                    />
+                  </SettingsRow>
+                  <SettingsRow>
+                    <div>
+                      <div>{checkLabel(selected)}</div>
+                      {selected.check && (
+                        <time className="text-muted-foreground">
+                          {new Date(selected.check.checkedAt).toLocaleString()}
+                        </time>
+                      )}
+                    </div>
+                    <Button
+                      variant="outline"
+                      className={settingsControlClassName}
+                      disabled={disabled || !selected.enabled || !!selected.error}
+                      onClick={() => check(selected)}
+                    >
+                      {selected.check ? '重新检查' : '检查连接'}
+                    </Button>
+                  </SettingsRow>
+                </SettingsCard>
+              </SettingsGroup>
+              <SettingsGroup title="认证">
+                <SettingsCard>
+                  <SettingsRow>
+                    <div>
+                      {selected.authentication === 'auto'
+                        ? selected.signedIn
+                          ? 'OAuth 已登录'
+                          : selected.check?.state === 'connected'
+                            ? '无需登录'
+                            : 'OAuth 自动检测'
+                        : selected.authentication === 'headers'
+                          ? '使用请求头凭据'
+                          : selected.authentication === 'provider'
+                            ? `使用服务商账号 · ${selected.provider}`
+                            : '使用本地进程环境变量'}
+                    </div>
+                    {selected.authentication === 'auto' &&
+                      selected.enabled &&
+                      (selected.signedIn || selected.check?.state === 'needs-auth') &&
+                      !selected.loginId && (
+                        <div className="flex gap-1">
+                          <Button
+                            className={settingsControlClassName}
+                            disabled={disabled}
+                            onClick={() => startLogin(selected)}
+                          >
+                            {selected.signedIn ? '重新登录' : `登录 ${selected.name}`}
+                          </Button>
+                          {selected.signedIn && (
+                            <Button
+                              variant="ghost"
+                              className={settingsControlClassName}
+                              disabled={disabled}
+                              onClick={() => setConfirm('logout')}
+                            >
+                              退出登录
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                  </SettingsRow>
+                  {authId && (
+                    <div className="p-4">
+                      <McpLoginPanel key={authId} id={authId} bridge={bridge} onFinished={refresh} />
+                    </div>
+                  )}
+                  {selected.provider && renderProvider && (
+                    <div className="p-3">{renderProvider(selected.provider, providerFinished)}</div>
+                  )}
+                </SettingsCard>
+              </SettingsGroup>
+              {!key && globalEntry && (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    className={settingsControlClassName}
+                    disabled={disabled}
+                    onClick={() => setEditing('edit')}
+                  >
+                    编辑配置
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className={settingsControlClassName}
+                    disabled={disabled}
+                    onClick={() => setConfirm('delete')}
+                  >
+                    删除服务
+                  </Button>
+                </div>
+              )}
+              {key && selected.source === 'global' && (
+                <Button
+                  variant="outline"
+                  className={settingsControlClassName}
+                  disabled={disabled}
+                  onClick={() => {
+                    setExpectedRevision(undefined)
+                    setScope('global')
+                    setEditing('edit')
+                  }}
+                >
+                  编辑全局配置
                 </Button>
               )}
-              <Button
-                className={settingsControlClassName}
-                variant="outline"
-                disabled={blocked}
-                onClick={() => setDeleting(selected.name)}
-              >
-                删除 {selected.name}
-              </Button>
-            </div>
+              {key && selected.source === 'project' && (
+                <p className="text-muted-foreground">项目设置来自 .pi/mcp.json。此处的启停仅作用于当前项目。</p>
+              )}
+              {confirm && (
+                <SettingsCard className="space-y-3 divide-y-0 p-4">
+                  <p>
+                    {confirm === 'delete'
+                      ? `删除全局服务 ${selected.name}？后续聊天将无法使用此配置。`
+                      : `退出 ${selected.name}？使用此地址和账号的聊天将需要重新登录。`}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      className={settingsControlClassName}
+                      disabled={disabled}
+                      onClick={() =>
+                        void run('处理中…', async () => {
+                          if (confirm === 'logout') await bridge.logoutMcpService(target(selected))
+                          else if (global) {
+                            await bridge.deleteMcpServer({ name: selected.name, revision: global.revision })
+                            reset()
+                          }
+                          setConfirm(undefined)
+                          setLogin(undefined)
+                        })
+                      }
+                    >
+                      确认{confirm === 'delete' ? '删除' : '退出'}
+                    </Button>
+                    <Button variant="ghost" disabled={disabled} onClick={() => setConfirm(undefined)}>
+                      取消
+                    </Button>
+                  </div>
+                </SettingsCard>
+              )}
+            </>
+          ) : (
+            <p role="status">{catalog ? '服务已移除或配置已变化，请返回列表重新选择。' : '正在读取服务…'}</p>
           )}
-          {selected && typeof config.url === 'string' && (
-            <p className="text-[11px] text-muted-foreground">
-              在完全权限会话中执行 <code>/mcp login {selected.name}</code> 完成登录。
-            </p>
-          )}
-          {deleting && (
-            <SettingsCard className="space-y-3 divide-y-0 p-4">
-              <p className="text-xs">删除全局服务 {deleting}？</p>
-              <div className="flex gap-2">
-                <Button
-                  className={settingsControlClassName}
-                  disabled={blocked}
-                  onClick={() =>
-                    void act(async () => {
-                      setSnapshot(await bridge.deleteMcpServer({ name: deleting, revision: snapshot.revision }))
-                      setDeleting(null)
-                      setEditing(null)
-                    })
-                  }
-                >
-                  确认删除 {deleting}
-                </Button>
-                <Button
-                  className={settingsControlClassName}
-                  variant="outline"
-                  disabled={blocked}
-                  onClick={() => setDeleting(null)}
-                >
-                  取消删除
-                </Button>
-              </div>
-            </SettingsCard>
-          )}
-          {!snapshot.error && (
-            <ServerForm
-              key={editing === 'new' ? 'new' : `${editing.name}:${snapshot.revision}`}
-              entry={selected}
-              revision={snapshot.revision}
-              busy={blocked}
-              onCancel={() => setEditing(null)}
-              onSave={async (input) => {
-                await act(async () => {
-                  setSnapshot(await bridge.saveMcpServer(input))
-                  setEditing(null)
-                })
-              }}
-            />
-          )}
-        </div>
-      ) : (
-        <SettingsGroup title="服务器">
-          <RevealContent ready={Boolean(snapshot)}>
-            {servers.length ? (
-              <SettingsCard>
-                {servers.map((entry) => {
-                  const value = object(entry.config) ? entry.config : {}
-                  const authorizationRequired = capabilities.mcpEnabled === false && value.desktopAuthorized !== true
-                  return (
-                    <SettingsRow key={entry.name} aria-label={`MCP 服务：${entry.name}`} className="flex-nowrap">
-                      <div className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-medium">{entry.name}</span>
-                        {entry.error && (
-                          <p role="alert" className="mt-1 text-xs text-destructive">
-                            {entry.error}
-                          </p>
-                        )}
-                      </div>
-                      <Button
-                        className="rounded-lg text-xs shadow-none"
-                        size="icon-sm"
-                        variant="ghost"
-                        aria-label={`设置 MCP 服务：${entry.name}`}
-                        disabled={blocked}
-                        onClick={() => {
-                          setEditing(entry)
-                          setDeleting(null)
-                        }}
-                      >
-                        <Settings className="size-4 text-muted-foreground" />
-                      </Button>
-                      <Switch
-                        label={`启用 MCP 服务：${entry.name}`}
-                        checked={value.enabled !== false && !authorizationRequired}
-                        disabled={blocked || Boolean(entry.error) || Boolean(snapshot?.error)}
-                        onChange={(enabled) =>
-                          void act(async () => {
-                            setSnapshot(
-                              await bridge.saveMcpServer({
-                                revision: snapshot!.revision,
-                                name: entry.name,
-                                previousName: entry.name,
-                                config: { ...value, enabled },
-                              }),
-                            )
-                          })
-                        }
-                      />
-                    </SettingsRow>
-                  )
-                })}
-              </SettingsCard>
-            ) : (
-              <p role="status" className="text-[11px] text-muted-foreground">
-                <CrossfadeText>{query ? '没有匹配的 MCP 服务。' : '尚未配置 MCP 服务。'}</CrossfadeText>
-              </p>
-            )}
-          </RevealContent>
-        </SettingsGroup>
+        </>
       )}
-      {capabilities.mcpEnabled === false && (
-        <p role="status" className="text-[11px] text-muted-foreground">
-          原配置关闭了 MCP；逐个启用需要连接的服务。
+      {working && (
+        <p role="status" className="text-muted-foreground">
+          {working}
         </p>
       )}
-      {mode !== 'full-access' && (
-        <p role="status" className="text-[11px] text-muted-foreground">
-          当前权限不加载 MCP；切换到完全权限后可使用。
+      {notices.map((notice) => (
+        <p key={notice} role="alert" className="break-words text-destructive">
+          {notice}
         </p>
-      )}
-      <CollapsibleSection
-        title="连接诊断"
-        description="检查已配置服务，查看诊断输出"
-        className="bg-card/40 [&>button]:text-xs [&>button>span>span+span]:text-[11px]"
-      >
-        <div className="space-y-4 text-muted-foreground">
-          <Button
-            className={settingsControlClassName}
-            variant="outline"
-            disabled={blocked || mode !== 'full-access' || !sessionKey || !snapshot || Boolean(snapshot.error)}
-            onClick={() =>
-              void act(async () => {
-                setDiagnostic(await bridge.checkMcpServers(sessionKey!))
-              })
-            }
-          >
-            检查全部全局服务
-          </Button>
-          <p className="text-xs">检查会在独立目录启动配置中的服务，不启动聊天。相对工作目录按诊断目录解析。</p>
-          <RevealContent ready={Boolean(diagnostic)}>
-            {diagnostic && (
-              <section aria-label="MCP 诊断结果" className="space-y-2">
-                <p className="text-xs">
-                  检查时间：{new Date(diagnostic.checkedAt).toLocaleString()} ·{' '}
-                  {diagnostic.timedOut
-                    ? '检查超时'
-                    : diagnostic.exitCode === 0
-                      ? '检查完成'
-                      : `检查失败（退出码 ${String(diagnostic.exitCode)}）`}
-                </p>
-                <p className="text-[11px] text-muted-foreground">
-                  这是本次 Desktop 全局配置诊断结果，不代表当前聊天的实时连接状态。
-                </p>
-                <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg border border-border p-3 text-xs select-text">
-                  {diagnostic.output || 'Pi 未返回诊断输出'}
-                </pre>
-              </section>
-            )}
-          </RevealContent>
-        </div>
-      </CollapsibleSection>
-      <RevealContent ready={working}>
-        <p role="status" className="text-[11px] text-muted-foreground">
-          正在处理 MCP 操作…
-        </p>
-      </RevealContent>
+      ))}
     </section>
   )
 }

@@ -148,6 +148,8 @@ export class ExtensionUiBridge {
     input: (title, placeholder, opts) =>
       this.dialog('input', { title, placeholder }, undefined, this.dialogValue(undefined), opts),
     notify: (message, type) => {
+      if (message.startsWith('MCP servers need attention:'))
+        message = message.replace('Run /mcp to fix.', '请前往设置 → Agent → MCP 处理。')
       this.emit({ type: 'extension_ui_request', id: randomUUID(), method: 'notify', message, notifyType: type })
     },
     onTerminalInput: () => {

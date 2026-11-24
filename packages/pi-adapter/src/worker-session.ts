@@ -57,6 +57,9 @@ export type WorkerOptions = {
   imageGeneration?: (request: ImageGenerationRequest, signal: AbortSignal) => Promise<ImageGenerationReply>
   activity?: (request: ServiceActivityRequest, signal: AbortSignal) => Promise<ServiceActivityResult>
   credentials: SecureCredentialStorage & { flush?: () => Promise<void> }
+  acquireMcpRefreshLock?: import('@pi-meme/contracts/mcp').AcquireMcpRefreshLock
+  watchMcpCredentials?: (listener: (key: string, value?: string) => void) => () => void
+  notifyMcpCredential?: (key: string, value?: string) => void
   dataRoot: string
   settings: DesktopSettings
   agentEntries: AgentPluginEntry[]
@@ -142,6 +145,17 @@ export function createWorkerSession(
       throw cause
     }
     const current = worker
+    const unwatch = options.watchMcpCredentials?.((key, value) =>
+      current.postMessage({ mcpCredential: { key, value } }),
+    )
+    let exited = false
+    const mcpLocks = new Map<string, () => void | Promise<void>>()
+    current.once('exit', () => {
+      exited = true
+      unwatch?.()
+      for (const release of mcpLocks.values()) void release()
+      mcpLocks.clear()
+    })
     current.on(
       'message',
       (
@@ -150,6 +164,7 @@ export function createWorkerSession(
           hostRequest?: {
             kind:
               | 'contextCapture'
+              | 'mcpRefresh'
               | 'turnChange'
               | 'collaboration'
               | 'savePlan'
@@ -165,6 +180,8 @@ export function createWorkerSession(
               | 'memory'
               | 'system'
               | 'plugin'
+            mcpKey?: string
+            releaseLock?: string
             capture?: ContextCapture
             change?: import('@pi-meme/pi-runtime/turn-change-store').FileChangeRecord
             systemRequest?: SystemToolRequest
@@ -190,7 +207,7 @@ export function createWorkerSession(
             force?: boolean
             input?: SavePlanInput
           } & CollaborationRequest
-          credential?: { id: number; key: string; value?: string }
+          credential?: { id: number; key: string; value?: string; previous?: string }
         },
       ) => {
         if (worker !== current) return
@@ -205,6 +222,30 @@ export function createWorkerSession(
           hostRequests.set(request.id, controller)
           void Promise.resolve()
             .then(async () => {
+              if (request.kind === 'mcpRefresh') {
+                if (request.releaseLock) {
+                  const release = mcpLocks.get(request.releaseLock)
+                  mcpLocks.delete(request.releaseLock)
+                  await release?.()
+                  return
+                }
+                const key = request.mcpKey
+                if (
+                  !options.acquireMcpRefreshLock ||
+                  !key ||
+                  !/^mcp-oauth:[a-f0-9]{64}$/.test(key) ||
+                  access !== 'full-access' ||
+                  taskMode === 'plan'
+                )
+                  throw new Error('MCP 凭据当前不可用')
+                const release = await options.acquireMcpRefreshLock(key)
+                if (exited || controller.signal.aborted || current !== worker) {
+                  await release()
+                  throw new Error('MCP 会话已关闭')
+                }
+                mcpLocks.set(request.id, release)
+                return { id: request.id, value: options.credentials.get(key) }
+              }
               if (request.kind === 'contextCapture') {
                 if (!options.contextCapture || !request.capture) throw new Error('上下文采集桥未配置')
                 return options.contextCapture(request.capture)
@@ -309,9 +350,16 @@ export function createWorkerSession(
             .then(async () => {
               if (mutation.key.startsWith(imageGenerationCredentialPrefix))
                 throw new Error('Worker 不能修改图片服务凭据')
-              if (mutation.value === undefined) options.credentials.delete(mutation.key)
-              else options.credentials.set(mutation.key, mutation.value)
-              await options.credentials.flush?.()
+              const mcp = mutation.key.startsWith('mcp-oauth:')
+              const stored = options.credentials.get(mutation.key)
+              if (mcp && stored !== mutation.previous) {
+                current.postMessage({ mcpCredential: { key: mutation.key, value: stored } })
+              } else {
+                if (mutation.value === undefined) options.credentials.delete(mutation.key)
+                else options.credentials.set(mutation.key, mutation.value)
+                if (mcp) options.notifyMcpCredential?.(mutation.key, mutation.value)
+                await options.credentials.flush?.()
+              }
               current.postMessage({ credentialReply: mutation.id })
             })
             .catch((cause: unknown) => current.postMessage({ credentialReply: mutation.id, error: String(cause) }))

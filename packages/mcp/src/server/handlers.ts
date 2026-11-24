@@ -1,22 +1,21 @@
 import type { PiRuntime } from '@pi-meme/pi-runtime/runtime'
 import { canUseExternalAgentTools } from '@pi-meme/contracts/agent-access'
-import type { DeleteMcpServer, SaveMcpServer } from '@pi-meme/contracts/mcp'
+import type { DeleteMcpServer, SaveMcpServer, McpTarget } from '@pi-meme/contracts/mcp'
 import { text } from '@pi-meme/contracts/ipc'
 import { object } from '../shared/config'
 import type { McpConfigStore } from './config-store'
 import { checkMcpServers } from './diagnostics'
+import type { McpManagement } from './management'
 
-export function createMcpHandlers({ pi, store }: { pi: PiRuntime; store: McpConfigStore }) {
-  const apply = async (action: () => ReturnType<McpConfigStore['snapshot']>) =>
-    pi.idle(async () => {
-      const snapshot = await action()
-      try {
-        await pi.reconnectModels()
-      } catch {
-        throw new Error('MCP 配置已保存，但 Pi 重连失败；请检查连接错误后重试')
-      }
-      return snapshot
-    }, true)
+export function createMcpHandlers(
+  { pi, store, configurationChanged }: { pi: PiRuntime; store: McpConfigStore; configurationChanged: () => void },
+  manager: McpManagement,
+) {
+  const apply = async (action: () => ReturnType<McpConfigStore['snapshot']>) => {
+    const snapshot = await action()
+    configurationChanged()
+    return snapshot
+  }
   const input = (value: unknown) => {
     if (!object(value)) throw new Error('MCP 配置参数无效')
     text(value.revision)
@@ -26,6 +25,14 @@ export function createMcpHandlers({ pi, store }: { pi: PiRuntime; store: McpConf
   }
   return {
     'mcp:get': () => store.snapshot(),
+    'mcp:catalog': (key?: unknown) => manager.catalog(key as string | undefined),
+    'mcp:probe': (target: unknown) => manager.check(target as McpTarget),
+    'mcp:enable': (target: unknown, enabled: unknown) => manager.setEnabled(target as McpTarget, enabled as boolean),
+    'mcp:login': (target: unknown) => manager.start(target as McpTarget),
+    'mcp:login-state': (id: unknown) => manager.state(id),
+    'mcp:login-respond': (id: unknown, url: unknown) => manager.respond(id, url),
+    'mcp:login-cancel': (id: unknown) => manager.cancel(id),
+    'mcp:logout': (target: unknown) => manager.logout(target as McpTarget),
     'mcp:save': (value: unknown) => {
       const parsed = input(value) as unknown as SaveMcpServer
       return apply(() => store.save(parsed))

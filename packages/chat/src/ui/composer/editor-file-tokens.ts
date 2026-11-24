@@ -1,5 +1,6 @@
 import { fileIconSprite, resolveFileIcon } from '@pi-meme/assets/file-icons'
 import { composerReferences } from './completion-query'
+import { createEditorToken } from './editor-plugin-tokens'
 import { fileReferenceClassName, fileReferenceDetails, fileReferenceIconClassName } from '../content/file-reference'
 
 /** 文件引用仍保存为带引号的完整路径，编辑器只改变其显示。 */
@@ -8,6 +9,12 @@ export function fileReferenceNodes(text: string): Node[] {
   let offset = 0
   for (const reference of composerReferences(text)) {
     if (reference.start > offset) nodes.push(document.createTextNode(text.slice(offset, reference.start)))
+    if (reference.mcp) {
+      const token = createEditorToken('mcp', reference.text, reference.mcp, `MCP 服务 · ${reference.mcp}`)
+      nodes.push(token)
+      offset = reference.end
+      continue
+    }
     const token = document.createElement('span')
     token.dataset.fileToken = reference.text
     token.setAttribute('contenteditable', 'false')

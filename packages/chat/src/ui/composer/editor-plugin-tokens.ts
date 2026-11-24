@@ -67,18 +67,21 @@ export function adjacentPluginToken(editor: HTMLElement, backward: boolean): HTM
 }
 
 export function createEditorToken(
-  kind: 'skill' | 'plugin',
+  kind: 'skill' | 'plugin' | 'mcp',
   id: string,
   name: string,
   title?: string,
   iconUrl?: string,
 ) {
   const token = document.createElement('span')
-  token.dataset[kind === 'skill' ? 'skillToken' : 'pluginToken'] = id
+  token.dataset[kind === 'mcp' ? 'fileToken' : kind === 'skill' ? 'skillToken' : 'pluginToken'] = id
   token.setAttribute('contenteditable', 'false')
   token.className =
     kind === 'plugin' ? 'inline-block mr-2 text-blue-400 select-none' : 'inline text-blue-400 select-none'
-  token.setAttribute('aria-label', kind === 'skill' ? '已选择技能' : `插件：${name}`)
+  token.setAttribute(
+    'aria-label',
+    kind === 'mcp' ? `MCP 服务 ${name}` : kind === 'skill' ? '已选择技能' : `插件：${name}`,
+  )
   token.dataset.tooltip = title ?? id
   if (iconUrl) {
     const icon = document.createElement('img')
@@ -96,7 +99,12 @@ export function createEditorToken(
     icon.setAttribute('class', 'inline-block size-4 align-[-0.2em] mr-1')
     icon.setAttribute('aria-hidden', 'true')
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-    path.setAttribute('d', 'M12 3 3 8v10l9 5 9-5V8L12 3Zm0 10 9-5M12 13 3 8m9 5v10M7.5 5.5l9 5')
+    path.setAttribute(
+      'd',
+      kind === 'mcp'
+        ? 'M9 2h6v6H9zM2 16h6v6H2zM16 16h6v6h-6zM12 8v4M5 16v-4h14v4'
+        : 'M12 3 3 8v10l9 5 9-5V8L12 3Zm0 10 9-5M12 13 3 8m9 5v10M7.5 5.5l9 5',
+    )
     icon.append(path)
     token.append(icon)
   }

@@ -9,15 +9,17 @@ export function create(context: {
   paths: PiRuntimePaths
   credentials: SecureCredentialStorage
   settings: DesktopSettings
-  cwd: string
+  acquireMcpRefreshLock: import('@pi-meme/contracts/mcp').AcquireMcpRefreshLock
+  registerMcpReferences: (validate: (refs: import('@pi-meme/contracts/mcp').McpReference[]) => void) => void
 }): InlineExtension[] {
   return [
     createDesktopMcpExtension(
       context.sdk,
       context.paths,
       context.credentials,
-      context.cwd,
       context.settings.mcpEnabled === false,
+      context.registerMcpReferences,
+      context.acquireMcpRefreshLock,
     ),
     { name: 'pi-meme-tool-search', factory: context.sdk.createToolSearchExtension() },
   ]

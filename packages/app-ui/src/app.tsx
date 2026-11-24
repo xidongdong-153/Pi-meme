@@ -135,7 +135,8 @@ import { ShortcutHelpDialog } from './shortcuts/shortcut-help-dialog'
 import { ShortcutSettings } from './shortcuts/shortcut-settings'
 import { HostSettings } from './settings/host-settings'
 import { SubagentDefaultsSettings } from '@pi-meme/subagents/ui/subagent-defaults-settings'
-import { McpSettings } from '@pi-meme/mcp/ui/mcp-settings'
+import { McpSettings, type McpSettingsLocation } from '@pi-meme/mcp/ui/mcp-settings'
+import { BuiltinProviders } from '@pi-meme/models/ui/builtin-providers'
 import { SettingsPage as SettingsContent } from '@pi-meme/settings/ui/settings-page'
 import { ProfileSettings } from '@pi-meme/usage/ui/profile-settings'
 import { AccountSettings } from './settings/account-settings'
@@ -631,6 +632,11 @@ function AppContent({
     chat.setReadVisible(chatVisible && active && chatPaneVisible)
     return () => chat.setReadVisible(false)
   }, [chatVisible, active, chatPaneVisible, chat.setReadVisible])
+  const [mcpLocation, setMcpLocation] = useState<McpSettingsLocation>()
+  const openMcpSettings = (location: McpSettingsLocation) => {
+    openSettings('mcp')
+    setMcpLocation(location)
+  }
   const settingsReturnFocus = useRef<HTMLElement | null>(null)
   const confirmationReturnFocus = useRef<HTMLElement | null>(null)
   function openSettings(section: SettingsSection = 'general') {
@@ -643,6 +649,7 @@ function AppContent({
           ? focused
           : null
     }
+    setMcpLocation(undefined)
     navigation.openSettings(section)
   }
   function returnFromSettings() {
@@ -1278,6 +1285,13 @@ function AppContent({
     selectedSkills: chat.selectedSkills,
     onSkills: chat.setSelectedSkills,
     agentPlugins: agentPluginSelection,
+    mcp: {
+      load: bridge.getMcpCatalog,
+      check: bridge.checkMcpService,
+      sessionKey: chat.connection.sessionKey,
+      available: chat.connection.accessMode === 'full-access' && chat.mode === 'default',
+      openSettings: openMcpSettings,
+    },
     draft: chat.draft,
     onDraft: chat.setDraft,
     hint: settings.snapshot?.settings.showComposerHint !== false ? chat.composerHint : undefined,
@@ -1541,6 +1555,7 @@ function AppContent({
           onRemoveImage: (id: string) => chat.setAttachments((value) => value.filter((image) => image.id !== id)),
           commands: chat.commands,
           agentPlugins: agentPluginSelection,
+          mcp: composerProps.mcp,
           focusVersion: chat.draftFocusVersion,
           disabled: !ready || chat.inputDisabled,
           onSubmit: () => void chat.send(),
@@ -2265,6 +2280,7 @@ function AppContent({
                 showContextUsage={settings.snapshot?.settings.showContextUsage !== false}
                 closing={sideChat.closing}
                 closeError={sideChat.closeError}
+                onOpenMcpSettings={openMcpSettings}
                 onRetryClose={() => void closeSideChat()}
                 onLeaveComposer={() => registry.setComposerController(pluginComposer.adapter)}
                 onFocusState={setSideChatFocused}
@@ -3014,18 +3030,22 @@ function AppContent({
               if (section === 'mcp')
                 return (
                   <McpSettings
-                    {...{
-                      bridge,
-                      busy: chat.connection.status === 'connecting' || (chat.busy && ready),
-                      saving: settings.saving,
-                      mode: chat.connection.accessMode,
-                      sessionKey: chat.connection.sessionKey,
-                      capabilities: {
-                        codemodeEnabled: Boolean(settings.snapshot?.settings.codemodeEnabled),
-                        mcpEnabled: Boolean(settings.snapshot?.settings.mcpEnabled),
-                      },
-                      onCapabilities: (value) => void settings.saveCapabilities(value),
-                    }}
+                    key={`${hostId}:${mcpLocation?.sessionKey ?? chat.connection.sessionKey}:${mcpLocation?.name ?? ''}`}
+                    bridge={bridge}
+                    sessionKey={
+                      mcpLocation?.sessionKey ??
+                      (chat.connection.workspaceKind === 'standalone' ? undefined : chat.connection.sessionKey)
+                    }
+                    projectLabel={!mcpLocation && chat.connection.workspaceKind !== 'standalone' ? project : undefined}
+                    initial={mcpLocation}
+                    renderProvider={(providerId, onConnected) => (
+                      <BuiltinProviders
+                        bridge={bridge}
+                        disabled={false}
+                        providerId={providerId}
+                        onConnected={onConnected}
+                      />
+                    )}
                   />
                 )
               if (section === 'account')

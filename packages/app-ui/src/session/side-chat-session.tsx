@@ -52,6 +52,7 @@ export function SideChatSession({
   onRetryClose,
   onLeaveComposer,
   onFocusState,
+  onOpenMcpSettings,
 }: {
   bridge: DesktopBridge
   host: HostApi
@@ -71,6 +72,7 @@ export function SideChatSession({
   onRetryClose: () => void
   onLeaveComposer: () => void
   onFocusState: (focused: boolean) => void
+  onOpenMcpSettings: (location: import('@pi-meme/mcp/ui/mcp-settings').McpSettingsLocation) => void
 }) {
   const chat = useAppSession(bridge, { host, hostId, workspaceEnabled: false, persistDrafts: false })
   const session = chat.appSession
@@ -256,6 +258,13 @@ export function SideChatSession({
     selectedSkills: chat.selectedSkills,
     onSkills: chat.setSelectedSkills,
     agentPlugins: selection,
+    mcp: {
+      load: bridge.getMcpCatalog,
+      check: bridge.checkMcpService,
+      sessionKey: chat.connection.sessionKey,
+      available: chat.connection.accessMode === 'full-access' && chat.mode === 'default',
+      openSettings: onOpenMcpSettings,
+    },
     draft: chat.draft,
     onDraft: chat.setDraft,
     hint: showComposerHint ? chat.composerHint : undefined,
@@ -343,6 +352,7 @@ export function SideChatSession({
           onRemoveImage: (id: string) => chat.setAttachments((value) => value.filter((image) => image.id !== id)),
           commands: chat.commands,
           agentPlugins: selection,
+          mcp: composerProps.mcp,
           focusVersion: chat.draftFocusVersion,
           disabled: !ready || chat.inputDisabled || locked,
           onSubmit: () => void chat.send(),
