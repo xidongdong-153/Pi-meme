@@ -15,7 +15,7 @@ import { SettingsCard, SettingsRow, settingsControlClassName } from '@pi-meme/ui
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { OverflowTooltip, TooltipHint, TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
-import { Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { Code2, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
 import { BuiltinProviders } from '../builtin-providers'
@@ -52,7 +52,7 @@ export function ModelConfigSettings({
   const [thinkingError, setThinkingError] = useState('')
   const [defaultThinking, setDefaultThinking] = useState<ThinkingLevel | null>(null)
   const [thinkingSaving, setThinkingSaving] = useState(false)
-  const [editing, setEditing] = useState<ConfiguredProvider | 'new' | null>(null)
+  const [editing, setEditing] = useState<{ target: ConfiguredProvider | 'new'; mode: 'form' | 'json' } | null>(null)
   const [deleting, setDeleting] = useState<ConfiguredProvider | null>(null)
   const [providerTab, setProviderTab] = useState<'builtin' | 'custom'>('builtin')
   const tabsId = useId()
@@ -336,7 +336,7 @@ export function ModelConfigSettings({
               <Button
                 className={cn(settingsControlClassName, 'whitespace-nowrap')}
                 disabled={!snapshot || loading || saving}
-                onClick={() => setEditing('new')}
+                onClick={() => setEditing({ target: 'new', mode: 'form' })}
               >
                 <Plus className="mr-1 size-3.5" />
                 添加服务商
@@ -381,7 +381,7 @@ export function ModelConfigSettings({
                     className={cn(settingsControlClassName, 'whitespace-nowrap')}
                     size="sm"
                     disabled={loading || saving}
-                    onClick={() => setEditing('new')}
+                    onClick={() => setEditing({ target: 'new', mode: 'form' })}
                   >
                     <Plus className="mr-1 size-3.5" />
                     添加服务商
@@ -406,6 +406,9 @@ export function ModelConfigSettings({
                           <h3 className="whitespace-nowrap font-medium">
                             <CrossfadeText>{provider.name}</CrossfadeText>
                           </h3>
+                          {provider.id !== provider.name && (
+                            <span className="truncate font-mono text-[11px] text-muted-foreground">{provider.id}</span>
+                          )}
                           <Badge variant="secondary" className="h-4.5 whitespace-nowrap px-1.5 text-[10px] font-normal">
                             {apiBadge}
                           </Badge>
@@ -439,10 +442,22 @@ export function ModelConfigSettings({
                         size="sm"
                         variant="outline"
                         disabled={saving || !editable}
-                        onClick={() => setEditing(provider)}
+                        onClick={() => setEditing({ target: provider, mode: 'form' })}
                       >
                         编辑
                       </Button>
+                      <TooltipHint content="以 JSON 编辑">
+                        <Button
+                          className="size-8 shrink-0 rounded-lg text-muted-foreground hover:text-foreground"
+                          size="icon"
+                          variant="ghost"
+                          aria-label={`以 JSON 编辑 ${provider.name}`}
+                          disabled={saving || !editable}
+                          onClick={() => setEditing({ target: provider, mode: 'json' })}
+                        >
+                          <Code2 className="size-3.5" />
+                        </Button>
+                      </TooltipHint>
                       <TooltipHint content="删除服务商">
                         <Button
                           className="size-8 shrink-0 rounded-lg text-muted-foreground hover:text-destructive"
@@ -500,7 +515,8 @@ export function ModelConfigSettings({
 
         {editing && snapshot && (
           <ModelConfigForm
-            provider={editing === 'new' ? undefined : editing}
+            provider={editing.target === 'new' ? undefined : editing.target}
+            initialMode={editing.mode}
             snapshot={snapshot}
             busy={busy}
             bridge={bridge}
