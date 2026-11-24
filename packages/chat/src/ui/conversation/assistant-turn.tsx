@@ -207,13 +207,15 @@ function AssistantTurnContent({
                   progress={segment.progress}
                   live={turn.isLive}
                   paused={isPaused}
-                  interrupted={Boolean(
-                    interrupted ||
-                    turn.errorMessage ||
-                    turn.sourceMessages?.some(
-                      (message) => message.role === 'assistant' && message.stopReason === 'aborted',
-                    ),
-                  )}
+                  interrupted={
+                    !turn.isLive &&
+                    Boolean(
+                      interrupted ||
+                      turn.errorMessage ||
+                      turn.sourceMessages?.findLast((message) => message.role === 'assistant')?.stopReason ===
+                        'aborted',
+                    )
+                  }
                   onToggle={onActivityToggle}
                 />
               )

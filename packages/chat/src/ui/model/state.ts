@@ -22,15 +22,26 @@ export const emptyChat: ChatState = {
   followUp: [],
 }
 
+function marksTurnStarted(message: PiMessage) {
+  return (
+    message.role === 'user' ||
+    message.role === 'assistant' ||
+    (message.role === 'custom' &&
+      message.display === false &&
+      (message.customType === 'pi-meme-stopped-control' || message.customType === 'pi-meme-recovery-control'))
+  )
+}
+
 function snapshotTurnStarted(snapshot: Snapshot) {
   if (!snapshot.state.isStreaming) return false
-  const last = snapshot.messages.findLast((message) => message.role === 'user' || message.role === 'assistant')
-  if (last?.role !== 'assistant') return last?.role === 'user'
-  // 重连时历史和运行状态可能分属两轮。当前运行的助手消息和回放的实时事件都能确认归属。
+  const last = snapshot.messages.findLast(marksTurnStarted)
+  if (!last) return false
+  if (last.role === 'user') return true
+  // 当前运行写入的续跑或助手消息可以确认归属，避免把新一轮的运行状态套到历史回复上。
   const run = snapshot.state.runIntervals?.at(-1)
   if (run) return run.endedAt === undefined && last.timestamp >= run.startedAt
   // 较早的快照没有运行区间，末条未完成的助手消息仍属于当前工作过程。
-  return last.stopReason === 'toolUse' || last.stopReason === undefined
+  return last.role === 'assistant' && (last.stopReason === 'toolUse' || last.stopReason === undefined)
 }
 
 export function fromSnapshot(snapshot: Snapshot): ChatState {
@@ -387,9 +398,7 @@ export function applyEvent(
       const next: ChatState = {
         ...state,
         messages,
-        turnStarted:
-          state.turnStarted ||
-          (state.running && index === -1 && (message.role === 'user' || message.role === 'assistant')),
+        turnStarted: state.turnStarted || (state.running && index === -1 && marksTurnStarted(message)),
         live: event.message.role === 'assistant' ? null : state.live,
         stream: event.message.role === 'assistant' ? emptyChat.stream : state.stream,
       }
