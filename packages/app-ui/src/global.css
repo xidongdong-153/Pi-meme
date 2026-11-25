@@ -441,7 +441,7 @@ body {
 }
 
 .content-frame {
-  @apply mr-2 mb-2 flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-white/[0.08] shadow-xs;
+  @apply mr-2 mb-2 flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-[var(--surface-hairline)] shadow-xs;
 }
 
 :root[data-theme-background='app'] .workspace-panes {

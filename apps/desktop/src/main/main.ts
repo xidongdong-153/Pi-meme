@@ -1,5 +1,5 @@
 import { registerBrowserRuntime } from './browser/browser-runtime'
-import { app, dialog, type BrowserWindow } from 'electron'
+import { app, dialog, nativeTheme, type BrowserWindow } from 'electron'
 import path from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -187,7 +187,7 @@ async function setConnection(value: { url: string; token: string } | null) {
 }
 async function open(failed = false) {
   if (stopping || window) return
-  window = createWindow('#171717', trustedOrigin)
+  window = createWindow(nativeTheme.shouldUseDarkColors ? '#141716' : '#faf9f5', trustedOrigin)
   const target = window
   target.on('closed', () => {
     if (window === target) window = null

@@ -5,6 +5,7 @@ import { configurePreparedApplicationMenu, configureWindowsMenu } from './deskto
 import { attachWindowPreparation } from './prepare-window'
 
 export function createWindow(backgroundColor: string, trustedOrigin: () => string) {
+  const lightWindow = backgroundColor.toLowerCase() === '#faf9f5'
   const window = new BrowserWindow({
     width: 1100,
     height: 760,
@@ -15,7 +16,11 @@ export function createWindow(backgroundColor: string, trustedOrigin: () => strin
       : process.platform === 'win32'
         ? {
             titleBarStyle: 'hidden' as const,
-            titleBarOverlay: { color: backgroundColor, symbolColor: '#e9e9eb', height: 36 },
+            titleBarOverlay: {
+              color: backgroundColor,
+              symbolColor: lightWindow ? '#1d201e' : '#eef1ef',
+              height: 36,
+            },
           }
         : {}),
     backgroundColor,

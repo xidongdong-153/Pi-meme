@@ -1,14 +1,15 @@
 :root {
-  --color-background: #0c0c0f;
-  --color-surface: #131317;
-  --color-elevated: #1c1c22;
-  --color-text: #ededf0;
-  --color-muted: #8e8e9a;
-  --color-border: #282830;
-  --color-accent: #b6a4ed;
-  --color-accentText: #171324;
-  --color-success: #6ec291;
-  --color-error: #f29188;
+  /* 松烟墨青 × 青玄炭（默认暗色回退） */
+  --color-background: #141716;
+  --color-surface: #1b1f1d;
+  --color-elevated: #232927;
+  --color-text: #eef1ef;
+  --color-muted: #a8b1ac;
+  --color-border: #2c322f;
+  --color-accent: #5cc4a8;
+  --color-accentText: #141716;
+  --color-success: #68c793;
+  --color-error: #df6e78;
 
   --background: var(--color-background);
   --foreground: var(--color-text);
@@ -25,10 +26,14 @@
   --accent: var(--color-accent);
   --accent-foreground: var(--color-accentText);
   --destructive: var(--color-error);
-  --destructive-foreground: #ffffff;
+  --destructive-foreground: #141716;
   --border: var(--color-border);
   --input: var(--color-border);
   --ring: var(--color-accent);
+  --surface-hairline: rgba(238, 241, 239, 0.1);
+  --conversation-user-background: color-mix(in srgb, var(--primary) 14%, var(--color-surface));
+  --conversation-user-foreground: var(--foreground);
+  --conversation-user-border: color-mix(in srgb, var(--primary) 24%, var(--border));
   --radius: 0.5rem;
 
   --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
@@ -50,6 +55,24 @@
   background: var(--color-background);
   font-synthesis: none;
   color-scheme: dark;
+}
+
+:root[data-appearance='light'] {
+  --destructive-foreground: #faf9f5;
+  --surface-hairline: rgba(29, 32, 30, 0.09);
+  --conversation-user-background: color-mix(in srgb, var(--primary) 11%, var(--background));
+  --conversation-user-foreground: var(--foreground);
+  --conversation-user-border: color-mix(in srgb, var(--primary) 20%, var(--border));
+}
+
+::selection {
+  background-color: color-mix(in srgb, var(--primary) 20%, transparent);
+  color: var(--foreground);
+}
+
+input,
+textarea {
+  caret-color: var(--primary);
 }
 
 :root {

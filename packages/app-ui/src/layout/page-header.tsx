@@ -23,7 +23,7 @@ export function PageHeaderSidebar({ open, children }: { open: boolean; children:
       style={{ width: 'calc(50px + var(--workspace-sidebar-width))' }}
     >
       {children}
-      {open && <div aria-hidden="true" className="absolute right-0 top-1/2 h-4 w-px -translate-y-1/2 bg-white/15" />}
+      {open && <div aria-hidden="true" className="absolute right-0 top-1/2 h-4 w-px -translate-y-1/2 bg-border" />}
     </div>
   )
 }

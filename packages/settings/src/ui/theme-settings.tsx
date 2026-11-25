@@ -126,6 +126,8 @@ export function ThemeSettings({
   const mode = value.separate ? editing : resolvedMode(value, systemDark)
   const overrides = editingOverrides(value, mode)
   const theme = resolveTheme(value, snapshot.themes, mode, false)
+  const lightPreview = resolveTheme(value, snapshot.themes, 'light', false)
+  const darkPreview = resolveTheme(value, snapshot.themes, 'dark', false)
   const [resetting, setResetting] = useState(false)
   function change(patch: AppearancePatch) {
     onOperation({ type: 'patch', patch })
@@ -284,18 +286,38 @@ export function ThemeSettings({
                       style={{
                         background:
                           entry === 'system'
-                            ? 'linear-gradient(90deg,#f4f0e8 50%,#0c0c0f 50%)'
+                            ? `linear-gradient(90deg,${lightPreview.colors.background} 50%,${darkPreview.colors.background} 50%)`
                             : entry === 'light'
-                              ? '#f4f0e8'
-                              : '#0c0c0f',
+                              ? lightPreview.colors.background
+                              : darkPreview.colors.background,
                       }}
                     >
-                      <span className="w-4 border-r border-gray-500/30" />
+                      <span
+                        className="w-4 border-r border-border/70"
+                        style={{
+                          background:
+                            entry === 'system'
+                              ? lightPreview.colors.surface
+                              : entry === 'light'
+                                ? lightPreview.colors.surface
+                                : darkPreview.colors.surface,
+                        }}
+                      />
                       <span className="flex flex-1 flex-col gap-1 px-2 py-2">
-                        <span className="h-1 w-9 rounded bg-primary" />
-                        <span className="h-1 w-6 rounded bg-gray-500/50" />
-                        <span className="h-1 w-8 rounded bg-gray-500/50" />
-                        <span className="h-1 w-5 self-end rounded bg-primary" />
+                        <span
+                          className="h-1 w-9 rounded"
+                          style={{
+                            background: entry === 'light' ? lightPreview.colors.accent : darkPreview.colors.accent,
+                          }}
+                        />
+                        <span className="h-1 w-6 rounded bg-muted-foreground/45" />
+                        <span className="h-1 w-8 rounded bg-muted-foreground/45" />
+                        <span
+                          className="h-1 w-5 self-end rounded"
+                          style={{
+                            background: entry === 'light' ? lightPreview.colors.accent : darkPreview.colors.accent,
+                          }}
+                        />
                       </span>
                     </span>
                     <span className="mt-1 block text-xs">

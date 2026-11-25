@@ -673,7 +673,7 @@ export function WorkspacePanels({
             data-testid="right-panel-header"
           >
             {/* 与下方右侧栏左边缘严格对齐的短竖向分割线，折叠时隐藏 */}
-            {layout.open && <div className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-px bg-white/15 shrink-0" />}
+            {layout.open && <div className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-px bg-border shrink-0" />}
             {/* 内容靠右钉住。栏宽拉开时从左侧露出，而不是等宽度到位后整组冒出来。 */}
             <div
               className="pane-clip flex h-full w-full items-center justify-between pl-3 pr-2"
@@ -781,7 +781,7 @@ export function WorkspacePanels({
             {children}
           </div>
           <div
-            className="right-pane relative flex min-w-0 shrink-0 border-l border-white/10"
+            className="right-pane relative flex min-w-0 shrink-0 border-l border-[var(--surface-hairline)]"
             style={{
               width: unified ? undefined : 'var(--workspace-right-width)',
               flex: unified ? 1 : undefined,
