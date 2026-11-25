@@ -12,6 +12,9 @@ paths:
   - 'apps/desktop/forge.config.ts'
   - 'apps/desktop/package.json'
   - 'apps/server/package.json'
+  - 'apps/server/Dockerfile'
+  - 'apps/server/docker/compose.yaml'
+  - 'apps/server/docker/pi-meme-seccomp.json'
   - 'apps/server/README.md'
 ---
 
@@ -21,17 +24,19 @@ paths:
 
 ## 平台与附件
 
-版本取 Desktop 与 Server 的 `package.json`，Tag 为 `v<版本>`；预览版本在 GitHub 标记 Pre-release。一个版本包含以下五个附件：
+版本取 Desktop 与 Server 的 `package.json`，Tag 为 `v<版本>`；预览版本在 GitHub 标记 Pre-release。每次发布包含七个附件。
 
-| 附件                                     | 用途与验收基线                        |
-| ---------------------------------------- | ------------------------------------- |
-| `pi-meme-desktop-<版本>-macos-arm64.zip` | macOS 15 arm64 Desktop，包含本机 Host |
-| `pi-meme-desktop-<版本>-windows-x64.zip` | Windows x64 Desktop，包含本机 Host    |
-| `pi-meme-host-<版本>-macos-arm64.tar.gz` | macOS 15 arm64 独立 Host 与 Web       |
-| `pi-meme-host-<版本>-linux-x64.tar.gz`   | Ubuntu 24.04 x64 独立 Host 与 Web     |
-| `SHA256SUMS`                             | 四个分发包的 SHA256                   |
+| 附件                                            | 用途与验收基线                               |
+| ----------------------------------------------- | -------------------------------------------- |
+| `pi-meme-desktop-<版本>-macos-arm64.zip`        | macOS 15 arm64 Desktop，包含本机 Host        |
+| `pi-meme-desktop-<版本>-windows-x64.zip`        | Windows x64 Desktop，包含本机 Host           |
+| `pi-meme-host-<版本>-macos-arm64.tar.gz`        | macOS 15 arm64 独立 Host 与 Web              |
+| `pi-meme-host-<版本>-linux-x64.tar.gz`          | Ubuntu 24.04 x64 独立 Host 与 Web            |
+| `pi-meme-host-<版本>-docker-linux-amd64.tar.gz` | Docker Engine 原生 AMD64                     |
+| `pi-meme-host-<版本>-docker-linux-arm64.tar.gz` | Docker Engine 原生 ARM64，包括 Apple Silicon |
+| `SHA256SUMS`                                    | 四个平台包和两个 Docker 镜像的 SHA256        |
 
-Web 随 Host 提供，不单独发布。当前不提供 Intel Mac、Linux arm64、Alpine/musl、Windows arm64、Windows 独立 Host、MSI/Setup、DMG、Docker、Homebrew 或 npm 分发，不自动注册系统服务，也没有自动更新。其他 macOS 版本与 Linux 发行版未作为产物验收基线。Windows 发布构建使用 `windows-2025` runner；构建和文件校验通过不表示 Windows 桌面功能已完成人工验收。
+Web 随 Host 提供，不单独发布。当前不提供 Intel Mac、Linux ARM64 独立归档、Alpine/musl、Windows arm64、Windows 独立 Host、MSI/Setup、DMG、Homebrew 或 npm 分发，不自动注册系统服务，也没有自动更新。其他 macOS 版本与 Linux 发行版未作为产物验收基线。Windows 发布构建使用 `windows-2025` runner；构建和文件校验通过不表示 Windows 桌面功能已完成人工验收。
 
 macOS Desktop 默认使用 ad-hoc 签名，可通过 `PI_DESKTOP_SIGNING_IDENTITY` 指定证书，见 [Forge 配置](../apps/desktop/forge.config.ts)；当前未配置公证。`codesign --verify` 检查签名完整性，不代表 Gatekeeper 会接受网络下载的应用。不要把 `spctl` 拒绝未公证应用当作已实现公证，也不要让用户关闭系统 Gatekeeper。Windows 包未配置代码签名。
 
@@ -49,7 +54,7 @@ Node.js 固定 `24.14.0`，pnpm 固定 `10.29.1`。安装使用 `--frozen-lockfi
 
 ## Host 独立包
 
-在对应的 macOS arm64 或 Linux x64 原生机器、仓库根目录执行：
+在对应的 macOS ARM64、Linux x64 或 Linux ARM64 原生机器上，从仓库根目录执行打包命令。
 
 ```bash
 pnpm install --frozen-lockfile --registry=https://registry.npmjs.org
@@ -96,6 +101,8 @@ pi-meme-host/
 ```
 
 启动脚本按自身位置定位目录，不依赖调用者工作目录；将包内 Node 加入子进程 PATH，再用 `exec` 启动 Server，保留 SIGINT/SIGTERM。默认数据目录与安装目录分离。普通 Server 远程监听继续使用环境变量与 TLS；SSH 自动部署使用包内 `ssh-bootstrap.js`，固定数据根、随机 loopback 端口和令牌认证，不需要用户手工启动。打包脚本见 [package-host.mts](../scripts/package-host.mts)，包内使用说明见 [Host README](../apps/server/README.md)。
+
+Linux x64 与 ARM64 job 分别在 `ubuntu-24.04` 和 `ubuntu-24.04-arm` 上运行 `pnpm package:host`，将同架构的归档放入 [Ubuntu 24.04 镜像](../apps/server/Dockerfile)。构建输入中的 Node 架构、版本和 commit 与镜像目标匹配后，工作流用 `docker image save` 和 gzip 导出各自的附件。Linux ARM64 Host 归档用于构建镜像。两种架构的镜像标签均为 `pi-meme-host:<版本>`，部署时选择 Docker Engine 的原生架构。启动时使用同版本仓库的 [Compose 配置](../apps/server/docker/compose.yaml)和 [seccomp 策略](../apps/server/docker/pi-meme-seccomp.json)。加载与启动命令见[本地 Docker 部署](getting-started.md#本地-docker-部署)。
 
 ## 本机产物验收
 
@@ -155,13 +162,13 @@ Windows x64 已接入本机受限权限、受限插件和 Agent 受管服务。�
 
 ### 汇总
 
-只有来自同一 commit 的四个平台包齐全时，才运行：
+准备好同一 commit 的四个平台包和两个 Docker 镜像包后，执行汇总命令。
 
 ```bash
 node --import tsx scripts/release.mts checksums
 ```
 
-它严格检查 `out/release/` 仅有四个预期包（可已有旧的 `SHA256SUMS`），核对内部元数据后生成 `SHA256SUMS` 和 `out/release-notes.md`。本机缺少 Linux 或 Windows 包时不应伪造包来通过汇总。
+脚本检查 `out/release/` 的六个产物，核对各平台包内的元数据，读取 Docker 归档的 manifest 和镜像配置，比对标签、系统、架构、版本和 commit，然后生成 `SHA256SUMS` 和 `out/release-notes.md`。
 
 ## GitHub workflow
 
@@ -178,9 +185,14 @@ flowchart TD
   Check --> MacHost["macOS 15 arm64 Host"]
   Check --> LinuxHost["Ubuntu 24.04 x64 Host"]
   Check --> Windows["Windows x64 Desktop"]
-  Desktop --> Assemble["核对四个最终包与 SHA256"]
+  Desktop --> Assemble["核对发布产物与 SHA256"]
   MacHost --> Assemble
   LinuxHost --> Assemble
+  LinuxHost --> DockerX64["Linux AMD64 Docker 镜像"]
+  Check --> LinuxArm["Ubuntu 24.04 ARM64 Host"]
+  LinuxArm --> DockerArm["Linux ARM64 Docker 镜像"]
+  DockerX64 --> Assemble
+  DockerArm --> Assemble
   Windows --> Assemble
   Assemble --> Artifacts["Actions 完整附件"]
   Artifacts -->|"仅版本 Tag"| Draft["GitHub Draft Release"]
@@ -191,7 +203,7 @@ flowchart TD
 
 只有发布 job 有 `contents: write`，使用 GitHub 自带 `GITHUB_TOKEN`，不需要个人 PAT 或 Apple 凭据。其他 job 只读；发布 job 不执行依赖安装或构建脚本。平台 job 缓存 pnpm 下载存储，不缓存原生构建结果。Linux 的版本检查 job 执行 `pnpm check`，复用类型检查增量缓存。Host 直接运行 `pnpm package:host`；Desktop 先运行 `pnpm package --arch <目标架构>`，再用 `pnpm make --skip-package --arch <目标架构>` 生成 ZIP，macOS 为 `arm64`，Windows 为 `x64`，随后复核对应平台的最终包。所有检查仍基于本次 checkout；发布构建成功不表示功能测试通过。
 
-汇总的 `release-complete` artifact 包含五个附件和 Release Notes，保留七天。只有所有平台成功才会进入汇总与发布。并发按 ref 排队；重跑可覆盖 Actions artifacts，但公开 Release 附件不可覆盖。
+汇总的 `release-complete` artifact 包含七个附件和 Release Notes，保留七天。只有所有平台成功才会进入汇总与发布。并发按 ref 排队；重跑可覆盖 Actions artifacts，但公开 Release 附件不可覆盖。
 
 草稿正文中的 `pi-meme-release-commit` 标记绑定本次 commit。重跑若发现草稿没有匹配标记、Release 已公开、Tag 被移动或附件列表异常，流程失败，不删除或覆盖已公开内容。上传中断可能留下不完整草稿，不能手动公开它；先排除失败原因并重新运行。已有草稿多出的附件需要维护者核对后手动处理。完整附件列表核对通过后，执行 `gh release edit --draft=false` 自动公开；成功公开的版本不需要重新运行 workflow。
 
@@ -207,7 +219,7 @@ flowchart TD
 
    脚本读取已提交的版本，校验工作区、当前分支和 Tag；创建指向 HEAD 的 `v<版本>` Tag，并用 `git push --atomic` 一起推送当前分支与该 Tag 到 `origin`。不会自动改版、提交、强推或推送其他 Tag，也不在本机构建或跑测试。
 
-4. 等待 GitHub Actions 的“构建发布包”完成。四个平台包构建、汇总及附件核对成功后，版本自动公开到 Releases，无需再点击 Publish release。`beta` 等预发布版本保留 Pre-release 标记。
+4. 等待 GitHub Actions 的“构建发布包”完成。平台包和镜像构建、汇总及附件核对成功后，版本自动公开到 Releases，无需再点击 Publish release。`beta` 等预发布版本保留 Pre-release 标记。
 
 工作区存在未提交或未跟踪文件、两个版本不一致、处于 detached HEAD、远端 Tag 已存在，或本地同名 Tag 指向其他 commit 时，脚本中止。远端分支拒绝快进或不支持原子推送时，分支和 Tag 都不会更新；排除原因后可在同一 HEAD 重试，脚本会复用指向该 HEAD 的本地 Tag。远端 Tag 已存在时需查看对应 Actions，不能靠再次推送触发构建。构建失败后若需修改代码，使用新版本和新 Tag，不移动已公开 Tag。
 

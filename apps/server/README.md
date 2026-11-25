@@ -19,7 +19,9 @@ sudo apt-get install -y git bash bubblewrap
 
 浏览器访问 `http://127.0.0.1:3185`，本机自动登录。在设置中配置模型后开始使用。Ctrl+C 或 SIGTERM 正常停止 Host。
 
-下载包的验收基线是 macOS 15 arm64、Ubuntu 24.04 x64。其他版本或发行版未作为首发验收平台；不支持 Intel Mac、Linux arm64、Alpine/musl 或 Windows 原生运行。Linux 受限权限依赖实际可用的 bubblewrap；系统策略禁止 user namespace 时会报告不可用，不会静默切换完全权限。
+下载包的验收基线是 macOS 15 arm64、Ubuntu 24.04 x64。其他版本或发行版未作为首发验收平台；独立归档不支持 Intel Mac、Linux arm64、Alpine/musl 或 Windows 原生运行。Linux 受限权限依赖实际可用的 bubblewrap；系统策略禁止 user namespace 时会报告不可用，不会静默切换完全权限。
+
+Docker 镜像支持 Linux ARM64 和 AMD64。按 Docker Engine 的原生架构下载，并使用同版本的 Compose 配置。见[本地 Docker 部署](https://github.com/xidongdong-153/Pi-meme/blob/main/docs/getting-started.md#本地-docker-部署)。
 
 macOS 下载包未做 Apple 公证。仅在确认来自项目 Release 且 SHA256 校验一致后，才允许打开具体下载内容；不要关闭系统 Gatekeeper。完整安装步骤见项目的快速开始文档。
 

@@ -11,6 +11,9 @@ paths:
   - 'packages/permissions/src/ui/agent-access-selector.tsx'
   - 'scripts/package-host.mts'
   - 'apps/server/README.md'
+  - 'apps/server/Dockerfile'
+  - 'apps/server/docker/compose.yaml'
+  - 'apps/server/docker/pi-meme-seccomp.json'
   - 'apps/server/package.json'
   - 'apps/server/src/dev.ts'
   - 'apps/server/src/main.ts'
@@ -25,7 +28,7 @@ paths:
 
 从 [GitHub Releases](https://github.com/xidongdong-153/Pi-meme/releases) 选择版本，下载对应附件与同一版本的 `SHA256SUMS`。下文 `<版本>` 替换为下载文件中的版本号，不含 Tag 的 `v` 前缀。GitHub 自动生成的 Source code 是源码归档，不是安装包。
 
-下载包的构建目标为 macOS 15 arm64、Ubuntu 24.04 x64 和 Windows x64，不提供 Intel Mac、Windows arm64 包。Desktop 已包含本机 Host，使用桌面应用只需下载对应系统的 Desktop ZIP。独立 Host 已包含 Web、Node.js 24.14.0、Worker、技能和生产依赖；启动下载版无需另外安装 Node.js、pnpm 或 Pi CLI。
+Desktop 和独立 Host 归档面向 macOS 15 arm64、Ubuntu 24.04 x64 和 Windows x64，不提供 Intel Mac、Windows arm64 包。Docker 镜像支持原生 Linux AMD64 和 ARM64。Desktop 已包含本机 Host，使用桌面应用只需下载对应系统的 Desktop ZIP。独立 Host 已包含 Web、Node.js 24.14.0、Worker、技能和生产依赖；启动下载版无需另外安装 Node.js、pnpm 或 Pi CLI。
 
 ### 安装 Windows Desktop
 
@@ -135,6 +138,58 @@ tar -xzf "pi-meme-host-<版本>-macos-arm64.tar.gz"
 
 浏览器打开 `http://127.0.0.1:3185`，本机自动登录。Ctrl+C 或 SIGTERM 停止 Host。默认只监听 loopback；远程部署见 [Remote](remote.md)。Linux 的 bubblewrap 必须通过实际探测，不能通过切换完全权限来代替安装或系统策略排查。外部 MCP、Python 等仍需要各自的运行依赖。Host 包内不附 npm、pnpm，也不自动注册系统服务。已有 SSH 可登录且可运行 Python 3 的远程机器可以从“设置 → 系统 → 远程”直接添加。应用优先连接使用 `~/.pi-meme` 且兼容的已有 Host，只有明确未发现时才自动安装并启动，无需先手工部署；探测范围与安装前提见 [SSH 自动连接](remote.md#通过-ssh-自动连接)。
 
+### 本地 Docker 部署
+
+在发布页选择 Docker Engine 的原生架构，Apple Silicon 和 ARM 服务器下载 `arm64`，Intel 或 AMD 服务器下载 `amd64`。下载 `pi-meme-host-<版本>-docker-linux-<架构>.tar.gz` 和同版本的 `SHA256SUMS`，核对镜像的 SHA256。在下载目录用 Bash 执行下列命令，将 `<版本>` 替换为实际版本号。
+
+```bash
+version='<版本>'
+engine_arch=$(docker info --format '{{.Architecture}}')
+case "$engine_arch" in
+  aarch64|arm64) arch=arm64 ;;
+  x86_64|amd64) arch=amd64 ;;
+  *) echo "Docker Engine 架构不受支持：$engine_arch"; exit 1 ;;
+esac
+export PI_MEME_IMAGE="pi-meme-host:$version"
+docker load -i "pi-meme-host-${version}-docker-linux-${arch}.tar.gz"
+```
+
+将同版本的 [Compose 配置和 seccomp 策略](../apps/server/docker)放在同一个部署目录。下面的命令将它们保存到当前目录。
+
+```bash
+config_url="https://raw.githubusercontent.com/xidongdong-153/Pi-meme/v${version}/apps/server/docker"
+for file in compose.yaml pi-meme-seccomp.json LICENSE-moby.txt; do
+  curl -fsSLo "$file" "$config_url/$file" || exit 1
+done
+```
+
+首次启动前，用镜像内的 OpenSSL 生成本机 HTTPS 证书。证书和私钥保存在 `pi-meme-tls` 卷里，有效期 30 天。导出公钥证书，供本机核对或信任。
+
+```bash
+docker run --rm -v pi-meme-tls:/run/pi-meme/tls \
+  --entrypoint openssl "$PI_MEME_IMAGE" req -x509 -newkey rsa:2048 -nodes -days 30 \
+  -subj /CN=localhost -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' \
+  -addext 'basicConstraints=critical,CA:FALSE' -addext 'extendedKeyUsage=serverAuth' \
+  -keyout /run/pi-meme/tls/host.key -out /run/pi-meme/tls/host.crt
+docker run --rm -v pi-meme-tls:/run/pi-meme/tls:ro \
+  --entrypoint /bin/cat "$PI_MEME_IMAGE" /run/pi-meme/tls/host.crt > pi-meme-local.crt
+```
+
+用密码管理器生成访问令牌，在提示时粘贴。Compose 将服务绑定到宿主机的回环地址，Host 身份、凭据和会话保存在 `pi-meme-data`，项目保存在 `pi-meme-projects`。
+
+```bash
+read -rsp 'Pi meme 访问令牌: ' PI_MEME_TOKEN
+export PI_MEME_TOKEN
+docker compose up -d
+unset PI_MEME_TOKEN
+curl --retry 5 --retry-all-errors --retry-delay 1 --cacert pi-meme-local.crt \
+  https://localhost:13185/ -o /dev/null -w '%{http_code}\n'
+```
+
+收到 HTTP `200` 后，浏览器打开 `https://localhost:13185`，核对证书并输入令牌，项目目录选 `/workspace`。从 Desktop 登记 HTTPS 远程连接时，发起请求的本机 Node Host 也需信任这张证书。可在启动该 Host 前将 `NODE_EXTRA_CA_CERTS` 指向 `pi-meme-local.crt` 的绝对路径。
+
+容器以 UID 1000 运行，根文件系统只读，所有外层 Linux capabilities 均已移除。Compose 针对该容器解除 Docker 的默认系统路径遮罩，让 bubblewrap 能挂载私有 `/proc`，同时以空只读挂载遮蔽 `/sys`。外层 seccomp 保留 Moby 默认策略并增加 bubblewrap 所需规则。Host 启动时探测实际沙箱能力，Plan、只读和工作区修改取决于该探测结果。见 [Linux 与 WSL 隔离](configuration.md#linux-与-wsl-隔离)。
+
 ### 升级
 
 先退出旧 Host 的管理方，备份数据目录，再替换 Desktop 的 `.app`、Windows 完整应用目录，或解压新版 Host。数据默认在 `~/.pi-meme`，与安装目录分离；独立 Host 继续使用原来的 `PI_MEME_DATA_ROOT`。新版 Host 启动时若检测到旧版数据根，会在独占锁下自动就地升级布局并建立备份，规则与异常恢复见 [数据目录与存储](storage.md)。不要覆盖或上传备份中的凭据。不承诺数据格式变化后可直接降级。Desktop 与独立 Host 使用相同目录和端口时可能复用旧实例，见[共享 Host](#desktop-与-server-共享-host)。
@@ -153,7 +208,7 @@ Linux/WSL2 先完成下节环境准备，再按[本机 Web 开发](#本机-web-�
 
 ### Linux 与 WSL 环境
 
-Linux/WSL2 运行 Host/Web，不运行 Electron。下载包基线为 Ubuntu 24.04 x64；不提供 Linux arm64、Alpine/musl 或 WSL1 包。Windows 原生桌面版见[安装 Windows Desktop](#安装-windows-desktop)。仓库、解压目录、数据和项目放在 Linux 文件系统，例如 `~/Code/pi-meme`；不复用 Windows/macOS 的 Node 或 `node_modules`。Windows 编辑器通过 WSL 连接编辑，参见[微软文件系统说明](https://learn.microsoft.com/en-us/windows/wsl/filesystems)。
+Linux/WSL2 运行 Host/Web，不运行 Electron。独立归档面向 Ubuntu 24.04 x64；不提供 Linux ARM64 独立归档、Alpine/musl 或 WSL1 包。Docker 镜像支持原生 AMD64 和 ARM64。Windows 原生桌面版见[安装 Windows Desktop](#安装-windows-desktop)。仓库、解压目录、数据和项目放在 Linux 文件系统，例如 `~/Code/pi-meme`；不复用 Windows/macOS 的 Node 或 `node_modules`。Windows 编辑器通过 WSL 连接编辑，参见[微软文件系统说明](https://learn.microsoft.com/en-us/windows/wsl/filesystems)。
 
 Ubuntu 安装依赖：
 

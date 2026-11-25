@@ -80,6 +80,8 @@ export function releaseAssetNames(version: string) {
     `pi-meme-host-${version}-macos-arm64.tar.gz`,
     `pi-meme-host-${version}-linux-x64.tar.gz`,
     `pi-meme-desktop-${version}-windows-x64.zip`,
+    `pi-meme-host-${version}-docker-linux-amd64.tar.gz`,
+    `pi-meme-host-${version}-docker-linux-arm64.tar.gz`,
   ]
 }
 
@@ -211,33 +213,52 @@ async function prepareDesktopAsset() {
   }
 }
 
+function checkDockerArchive(file: string, version: string, commit: string, arch: 'amd64' | 'arm64') {
+  const entry = (name: string) => JSON.parse(execFileSync('tar', ['-xOf', file, '--', name], { encoding: 'utf8' }))
+  const manifest: { Config: string; RepoTags?: string[] | null }[] = entry('manifest.json')
+  const tag = `pi-meme-host:${version}`
+  const tagged = manifest.find(
+    ({ RepoTags }) => RepoTags?.includes(tag) || RepoTags?.includes(`docker.io/library/${tag}`),
+  )
+  assert.ok(tagged, `Docker 镜像归档缺少标签 ${tag}`)
+  const image = entry(tagged.Config)
+  assert.equal(image.os, 'linux', 'Docker 镜像必须为 Linux')
+  assert.equal(image.architecture, arch, `Docker 镜像必须为 ${arch}`)
+  assert.equal(image.config.Labels['org.opencontainers.image.version'], version, 'Docker 镜像版本不一致')
+  assert.equal(image.config.Labels['org.opencontainers.image.revision'], commit, 'Docker 镜像 commit 不一致')
+}
+
 export async function writeChecksums(directory: string) {
-  const { version } = await releaseInfo()
+  const { version, commit } = await releaseInfo()
   const names = releaseAssetNames(version)
   assert.deepEqual(
     (await readdir(directory)).filter((name) => name !== 'SHA256SUMS').sort(),
     [...names].sort(),
-    'Release 目录必须恰好包含四个预期平台包',
+    'Release 目录必须包含四个平台包和两种原生架构的 Docker 镜像包',
   )
   const lines: string[] = []
   for (const [index, name] of names.entries()) {
-    const desktop = index === 0 || index === 3
     const file = path.join(directory, name)
     const stat = await lstat(file)
     assert.ok(stat.isFile() && stat.size > 0, `发布文件无效：${name}`)
-    const metadata = execFileSync(
-      desktop ? 'unzip' : 'tar',
-      desktop
-        ? ['-p', file, index === 3 ? 'resources[/\\\\]release.json' : 'Pi meme.app/Contents/Resources/release.json']
-        : ['-xOf', file, 'pi-meme-host/release.json'],
-      { encoding: 'utf8', maxBuffer: 1024 * 1024 },
-    )
-    await checkMetadata(
-      metadata,
-      index === 3 ? 'win32' : index === 2 ? 'linux' : 'darwin',
-      index >= 2 ? 'x64' : 'arm64',
-      !desktop,
-    )
+    if (name === names[4] || name === names[5]) {
+      checkDockerArchive(file, version, commit, name === names[4] ? 'amd64' : 'arm64')
+    } else {
+      const desktop = index === 0 || index === 3
+      const metadata = execFileSync(
+        desktop ? 'unzip' : 'tar',
+        desktop
+          ? ['-p', file, index === 3 ? 'resources[/\\\\]release.json' : 'Pi meme.app/Contents/Resources/release.json']
+          : ['-xOf', file, 'pi-meme-host/release.json'],
+        { encoding: 'utf8', maxBuffer: 1024 * 1024 },
+      )
+      await checkMetadata(
+        metadata,
+        index === 3 ? 'win32' : index === 2 ? 'linux' : 'darwin',
+        index >= 2 ? 'x64' : 'arm64',
+        !desktop,
+      )
+    }
     lines.push(`${await sha256(file)}  ${name}`)
   }
   await writeFile(path.join(directory, 'SHA256SUMS'), `${lines.join('\n')}\n`)
@@ -258,9 +279,12 @@ Desktop 包含本机 Host；只使用桌面应用时无需再下载 Host。Host 
 - Apple Silicon Mac 独立 Host：\`${names[1]}\`
 - Linux x64 独立 Host：\`${names[2]}\`
 - Windows x64 桌面应用：\`${names[3]}\`
+- Linux AMD64 Docker 镜像 \`${names[4]}\`
+- Linux ARM64 Docker 镜像 \`${names[5]}\`（适用于 Apple Silicon 上的 Docker）
+- Docker 部署使用同版本的 Compose 与沙箱策略，见[本地 Docker 部署](https://github.com/xidongdong-153/Pi-meme/blob/v${version}/docs/getting-started.md#本地-docker-部署)。
 - 下载后使用 \`SHA256SUMS\` 核验文件。
 
-构建 commit：\`${commit}\`。构建目标为 macOS 15 arm64、Ubuntu 24.04 x64 和 Windows x64；不提供 Intel Mac、Linux arm64、Windows arm64 或 Alpine/musl 包。
+构建 commit：\`${commit}\`。原生平台包面向 macOS 15 arm64、Ubuntu 24.04 x64 和 Windows x64；不提供 Intel Mac、Windows arm64 或 Alpine/musl 包。Docker 镜像分别在 Ubuntu 24.04 AMD64 和 ARM64 上构建。
 
 ## 安装与限制
 
@@ -282,7 +306,7 @@ Pi SDK 与 Chord 已升级至 1.6.0。已有可信 Server 插件需使用 Chord 
 
 ## 验收
 
-自动流程执行静态检查，构建四个原生平台包，核对版本、commit、平台、架构与 SHA256，并检查 Desktop ZIP 内的许可文件、macOS 签名完整性及 Windows 可执行文件和 Node 运行时。发布 workflow 不运行源码测试、Web E2E 或产物运行测试；功能验收结果需由维护者另行记录。
+自动流程执行静态检查，构建四个原生平台包和两种架构的 Linux Docker 镜像，核对版本、commit、平台、架构与 SHA256，并检查 Desktop ZIP 内的许可文件、macOS 签名完整性及 Windows 可执行文件和 Node 运行时。发布 workflow 不运行源码测试、Web E2E 或产物运行测试；功能验收结果需由维护者另行记录。
 
 附件上传并核对完整后自动公开；带预发布后缀的版本保留 Pre-release 标记。此流程未验证下载后的 Desktop 首次打开与 Host 实际部署。
 

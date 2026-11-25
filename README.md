@@ -32,12 +32,13 @@ pi-meme 基于 [Pi](https://github.com/earendil-works/pi) 的原生会话与 Typ
 
 Desktop 与 Web 使用同一套界面。Host 是执行任务、保存配置和会话的后台服务；Desktop 自带本机 Host，也可连接远程 Host。
 
-| 使用方式                   | 下载包                                   | 适用平台                        |
-| -------------------------- | ---------------------------------------- | ------------------------------- |
-| 桌面应用                   | `pi-meme-desktop-<版本>-macos-arm64.zip` | Apple Silicon Mac               |
-| Windows 桌面应用           | `pi-meme-desktop-<版本>-windows-x64.zip` | Windows x64                     |
-| Mac 上的独立 Host 与 Web   | `pi-meme-host-<版本>-macos-arm64.tar.gz` | macOS arm64                     |
-| Linux 上的独立 Host 与 Web | `pi-meme-host-<版本>-linux-x64.tar.gz`   | Linux x64；WSL2 使用 Linux 环境 |
+| 使用方式                                                            | 下载包                                           | 适用平台                          |
+| ------------------------------------------------------------------- | ------------------------------------------------ | --------------------------------- |
+| 桌面应用                                                            | `pi-meme-desktop-<版本>-macos-arm64.zip`         | Apple Silicon Mac                 |
+| Windows 桌面应用                                                    | `pi-meme-desktop-<版本>-windows-x64.zip`         | Windows x64                       |
+| Mac 上的独立 Host 与 Web                                            | `pi-meme-host-<版本>-macos-arm64.tar.gz`         | macOS arm64                       |
+| Linux 上的独立 Host 与 Web                                          | `pi-meme-host-<版本>-linux-x64.tar.gz`           | Linux x64；WSL2 使用 Linux 环境   |
+| [Docker 中的 Host 与 Web](docs/getting-started.md#本地-docker-部署) | `pi-meme-host-<版本>-docker-linux-<架构>.tar.gz` | 原生 `linux/amd64`、`linux/arm64` |
 
 1. 从 [Releases](https://github.com/xidongdong-153/Pi-meme/releases) 选择版本，下载对应安装包与同一版本的 `SHA256SUMS`，按[安装说明](docs/getting-started.md#下载使用)校验并启动。
 2. 打开“设置 → Agent → 模型”，连接服务商并选择模型。
@@ -45,7 +46,7 @@ Desktop 与 Web 使用同一套界面。Host 是执行任务、保存配置和�
 
 下载包包含运行时，不需要另外安装 Node.js、pnpm 或 Pi CLI；项目任务和外部工具仍需各自的依赖。独立 Host 启动后，浏览器访问 `http://127.0.0.1:3185`。
 
-发布目标为 macOS 15 arm64、Ubuntu 24.04 x64 和 Windows x64。Linux 需要 Git、bash 和 bubblewrap；Windows 需要 Git for Windows，解压整个 ZIP 后运行 `Pi meme.exe`。当前没有 Intel Mac、Linux arm64 或 Windows arm64 包。macOS 默认使用 ad-hoc 签名，尚未公证，首次打开请按[系统提示说明](docs/getting-started.md#macos-首次打开)处理；Windows 包未配置代码签名。
+发布目标为 macOS 15 arm64、Ubuntu 24.04 x64 和 Windows x64。Linux 需要 Git、bash 和 bubblewrap；Windows 需要 Git for Windows，解压整个 ZIP 后运行 `Pi meme.exe`。Linux ARM64 使用 Docker 镜像；当前没有 Intel Mac 或 Windows arm64 包。macOS 默认使用 ad-hoc 签名，尚未公证，首次打开请按[系统提示说明](docs/getting-started.md#macos-首次打开)处理；Windows 包未配置代码签名。
 
 需要在另一台机器执行任务时，可使用 [HTTPS 或 SSH 连接](docs/remote.md)。项目文件、模型配置和会话属于所连接的 Host，浏览器所在的机器不承担远端执行。
 

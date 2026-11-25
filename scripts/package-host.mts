@@ -9,7 +9,6 @@ import { assertLockedDependencies, stageHostWorkspace } from './release-workspac
 import {
   assertPortableLinks,
   nodeVersion,
-  releaseAssetNames,
   releaseDirectory,
   releaseInfo,
   repoRoot,
@@ -28,8 +27,8 @@ function pnpm(args: string[], cwd = repoRoot) {
 async function main() {
   assert.ok(
     (process.platform === 'darwin' && process.arch === 'arm64') ||
-      (process.platform === 'linux' && process.arch === 'x64'),
-    '首发 Host 只能在 macOS arm64 或 Linux x64 原生构建',
+      (process.platform === 'linux' && ['x64', 'arm64'].includes(process.arch)),
+    'Host 需要在 macOS arm64 或 Linux x64 / arm64 原生构建',
   )
   assert.equal(process.versions.node, nodeVersion, `Host 打包必须使用 Node.js ${nodeVersion}`)
   const { version } = await releaseInfo()
@@ -92,7 +91,8 @@ exec "$ROOT/runtime/bin/node" "$ROOT/apps/server/dist/main.js"
     const actual = execFileSync(path.join(runtime, 'bin/node'), ['--version'], { encoding: 'utf8' }).trim()
     assert.equal(actual, `v${nodeVersion}`, '包内 Node.js 版本错误')
     await mkdir(releaseDirectory, { recursive: true })
-    const destination = path.join(releaseDirectory, releaseAssetNames(version)[process.platform === 'darwin' ? 1 : 2])
+    const platform = process.platform === 'darwin' ? 'macos' : 'linux'
+    const destination = path.join(releaseDirectory, `pi-meme-host-${version}-${platform}-${process.arch}.tar.gz`)
     execFileSync('tar', ['-czf', destination, '-C', directory, 'pi-meme-host'], {
       stdio: 'inherit',
       env: { ...process.env, COPYFILE_DISABLE: '1' },

@@ -60,6 +60,13 @@ jobs:
             platform: linux
             name: linux
             arch: x64
+            docker_arch: amd64
+          - product: host
+            os: ubuntu-24.04-arm
+            platform: linux
+            name: linux
+            arch: arm64
+            docker_arch: arm64
           - product: desktop
             os: windows-2025
             platform: win32
@@ -91,6 +98,19 @@ jobs:
       - name: 构建 Host 独立包
         if: matrix.product == 'host'
         run: pnpm package:host
+      - name: 构建并导出原生 Linux Docker 镜像
+        if: matrix.product == 'host' && runner.os == 'Linux'
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+          REVISION: ${{ needs.check.outputs.commit }}
+          DOCKER_ARCH: ${{ matrix.docker_arch }}
+        run: |
+          set -euo pipefail
+          image="pi-meme-host:$VERSION"
+          docker build --platform "linux/$DOCKER_ARCH" --file apps/server/Dockerfile \
+            --build-arg VERSION="$VERSION" --build-arg REVISION="$REVISION" --build-arg HOST_ARCH="$TARGET_ARCH" \
+            --tag "$image" out/release
+          docker image save "$image" | gzip -1 > "out/release/pi-meme-host-${VERSION}-docker-linux-${DOCKER_ARCH}.tar.gz"
       - name: 构建 Desktop 应用
         if: matrix.product == 'desktop'
         run: pnpm package --arch ${{ matrix.arch }}
@@ -104,7 +124,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: platform-${{ matrix.product }}-${{ matrix.name }}-${{ matrix.arch }}
-          path: out/release/*
+          # Linux arm64 Host 归档是对应镜像的构建输入。
+          path: |
+            out/release/*
+            !out/release/pi-meme-host-${{ needs.check.outputs.version }}-linux-arm64.tar.gz
           if-no-files-found: error
           overwrite: true
           retention-days: 7
@@ -172,6 +195,8 @@ jobs:
             "pi-meme-host-${VERSION}-macos-arm64.tar.gz"
             "pi-meme-host-${VERSION}-linux-x64.tar.gz"
             "pi-meme-desktop-${VERSION}-windows-x64.zip"
+            "pi-meme-host-${VERSION}-docker-linux-amd64.tar.gz"
+            "pi-meme-host-${VERSION}-docker-linux-arm64.tar.gz"
             SHA256SUMS
           )
           if gh release view "$TAG" --json isDraft,body > "$RUNNER_TEMP/existing-release.json"; then

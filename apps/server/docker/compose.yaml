@@ -1,0 +1,36 @@
+# 外层 seccomp 策略基于 Moby seccomp v0.1.0（Apache-2.0，许可见 LICENSE-moby.txt），
+# 保留上游默认规则并加入 Pi meme 的 bubblewrap 创建命名空间与挂载文件系统所需的规则。
+# https://github.com/moby/profiles/blob/seccomp/v0.1.0/seccomp/default.json
+services:
+  pi-meme:
+    image: ${PI_MEME_IMAGE:?请设置已加载的镜像标签 PI_MEME_IMAGE}
+    pull_policy: never
+    init: true
+    user: '1000:1000'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges=true
+      # 允许 bubblewrap 挂载私有 procfs，并在下方用空只读挂载遮蔽 /sys。
+      - systempaths=unconfined
+      - seccomp=./pi-meme-seccomp.json
+    tmpfs:
+      - /sys:ro,nosuid,nodev,noexec,mode=0555
+      - /tmp:rw,nosuid,nodev,mode=1777
+      - /home/ubuntu:rw,nosuid,nodev,uid=1000,gid=1000,mode=0700
+    environment:
+      PI_MEME_TOKEN: ${PI_MEME_TOKEN:?请设置访问令牌 PI_MEME_TOKEN}
+    ports:
+      - '127.0.0.1:13185:3185'
+    volumes:
+      - tls:/run/pi-meme/tls:ro
+      - data:/home/ubuntu/.pi-meme
+      - projects:/workspace
+
+volumes:
+  tls:
+    name: pi-meme-tls
+  data:
+    name: pi-meme-data
+  projects:
+    name: pi-meme-projects
