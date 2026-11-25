@@ -6,7 +6,7 @@ paths: []
 
 # 项目文档
 
-pi-meme 的 Desktop 和 Web 共用 Node Host。应用入口在 `apps/`，基础包与内置能力在 `packages/`，独立分发的 App 插件源码在 `plugins/`。Bots 在 `apps/bot` 独立运行，维护自己的配置、Web 和数据。
+pi-meme 的 Desktop 和 Web 共用 Node Host。应用入口在 `apps/`，基础包与内置能力在 `packages/`，独立分发的 App 插件源码在 `plugins/`。
 
 下列主题说明当前实现与操作方式；源码核对、文档结构诊断和格式检查不代表功能、构建产物或发布已经验收。
 
@@ -22,7 +22,6 @@ pi-meme 的 Desktop 和 Web 共用 Node Host。应用入口在 `apps/`，基础�
 | 使用与部署 | [会话上下文窗口](context-window.md)         | 实际请求、分类地图、正文、历史与归档            |
 | 使用与部署 | [数据目录与存储](storage.md)                | 文件布局、更改目录、缓存清理与升级恢复          |
 | 使用与部署 | [Remote](remote.md)                         | HTTPS 部署、SSH 连接、认证与断线排错            |
-| 使用与部署 | [独立 Bots](bots.md)                        | 独立助理 Web、部署、QQ、多 Host、计划与认证 API |
 | 使用与部署 | [MCP App](../apps/mcp/README.md)            | Rakazo／其他 Bot 连接、独立部署、权限与工具     |
 | 开发与发布 | [开发指南](development.md)                  | 功能修改位置、UI 原语、静态资源与 Git 提交规范  |
 | 开发与发布 | [UI 体验与动效](ui-experience.md)           | 切换、等待反馈、动效参数与接入规则              |

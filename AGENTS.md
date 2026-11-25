@@ -90,7 +90,7 @@ Web (Vite) ──────────┘                                    
 - 基础交互用 `packages/ui` 的原语，图标用 `lucide-react`，类名用 `cn`。
 - 页面顶栏复用 `packages/app-ui/src/layout/page-header.tsx` 的 `PageHeader` 和 `PageHeaderNavigation`；顶栏高度、交通灯留白和导航按钮样式只在该文件维护。页面自己的操作通过子组件组合，并使用 `no-drag` 标记交互区域。
 - 新增或修改内置系统能力时，按 [Host 内置工具](docs/host-system-tools.md) 接入 Agent 读取与操作；复用 Host 业务服务，登记参数、作用范围和读写权限，客户端操作绑定发起客户端。
-- Pi meme 自有 API（HostApi、HTTP 路由、请求与响应字段、能力名、运行握手及文档）默认不加 `v1`/`v2`、`apiVersion`、`protocolVersion` 等版本标记；演进时优先按具体能力判断。确需版本化时，先说明兼容对象、迁移路径和旧客户端行为。独立 Bot、第三方协议、插件 SDK 与持久化格式按各自契约处理。
+- Pi meme 自有 API（HostApi、HTTP 路由、请求与响应字段、能力名、运行握手及文档）默认不加 `v1`/`v2`、`apiVersion`、`protocolVersion` 等版本标记；演进时优先按具体能力判断。确需版本化时，先说明兼容对象、迁移路径和旧客户端行为。第三方协议、插件 SDK 与持久化格式按各自契约处理。
 - 新功能先判断是内置能力还是可独立安装的 App 插件。业务包按需建 `src/server`、`src/agent`、`src/ui`、`src/shared`，不建空层。
 - 插件的安装、项目启停、会话选择与能力授权分别校验。插件 Agent 与 MCP 仅在完全权限普通任务中加载；Plan、本地只读和工作区修改只装配内置工具，在导入、初始化、工具发现和连接前检查有效权限。独立 Server 与 UI 保留既有授权与隔离。受限 JS 必须在独立进程和 OS 沙箱中运行；UI 与可信 Server 不属于恶意代码沙箱。
 - 插件输入框 API 复用唯一草稿和提交守卫；发送前处理必须显式授权。消息引用使用 Pi 原生 entry ID，不能用时间戳或数组下标代替。插件页目标、执行目标与当前输入框引用不得混用。
