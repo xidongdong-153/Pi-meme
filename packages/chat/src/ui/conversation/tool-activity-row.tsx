@@ -82,6 +82,8 @@ function ToolActivityRowContent({
   if (open && !hasOpened) setHasOpened(true)
   const diff = React.useMemo(() => extractDiff(item.result), [item.result])
   const images = React.useMemo(() => extractImages(item.result), [item.result])
+  const hasImages = images.length > 0
+  const isImage = meta.kind === 'image'
   const script =
     item.name === 'codemode' &&
     item.args &&
@@ -101,7 +103,7 @@ function ToolActivityRowContent({
           ? args.cmd
           : '')
   const isExecution = meta.kind === 'command' || script !== undefined
-  const detailValue = isExecution ? item.result : (item.result ?? item.args)
+  const detailValue = isExecution || (isImage && !isError) ? item.result : (item.result ?? item.args)
   const rawText = React.useMemo(() => item.output ?? formatDetailValue(detailValue), [item.output, detailValue])
   const actionAnchor = React.useMemo(() => toolMessageActionAnchor(item, rawText), [item, rawText])
   const diffContent = React.useMemo(
@@ -109,7 +111,7 @@ function ToolActivityRowContent({
     [isExecution, diff],
   )
   const hasDetail =
-    images.length > 0 ||
+    hasImages ||
     computerInfo !== undefined ||
     (isError
       ? Boolean(rawText || item.children?.length)
@@ -117,9 +119,9 @@ function ToolActivityRowContent({
         ? Boolean(filePatch)
         : meta.kind !== 'read' && Boolean(isExecution || diff || rawText || item.children?.length || item.source))
   const detailsId = React.useId()
-  const imageOnly = meta.kind === 'image' && !isExecution && !diff && !item.children?.length && !item.source
+  const imageOnly = isImage && hasImages && !isExecution && !diff && !item.children?.length && !item.source
 
-  const imagePreviews = images.length > 0 && (
+  const imagePreviews = hasImages && (
     <div className="flex flex-wrap">
       {images.map((image, index) => (
         <ImageThumbnail
@@ -233,7 +235,7 @@ function ToolActivityRowContent({
                     isRunning={isRunning}
                     isPaused={isPaused}
                     isError={isError}
-                    hasImages={images.length > 0}
+                    hasImages={hasImages}
                   />
                 ) : (
                   (!imageOnly || isError) && (

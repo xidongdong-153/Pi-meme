@@ -52,10 +52,24 @@ function isImageActivity(item: ActivityItem): boolean {
   return item.type !== 'thinking' && item.type !== 'narration' && parseToolMeta(item).kind === 'image'
 }
 
+function isRedundantImageRead(tool: ToolRun, parentImages: ReturnType<typeof extractImages>): boolean {
+  if (tool.name !== 'read' || tool.status !== 'success' || tool.children?.length || tool.source || tool.sourceEntry)
+    return false
+  // 历史记录只恢复嵌套读取的调用参数，没有独立的图片详情。
+  if (tool.result === undefined) return isImageActivity(tool)
+  const images = extractImages(tool.result)
+  return (
+    images.length > 0 &&
+    images.every(({ data, mimeType }) =>
+      parentImages.some((image) => image.data === data && image.mimeType === mimeType),
+    )
+  )
+}
+
 function withoutAgentOperations(
   tools: ToolRun[] | undefined,
   hideAgentOperations: boolean,
-  extractImageChildren: boolean,
+  parentImages: ReturnType<typeof extractImages>,
 ): ToolRun[] | undefined {
   if (!tools?.length) return tools
   let changed = false
@@ -65,12 +79,12 @@ function withoutAgentOperations(
       isAgentInteraction(tool) ||
       isQuestion(tool) ||
       (hideAgentOperations && agentOperationTools.has(tool.name)) ||
-      (extractImageChildren && isImageActivity(tool))
+      (parentImages.length ? isRedundantImageRead(tool, parentImages) : isImageActivity(tool))
     ) {
       changed = true
       continue
     }
-    const children = withoutAgentOperations(tool.children, hideAgentOperations, extractImageChildren)
+    const children = withoutAgentOperations(tool.children, hideAgentOperations, parentImages)
     if (children !== tool.children) {
       changed = true
       next.push(children?.length ? { ...tool, children } : withoutChildren(tool))
@@ -89,7 +103,7 @@ function withoutChildren<T extends { children?: ToolRun[] }>(value: T): T {
 
 function presentActivity(item: ActivityItem, hideAgentOperations: boolean): ActivityItem {
   if (item.type === 'thinking' || item.type === 'narration' || !item.children?.length) return item
-  const children = withoutAgentOperations(item.children, hideAgentOperations, extractImages(item.result).length === 0)
+  const children = withoutAgentOperations(item.children, hideAgentOperations, extractImages(item.result))
   if (children === item.children) return item
   if (!children?.length) return withoutChildren(item)
   return { ...item, children }
