@@ -11,6 +11,7 @@ import type {
   SshConnection,
 } from '@pi-meme/contracts/ssh-connections'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
+import type { buildSidebarModel } from '@pi-meme/workspace/ui/sidebar/sidebar-model'
 import type { useAppSession } from '../session/use-app-session'
 
 export type ServiceController = ReturnType<typeof useAppSession> & {
@@ -32,6 +33,8 @@ export type ServiceUI = {
   onImageSession?: (serviceId: string, session: SessionRef) => Promise<void>
   onCreateImage?: (serviceId: string, item?: GalleryImage, isCurrent?: () => boolean) => Promise<void>
   sidebar: ReactNode
+  sidebarModel?: ReturnType<typeof buildSidebarModel>
+  onSwitchServiceSession?: (serviceId: string, sessionPath: string) => Promise<boolean>
   remoteSettings: ReactNode
   onController: (id: string, controller: ServiceController) => void
   onLocation: (serviceId: string, input: SelectWorkspace) => Promise<boolean>

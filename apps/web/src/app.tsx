@@ -236,7 +236,7 @@ function ConnectedWebApp() {
           onBootComplete={markBootComplete}
         />
       ) : !client && !connecting ? (
-        <main className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
+        <main className="flex min-h-dvh items-center justify-center bg-background px-6 py-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))] text-foreground">
           <form
             onSubmit={(event) => void submit(event).catch((cause: unknown) => setError(String(cause)))}
             className="w-full max-w-sm space-y-4 rounded-xl border border-border p-6 shadow-sm"
@@ -254,6 +254,7 @@ function ConnectedWebApp() {
                 aria-label="访问令牌"
                 value={token}
                 onChange={(event) => setToken(event.target.value)}
+                className="text-base sm:text-sm"
               />
             </label>
             {error && (

@@ -18,6 +18,8 @@ import type { ComposerDraftData } from './composer-state'
 const emptyPlugins: AgentPluginOption[] = []
 
 export function ComposerEditor({
+  mobile = false,
+  placeholder,
   composerStore,
   disabled,
   sessionKey,
@@ -82,6 +84,8 @@ export function ComposerEditor({
   paste: (event: ClipboardEvent<HTMLDivElement>) => void
   dragging: boolean
   editing?: boolean
+  mobile?: boolean
+  placeholder?: string
   /** Escape 未被命令补全或队列清空消费时触发，例如取消历史消息编辑。 */
   onEscape?: () => void
 }) {
@@ -119,6 +123,7 @@ export function ComposerEditor({
     updateCaret,
     setSuggestionsOpen,
   } = useCommandCompletion({
+    mobile,
     composerStore,
     onPlanCommand,
     onGoalCommand,
@@ -341,8 +346,8 @@ export function ComposerEditor({
             ? `composer-option-${suggestionIndex}`
             : undefined
         }
-        data-placeholder={hint || '说说你的想法'}
-        aria-describedby={hint ? 'composer-next-step' : undefined}
+        data-placeholder={(!mobile && hint) || placeholder || '说说你的想法'}
+        aria-describedby={!mobile && hint ? 'composer-next-step' : undefined}
         onInput={acceptInput}
         onCompositionStart={() => {
           composing.current = true
@@ -402,7 +407,7 @@ export function ComposerEditor({
             })
             return
           }
-          if (event.key === 'Enter' && event.shiftKey) {
+          if (event.key === 'Enter' && (event.shiftKey || mobile)) {
             event.preventDefault()
             document.execCommand('insertLineBreak')
             acceptInput()
@@ -421,12 +426,15 @@ export function ComposerEditor({
         onCopy={copyFileReferences}
         onCut={copyFileReferences}
         className={cn(
-          'composer-draft w-full min-h-[40px] max-h-[220px] overflow-y-auto whitespace-pre-wrap break-words px-2 py-1 text-sm leading-relaxed text-foreground outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/70',
-          hint && 'pr-10',
+          'composer-draft w-full overflow-y-auto whitespace-pre-wrap break-words px-2 py-1 text-foreground outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/70',
+          mobile
+            ? 'min-h-[30px] max-h-[min(180px,28dvh)] text-base leading-6'
+            : 'min-h-[40px] max-h-[220px] text-sm leading-relaxed',
+          !mobile && hint && 'pr-10',
         )}
       />
       <DelegatedTooltip containerRef={editor} />
-      {hint && (
+      {!mobile && hint && (
         <>
           <span id="composer-next-step" className="sr-only">
             按 Tab 填入：{hint}

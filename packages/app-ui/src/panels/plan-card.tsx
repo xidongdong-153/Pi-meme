@@ -14,7 +14,7 @@ export function downloadPlan(document: PlanDocument) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-export function PlanCard({ document, onOpen }: { document: PlanDocument; onOpen: () => void }) {
+export function PlanCard({ document, onOpen }: { document: PlanDocument; onOpen?: () => void }) {
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
   const actions = [
@@ -28,7 +28,7 @@ export function PlanCard({ document, onOpen }: { document: PlanDocument; onOpen:
           .then(() => setCopied(true))
           .catch((cause) => setError(`无法复制计划：${String(cause)}`)),
     },
-    { label: '在侧栏打开完整计划', icon: PanelRightOpen, run: onOpen },
+    ...(onOpen ? [{ label: '在侧栏打开完整计划', icon: PanelRightOpen, run: onOpen }] : []),
   ]
   return (
     <section

@@ -102,6 +102,7 @@ export const Conversation = React.memo(
     onViewChanges,
     onUndoChanges,
     changesDisabled,
+    mobile = false,
   }: {
     chat: ChatState
     stream?: ChatStream
@@ -136,6 +137,7 @@ export const Conversation = React.memo(
     onViewChanges?: (entryId: string, path?: string) => void
     onUndoChanges?: (entryId: string) => Promise<void>
     changesDisabled?: boolean
+    mobile?: boolean
   }) => {
     const chat = React.useSyncExternalStore(
       stream?.subscribeView ?? noSubscription,
@@ -456,12 +458,16 @@ export const Conversation = React.memo(
         MessageImageLoaderContext.Provider,
         { value: loadImage },
         <div className="chat-surface relative flex flex-1 min-h-0 min-w-0">
-          <ConversationOutline entries={outline} activeKey={activeKey} onSelect={handleSelectTurn} />
+          {!mobile && <ConversationOutline entries={outline} activeKey={activeKey} onSelect={handleSelectTurn} />}
           <div
             ref={containerRef}
             onScroll={handleScroll}
             data-overflow-top={showScrollTop}
-            className="scroll-fade flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto py-6 text-sm select-text [scrollbar-gutter:stable_both-edges]"
+            className={
+              mobile
+                ? 'scroll-fade flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-y-contain py-3 text-sm select-text'
+                : 'scroll-fade flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto py-6 text-sm select-text [scrollbar-gutter:stable_both-edges]'
+            }
             aria-label="对话消息流"
             tabIndex={0}
           >
@@ -543,8 +549,8 @@ export const Conversation = React.memo(
                             message={turn.message}
                             pending={turn.message === pendingPrompt?.message}
                             tools={chat.tools}
-                            onEdit={readOnly ? undefined : onEditMessage}
-                            canEdit={canEditMessages}
+                            onEdit={readOnly || mobile ? undefined : onEditMessage}
+                            canEdit={!mobile && canEditMessages}
                             onCopyError={onCopyError}
                           />
                         )}
@@ -567,21 +573,21 @@ export const Conversation = React.memo(
                       retry={turn.isLive && chat.retry?.kind === 'model' ? chat.retry : undefined}
                       isPaused={Boolean(chat.paused && turn.isLive)}
                       pauseIntervals={chat.pauseIntervals}
-                      canFork={canForkReplies}
-                      onFork={readOnly ? undefined : onForkReply}
+                      canFork={!mobile && canForkReplies}
+                      onFork={readOnly || mobile ? undefined : onForkReply}
                       onCopyError={onCopyError}
-                      onOpenAgent={onOpenAgent}
+                      onOpenAgent={mobile ? undefined : onOpenAgent}
                       agents={chat.agents}
                       caller={agent}
                       onActivityToggle={handleActivityToggle}
                       renderReply={!agentOnly && !turn.isLive && renderPlan ? planReply : undefined}
                       changes={
-                        finalReplyKeys.has(turn.key) && turn.userEntryId !== undefined
+                        !mobile && finalReplyKeys.has(turn.key) && turn.userEntryId !== undefined
                           ? changesByEntry.get(turn.userEntryId)
                           : undefined
                       }
-                      onViewChanges={onViewChanges}
-                      onUndoChanges={onUndoChanges}
+                      onViewChanges={mobile ? undefined : onViewChanges}
+                      onUndoChanges={mobile ? undefined : onUndoChanges}
                       changesDisabled={changesDisabled}
                     />
                   )

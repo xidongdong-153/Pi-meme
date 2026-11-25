@@ -25,6 +25,7 @@ pi-meme 的 Desktop 和 Web 共用 Node Host。应用入口在 `apps/`，基础�
 | 使用与部署 | [MCP App](../apps/mcp/README.md)            | Rakazo／其他 Bot 连接、独立部署、权限与工具     |
 | 开发与发布 | [开发指南](development.md)                  | 功能修改位置、UI 原语、静态资源与 Git 提交规范  |
 | 开发与发布 | [UI 体验与动效](ui-experience.md)           | 切换、等待反馈、动效参数与接入规则              |
+| 开发与发布 | [移动端 Web](mobile-web.md)                 | 独立 Web 移动端触发边界、精简对话布局与维护约束 |
 | 开发与发布 | [验证与测试基础设施](testing.md)            | 静态检查、真实路径、换手验收、历史测试入口与 CI |
 | 开发与发布 | [版本发布](releasing.md)                    | 平台包构建、产物校验与 GitHub 自动发布          |
 | 实现与接口 | [架构](architecture.md)                     | 进程、Host 复用、组合根、内置模块与包边界       |

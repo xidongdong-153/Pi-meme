@@ -6,6 +6,7 @@ import { Tooltip, TooltipContent, TooltipHint, TooltipTrigger } from '@pi-meme/u
 import { cn } from '@pi-meme/ui/lib/utils'
 
 export type ComposerToolbarProps = {
+  mobile?: boolean
   goalControl?: ReactNode
   compact?: boolean
   mode?: TaskMode
@@ -39,6 +40,7 @@ export type ComposerToolbarProps = {
 }
 
 export function ComposerToolbar({
+  mobile = false,
   goalControl,
   compact,
   mode,
@@ -97,7 +99,7 @@ export function ComposerToolbar({
     ) : null
 
   return (
-    <div className="composer-toolbar mt-2 flex flex-wrap items-center justify-between pt-1 gap-2">
+    <div className={cn('composer-toolbar mt-2 flex items-center justify-between pt-1 gap-2', !mobile && 'flex-wrap')}>
       <div className="composer-leading flex min-w-0 flex-wrap items-center gap-1.5">
         <Tooltip delayDuration={300}>
           <TooltipTrigger asChild>
@@ -107,19 +109,20 @@ export function ComposerToolbar({
               onClick={onAddFiles}
               aria-label="添加附件"
               className={cn(
-                'inline-flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/70 transition-colors cursor-pointer select-none',
-                compact && 'rounded-full text-foreground',
+                'inline-flex shrink-0 items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary/70 transition-colors cursor-pointer select-none',
+                mobile ? 'size-9 rounded-full text-foreground/90 active:bg-secondary' : 'size-7 rounded-lg',
+                compact && !mobile && 'rounded-full text-foreground',
                 disabled && 'cursor-not-allowed',
               )}
             >
-              <Plus className="size-4" />
+              <Plus className={mobile ? 'size-5' : 'size-4'} />
             </button>
           </TooltipTrigger>
           <TooltipContent side="top">添加图片或附件</TooltipContent>
         </Tooltip>
-        {!compact && access}
-        {goalControl}
-        {!compact && plan && (
+        {!mobile && !compact && access}
+        {!mobile && goalControl}
+        {!mobile && !compact && plan && (
           <>
             <span aria-hidden="true" className="mx-0.5 h-3 w-px shrink-0 bg-border" />
             {plan}
@@ -127,17 +130,27 @@ export function ComposerToolbar({
         )}
       </div>
       <div className="composer-controls ml-auto flex min-w-0 shrink-0 items-center justify-end gap-1.5">
-        {contextUsage ? <div className="composer-context">{contextUsage}</div> : null}
-        <div className="composer-model flex min-w-0 max-w-[220px] items-center">{model}</div>
-        {compact && access}
-        {compact && plan}
+        {!mobile && contextUsage ? <div className="composer-context">{contextUsage}</div> : null}
+        <div
+          className={cn(
+            'composer-model flex min-w-0 items-center',
+            mobile ? 'max-w-[min(56vw,210px)]' : 'max-w-[220px]',
+          )}
+        >
+          {model}
+        </div>
+        {!mobile && compact && access}
+        {!mobile && compact && plan}
         {running && hasInput && !editingQueue && (
           <button
             type="button"
             disabled={disabled || stopping}
             onClick={onStop}
             aria-label={stopping ? '正在停止当前任务' : '停止当前任务'}
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+            className={cn(
+              'inline-flex shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40',
+              mobile ? 'size-9' : 'size-8',
+            )}
           >
             {stopping ? <LoaderCircle className="size-4 animate-spin" /> : <Square className="size-3.5 fill-current" />}
           </button>
@@ -151,12 +164,16 @@ export function ComposerToolbar({
                 : editingQueue
                   ? '保存排队消息'
                   : canSend
-                    ? '发送 (Enter)'
+                    ? mobile
+                      ? '发送消息'
+                      : '发送 (Enter)'
                     : paused
                       ? (resumeLabel ?? '继续当前任务')
                       : running
                         ? '停止当前任务'
-                        : '发送 (Enter)'
+                        : mobile
+                          ? '发送消息'
+                          : '发送 (Enter)'
           }
         >
           <button
@@ -194,8 +211,9 @@ export function ComposerToolbar({
             }
 
             className={cn(
-              'inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-[#2f6bca] text-white transition-all shadow-xs cursor-pointer hover:bg-[#3675d8] active:scale-95',
-              compact && 'size-7',
+              'inline-flex shrink-0 items-center justify-center rounded-full bg-[#2f6bca] text-white transition-all shadow-xs cursor-pointer hover:bg-[#3675d8] active:scale-95',
+              mobile ? 'size-9' : 'size-8',
+              compact && !mobile && 'size-7',
               buttonDisabled && 'opacity-40 cursor-not-allowed hover:bg-[#2f6bca] active:scale-100',
             )}
           >

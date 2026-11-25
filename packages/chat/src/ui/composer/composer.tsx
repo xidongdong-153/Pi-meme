@@ -32,6 +32,8 @@ export type ComposerAgentPlugins = {
 }
 
 export type ComposerProps = {
+  mobile?: boolean
+  placeholder?: string
   compact?: boolean
   composerStore?: ComposerDraftStore
   files?: ReturnType<typeof useComposerFiles>
@@ -117,6 +119,8 @@ export type ComposerProps = {
 }
 
 export function Composer({
+  mobile = false,
+  placeholder,
   compact,
   composerStore,
   files: sharedFiles,
@@ -256,12 +260,13 @@ export function Composer({
           onEditQueueInput,
         }}
       />
-      {goalBanner}
+      {!mobile && goalBanner}
       <form
         aria-label="消息输入"
         className={cn(
-          'composer @container relative flex flex-col rounded-[20px] p-3 shadow-md transition-colors',
-          compact && 'composer-compact',
+          'composer @container relative flex flex-col shadow-md transition-colors',
+          mobile ? 'rounded-[22px] px-3 pt-2.5 pb-2' : 'rounded-[20px] p-3',
+          compact && !mobile && 'composer-compact',
           dragging && 'ring-2 ring-primary/40',
         )}
         style={{ backgroundColor: 'color-mix(in srgb, var(--background), var(--foreground) 11%)' }}
@@ -304,7 +309,7 @@ export function Composer({
         />
 
         {widgetsAbove}
-        {statusBadges}
+        {!mobile && statusBadges}
 
         {(editing || editingQueue) && (
           <div className="mb-2 flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
@@ -357,6 +362,8 @@ export function Composer({
         )}
         <div className="composer-layout">
           <ComposerEditor
+            mobile={mobile}
+            placeholder={placeholder}
             composerStore={composerStore}
             disabled={editorDisabled}
             sessionKey={editorKey ?? sessionKey}
@@ -389,8 +396,9 @@ export function Composer({
             dragging={dragging}
             editing={Boolean(editing || editingQueue)}
           />
-          <div className="composer-below">{widgetsBelow}</div>
+          <div className="composer-below">{!mobile && widgetsBelow}</div>
           <ComposerToolbar
+            mobile={mobile}
             compact={compact}
             goalControl={goalControl}
             mode={mode}

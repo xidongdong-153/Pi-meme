@@ -56,6 +56,10 @@ import { Composer } from '@pi-meme/chat/ui/composer/composer'
 import { MessageImageLoaderContext } from '@pi-meme/chat/ui/content/message-image'
 import { Sidebar } from '@pi-meme/workspace/ui/sidebar/sidebar'
 import { SidebarMenus } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
+import { buildSidebarModel } from '@pi-meme/workspace/ui/sidebar/sidebar-model'
+import { SessionSearchDialog } from '@pi-meme/workspace/ui/sidebar/session-search-dialog'
+import { MobileChatShell } from './layout/mobile-chat-shell'
+import { useMobileWeb } from './layout/use-mobile-web'
 import { ModelPickerPopover } from '@pi-meme/models/ui/model-picker-popover'
 import { ExtensionWidgets } from '@pi-meme/interaction/ui/extension-widgets'
 import { ExtensionStatusBadges } from '@pi-meme/interaction/ui/extension-statuses'
@@ -188,6 +192,7 @@ function AppContent({
   /** 当前服务的聊天主界面已经可以显示，或连接失败需要把界面交还用户。 */
   onBootComplete?: () => void
 }) {
+  const mobileWeb = useMobileWeb(nativeWindow)
   const browserUnstored = useRef<() => boolean>(() => false)
   const systemPanelSnapshot = useRef<{ sessionId: string; layout: PanelLayoutState } | null>(null)
   const receiveSystemPanelSnapshot = useCallback((snapshot: { sessionId: string; layout: PanelLayoutState } | null) => {
@@ -629,9 +634,9 @@ function AppContent({
   })
   const [chatPaneVisible, setChatPaneVisible] = useState(false)
   useEffect(() => {
-    chat.setReadVisible(chatVisible && active && chatPaneVisible)
+    chat.setReadVisible(active && (mobileWeb || (chatVisible && chatPaneVisible)))
     return () => chat.setReadVisible(false)
-  }, [chatVisible, active, chatPaneVisible, chat.setReadVisible])
+  }, [chatVisible, active, chatPaneVisible, mobileWeb, chat.setReadVisible])
   const [mcpLocation, setMcpLocation] = useState<McpSettingsLocation>()
   const openMcpSettings = (location: McpSettingsLocation) => {
     openSettings('mcp')
@@ -1025,6 +1030,10 @@ function AppContent({
     () => ({
       loadPreview: (url: string) => call<LinkPreview>('chat:link-preview', [url]),
       openFile: async (path: string, location?: { line?: string; column?: string; session?: SessionRef }) => {
+        if (mobileWeb) {
+          chat.setError('请在桌面端查看完整文件面板')
+          return
+        }
         const session = location?.session ?? appSession
         if (!session) throw new Error('当前内容没有可用的会话文件读取器')
         const id = `builtin:file:${JSON.stringify([session.hostId, session.sessionId, path])}`
@@ -1041,7 +1050,7 @@ function AppContent({
         setSystemRequest({ id, revision: Date.now(), target: pluginProps.target })
       },
     }),
-    [call, appSession, pluginProps.target],
+    [call, appSession, pluginProps.target, mobileWeb, chat.setError],
   )
   const ready = chat.connection.status === 'ready' || chat.connection.status === 'idle'
   const bootComplete = !chat.loading && (ready || chat.connection.status === 'disconnected' || Boolean(chat.error))
@@ -1129,6 +1138,7 @@ function AppContent({
   const projectSelector = (
     <ProjectSelector
       {...{
+        mobile: mobileWeb,
         cwd: chat.connection.sourceProjectCwd ?? chat.connection.cwd,
         kind: chat.connection.workspaceKind,
         open: workspacePickerOpen,
@@ -1226,7 +1236,16 @@ function AppContent({
       ))}
     </div>
   )
+  const mobileComposerPlaceholder = mobileWeb
+    ? hasConversation
+      ? '继续对话…'
+      : chat.connection.workspaceKind === 'standalone' || !chat.connection.cwd
+        ? '给 Pi meme 发消息…'
+        : `在“${project}”中发消息…`
+    : undefined
   const composerProps: ComponentProps<typeof Composer> = {
+    mobile: mobileWeb,
+    placeholder: mobileComposerPlaceholder,
     compact: interaction?.method === 'questions',
     mode: chat.mode,
     onMode: chat.changeMode,
@@ -1384,6 +1403,7 @@ function AppContent({
       ) : null,
     model: (
       <ModelPickerPopover
+        mobile={mobileWeb}
         allowUltra
         {...{
           models: chat.models,
@@ -1394,7 +1414,7 @@ function AppContent({
           onSelectServiceTier: chat.selectServiceTier,
           disabled: chat.modelPickerDisabled,
           busy: chat.modelSaving,
-          active: active && chatVisible,
+          active: active && (mobileWeb || chatVisible),
           openModelsVersion,
           shortcutLabel: shortcuts.getShortcutLabel('openModelPicker'),
           onSelectModel: (model) => void chat.selectModel(model),
@@ -1431,8 +1451,8 @@ function AppContent({
             : '请在设置中配置可用模型。'}
         </p>
       )}
-      {chat.chat.running && liveChanges && <LiveTurnChanges changes={liveChanges} onView={viewChanges} />}
-      {turnChanges.error && (
+      {!mobileWeb && chat.chat.running && liveChanges && <LiveTurnChanges changes={liveChanges} onView={viewChanges} />}
+      {!mobileWeb && turnChanges.error && (
         <p role="status" className="px-3 pb-2 text-xs text-destructive">
           {turnChanges.error}
         </p>
@@ -1441,7 +1461,9 @@ function AppContent({
         data-testid="workspace-card"
         className={
           showWorkspaceSlot
-            ? 'relative mx-3 -mb-2 flex h-12 min-w-0 items-center justify-between gap-1 rounded-t-[14px] border border-border/80 bg-card/95 px-1.5 pb-2'
+            ? mobileWeb
+              ? 'relative mx-2.5 -mb-2 flex h-11 min-w-0 items-center justify-between gap-1 rounded-t-2xl border border-b-0 border-border/60 bg-secondary/50 px-2 pb-2'
+              : 'relative mx-3 -mb-2 flex h-12 min-w-0 items-center justify-between gap-1 rounded-t-[14px] border border-border/80 bg-card/95 px-1.5 pb-2'
             : 'hidden'
         }
       >
@@ -1461,7 +1483,7 @@ function AppContent({
               正在准备项目…
             </span>
           )}
-          {serviceUI && (
+          {!mobileWeb && serviceUI && (
             <LocationSelector
               services={serviceUI.services}
               serviceId={serviceUI.serviceId}
@@ -1471,7 +1493,8 @@ function AppContent({
             />
           )}
         </div>
-        {chat.isNewChat &&
+        {!mobileWeb &&
+          chat.isNewChat &&
           showWorkspaceSlot &&
           chat.connection.workspaceKind !== 'standalone' &&
           chat.connection.cwd && (
@@ -1640,6 +1663,7 @@ function AppContent({
   ]
   const conversation = (
     <WorkspaceContent
+      mobile={mobileWeb}
       hasConversation={hasConversation}
       connection={chat.connection}
       ready={ready}
@@ -1652,6 +1676,7 @@ function AppContent({
       composer={composer}
       conversation={
         <RetainedConversations
+          mobile={mobileWeb}
           hostId={hostId ?? hostAddress ?? 'local'}
           active={active && hasConversation}
           getCachedChat={chat.cachedChat}
@@ -1663,8 +1688,8 @@ function AppContent({
             onLoadOlder: chat.loadOlderMessages,
             historyLoading: chat.historyLoading,
             historyError: chat.historyError,
-            canEditMessages: !chat.inputDisabled && !chat.navigationBusy && !chat.editing,
-            canForkReplies: !chat.busy && !chat.navigationBusy && !chat.editing,
+            canEditMessages: !mobileWeb && !chat.inputDisabled && !chat.navigationBusy && !chat.editing,
+            canForkReplies: !mobileWeb && !chat.busy && !chat.navigationBusy && !chat.editing,
             onEditMessage: chat.editMessage,
             onForkReply: (timestamp) => void chat.forkReply(timestamp),
             onCopyError: chat.setError,
@@ -1684,13 +1709,17 @@ function AppContent({
             renderPlan: (document) => (
               <PlanCard
                 document={document}
-                onOpen={() => {
-                  setPlanRequest({
-                    id: document.id,
-                    revision: document.revision,
-                    sessionKey: chat.connection.sessionKey,
-                  })
-                }}
+                onOpen={
+                  mobileWeb
+                    ? undefined
+                    : () => {
+                        setPlanRequest({
+                          id: document.id,
+                          revision: document.revision,
+                          sessionKey: chat.connection.sessionKey,
+                        })
+                      }
+                }
               />
             ),
           }}
@@ -2247,9 +2276,123 @@ function AppContent({
     },
     active,
   )
+  const mobileDrawerModel = useMemo(
+    () =>
+      serviceUI?.sidebarModel ??
+      buildSidebarModel(chat.sessions ? [{ serviceId: hostId ?? 'local', snapshot: chat.sessions }] : [], {
+        groupMode: 'projects',
+        sortMode: 'recent',
+        collapsed: { pinned: false, projects: false, recents: false },
+        orders: {},
+      }),
+    [serviceUI?.sidebarModel, chat.sessions, hostId],
+  )
+  const mobileDisconnectedServices = useMemo(
+    () =>
+      new Set(
+        (serviceUI?.services ?? [])
+          .filter((service) => !service.local && service.status !== 'connected')
+          .map((service) => service.id),
+      ),
+    [serviceUI?.services],
+  )
+  const mobileSearchHistory = useMemo(
+    () =>
+      !serviceUI
+        ? (_serviceId: string, query: string, paths: string[]) => bridge.searchSessions(query, paths)
+        : undefined,
+    [serviceUI, bridge],
+  )
+  const appearanceMode = appearance.snapshot?.settings.appearance?.mode ?? 'system'
+
   if (!active) return null
 
-  const content = (
+  const mobileContent = mobileWeb ? (
+    <PluginRenderers registry={registry} props={pluginProps}>
+      <TooltipProvider delayDuration={200}>
+        <main
+          data-active-service={serviceUI?.serviceId ?? 'local'}
+          className="theme-app flex h-dvh w-dvw flex-col overflow-hidden bg-background text-foreground select-none"
+        >
+          <MobileChatShell
+            hasConversation={hasConversation}
+            isStandalone={chat.connection.workspaceKind === 'standalone' || !chat.connection.cwd}
+            projectName={project}
+            title={title}
+            connectionStatus={status}
+            connected={ready && !remoteOffline}
+            disconnectedBanner={
+              remoteOffline
+                ? '远程连接已断开，请恢复连接后继续'
+                : !ready && chat.connection.status === 'disconnected'
+                  ? '连接已断开，请检查网络后重试'
+                  : undefined
+            }
+            onRetryConnection={chat.retrySwitch ? () => void chat.retrySwitch?.() : () => void chat.refreshSnapshot()}
+            drawerModel={mobileDrawerModel}
+            activeServiceId={serviceUI?.serviceId ?? hostId ?? 'local'}
+            activeSessionId={chat.sessions?.activeSessionId}
+            activeSessionPath={chat.switchingToPath ?? chat.sessions?.activeSessionPath}
+            activeProjectCwd={chat.connection.sourceProjectCwd ?? chat.connection.cwd}
+            disconnectedServiceIds={mobileDisconnectedServices}
+            profile={userProfile.profile}
+            profileLoading={userProfile.showPlaceholder}
+            appearanceMode={appearanceMode}
+            onChangeAppearanceMode={(mode) => appearance.onOperation({ type: 'patch', patch: { mode } })}
+            onNewSession={() => {
+              if (!chatOpen) navigation.home()
+              void newSession()
+            }}
+            onSwitchSession={(serviceId, sessionPath) => {
+              if (!chatOpen) navigation.home()
+              if (serviceUI?.onSwitchServiceSession) void serviceUI.onSwitchServiceSession(serviceId, sessionPath)
+              else void switchSession(sessionPath)
+            }}
+            onSearch={serviceUI ? serviceUI.onSearch : () => setSessionSearchOpen(true)}
+          >
+            <div
+              className="contents"
+              onFocusCapture={() => {
+                setSideChatFocused(false)
+                registry.setComposerController(pluginComposer.adapter)
+              }}
+            >
+              {conversation}
+            </div>
+          </MobileChatShell>
+
+          <PluginConsentDialog consent={pluginConsent} />
+
+          {/* 扩展交互请求弹窗（如权限审批/确认框） */}
+          {interaction && interaction.method !== 'questions' && (
+            <ExtensionDialog
+              key={interaction.id}
+              {...{
+                request: interaction,
+                sourceName: interactionSourceName,
+                onRespond: chat.answerExtensionDialog,
+              }}
+            />
+          )}
+
+          {!serviceUI && (
+            <SessionSearchDialog
+              searchHistory={mobileSearchHistory}
+              open={sessionSearchOpen}
+              onOpenChange={setSessionSearchOpen}
+              entries={mobileDrawerModel.sessions}
+              onSelect={(entry) => {
+                setSessionSearchOpen(false)
+                void switchSession(entry.session.path)
+              }}
+            />
+          )}
+        </main>
+      </TooltipProvider>
+    </PluginRenderers>
+  ) : null
+
+  const content = mobileContent ?? (
     <PluginRenderers registry={registry} props={pluginProps}>
       <TooltipProvider delayDuration={200}>
         <main

@@ -84,7 +84,7 @@ chore(release): 发布 0.1.0
 
 聊天消息和输入区共用 [global.css](../packages/app-ui/src/global.css) 的 `.chat-content-column`，按聊天面板宽度居中，最大宽度为 `48rem`。Markdown 代码块根据围栏上的语言标记交给 Shiki 高亮，支持 `ts`、`js`、`c++`、`c#`、`shell` 等别名；未标记或不支持的语言保留原文。高亮随应用明暗模式切换；代码块默认展开，点击标题栏可折叠，折叠后仍可复制完整代码。代码正文比聊天正文字号小 `1px`，最大高度为 `320px`，超出后在块内滚动；长行和宽表格在各自容器内横向滚动。入口在 [markdown-components.tsx](../packages/chat/src/ui/content/markdown-components.tsx)、[code-block.tsx](../packages/chat/src/ui/content/code-block.tsx) 和 [use-highlighter.ts](../packages/ui/src/lib/use-highlighter.ts)。
 
-前端导航、Tab、面板和异步加载遵循 [UI 体验与动效](ui-experience.md)，复用切换参数、等待反馈和减少动态效果规则。
+前端导航、Tab、面板和异步加载遵循 [UI 体验与动效](ui-experience.md)，复用切换参数、等待反馈和减少动态效果规则。独立 Web 在窄视口下的移动端精简壳层与维护约束见 [移动端 Web](mobile-web.md)。
 
 ## 代码约定与验证入口
 

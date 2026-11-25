@@ -277,6 +277,9 @@ export function ServicesApp({
                     : new Error('未能准备图像创作，请检查连接或未保存的更改后重试')
               },
               sidebar,
+              sidebarModel: model,
+              onSwitchServiceSession: (id, sessionPath) =>
+                activate(id, (controller) => controller.switchSession(sessionPath)),
               remoteSettings,
               onController: captureController,
               onLocation: changeLocation,

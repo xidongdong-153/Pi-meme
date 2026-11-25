@@ -17,6 +17,7 @@ export type CompletionItem =
   | { kind: 'mcp'; service: McpService; action: 'mention' | 'settings' | 'unavailable' }
 
 export function useCommandCompletion({
+  mobile = false,
   composerStore,
   onPlanCommand,
   onGoalCommand,
@@ -65,6 +66,7 @@ export function useCommandCompletion({
   /** 为 false 时不列出压缩和命名。新会话还没有对话。 */
   sessionStarted?: boolean
   editing?: boolean
+  mobile?: boolean
 }) {
   const editor = React.useRef<HTMLDivElement>(null)
   const previousFocusVersion = React.useRef(focusVersion)
@@ -94,7 +96,7 @@ export function useCommandCompletion({
     !query.quoted &&
     ['电脑', 'computer', 'computer-use'].some((name) => name.startsWith(query.query.toLowerCase())),
   )
-  const fileCompletion = suggestionsOpen && query?.kind === 'file' && (projectFiles || computerMatch)
+  const fileCompletion = !mobile && suggestionsOpen && query?.kind === 'file' && (projectFiles || computerMatch)
   const fileQuery = query?.kind === 'file' ? query.query : undefined
   const [fileResult, setFileResult] = React.useState<{
     path?: string
@@ -129,7 +131,7 @@ export function useCommandCompletion({
       clearTimeout(timer)
     }
   }, [fileCompletion, projectPath, fileQuery, loadProjectFiles])
-  const catalogOpen = suggestionsOpen && query?.kind === 'command'
+  const catalogOpen = !mobile && suggestionsOpen && query?.kind === 'command'
   const loadMcp = mcp?.load
   const mcpKey = mcp?.sessionKey
   const [mcpResult, setMcpResult] = React.useState<{
@@ -159,7 +161,7 @@ export function useCommandCompletion({
   currentSelection.current = selectionContext
   const [checking, setChecking] = React.useState<{ context: typeof selectionContext; name: string }>()
   const skillCompletion = query?.kind === 'skill'
-  const commandCompletion = suggestionsOpen && Boolean(query && query.kind !== 'file')
+  const commandCompletion = !mobile && suggestionsOpen && Boolean(query && query.kind !== 'file')
   const matches = React.useMemo<CompletionItem[]>(() => {
     if (!suggestionsOpen || !query || query.kind === 'file') return []
     const prefix = query.query.toLowerCase()
@@ -448,7 +450,7 @@ export function useCommandCompletion({
       onAcceptHint?.()
       return
     }
-    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+    if (!mobile && event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault()
       event.currentTarget.closest('form')?.requestSubmit()
     }

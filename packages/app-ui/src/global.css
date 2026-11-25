@@ -562,3 +562,25 @@ body {
     transition: none;
   }
 }
+
+/* Mobile Web 精简模式作用域样式（仅独立 Web < 768px 挂载，不影响 Electron Desktop） */
+[data-mobile-web] {
+  overscroll-behavior: none;
+}
+
+[data-mobile-web] .chat-content-column {
+  width: 100%;
+  max-width: 100%;
+  padding-inline: 16px;
+}
+
+[data-mobile-web] [data-message-role='user'] > div > .opacity-0,
+[data-mobile-web] [data-message-role='assistant'] > div > .opacity-0 {
+  opacity: 0.72;
+}
+
+[data-mobile-web] pre,
+[data-mobile-web] table {
+  max-width: 100%;
+  overflow-x: auto;
+}

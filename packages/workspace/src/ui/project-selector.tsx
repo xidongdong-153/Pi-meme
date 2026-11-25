@@ -12,6 +12,7 @@ function projectPathLabel(cwd: string) {
 }
 
 export function ProjectSelector({
+  mobile = false,
   cwd,
   kind,
   open,
@@ -35,6 +36,7 @@ export function ProjectSelector({
   onError: (message: string) => void
   notice?: string
   returnFocus?: HTMLElement | null
+  mobile?: boolean
 }) {
   const [projects, setProjects] = useState<DesktopProject[]>([])
   const [query, setQuery] = useState('')
@@ -124,12 +126,12 @@ export function ProjectSelector({
   const isHeader = activeAnchor?.isHeader ?? false
 
   return (
-    <div className="flex min-w-0 max-w-[min(60%,260px)] shrink items-center">
+    <div className={cn('flex min-w-0 shrink items-center', mobile ? 'max-w-full flex-1' : 'max-w-[min(60%,260px)]')}>
       <Popover open={open} onOpenChange={(next) => void changeOpen(next)}>
         {activeAnchor && <PopoverAnchor virtualRef={virtualAnchorRef.current} />}
         <TooltipHint
           content={disabledReason || (standalone ? '文件保存在此会话的独立目录' : cwd)}
-          open={open ? false : undefined}
+          open={open || mobile ? false : undefined}
         >
           <span className="inline-flex min-w-0 max-w-full">
             <PopoverTrigger asChild>
@@ -137,7 +139,10 @@ export function ProjectSelector({
                 type="button"
                 aria-label="选择当前项目"
                 disabled={blocked}
-                className="flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2 text-xs text-foreground/85 transition-colors enabled:hover:bg-secondary/60 enabled:hover:text-foreground data-[state=open]:bg-secondary/60 data-[state=open]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset enabled:cursor-pointer disabled:opacity-50"
+                className={cn(
+                  'flex min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2 text-xs text-foreground/85 transition-colors enabled:hover:bg-secondary/60 enabled:hover:text-foreground data-[state=open]:bg-secondary/60 data-[state=open]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset enabled:cursor-pointer disabled:opacity-50',
+                  mobile ? 'h-8 font-medium' : 'h-7',
+                )}
               >
                 <Folder className="size-4 shrink-0" />
                 <span className="truncate">{name}</span>
@@ -149,12 +154,15 @@ export function ProjectSelector({
           ref={contentRef}
           aria-label="项目选择"
           side={isHeader ? 'bottom' : 'top'}
-          align={activeAnchor && !isHeader ? 'center' : 'start'}
-          className="flex flex-col w-64 max-w-[calc(100vw-24px)] p-1.5 rounded-2xl select-none"
+          align={mobile || (activeAnchor && !isHeader) ? 'center' : 'start'}
+          className={cn(
+            'flex flex-col max-w-[calc(100vw-24px)] p-1.5 rounded-2xl select-none',
+            mobile ? 'w-[min(calc(100vw-32px),340px)] shadow-xl' : 'w-64',
+          )}
           style={{ maxHeight: 'min(360px, var(--radix-popover-content-available-height))' }}
           onOpenAutoFocus={(event) => {
             event.preventDefault()
-            searchRef.current?.focus()
+            if (!mobile) searchRef.current?.focus()
             void readProjects()
           }}
           onCloseAutoFocus={(event) => {
@@ -199,7 +207,10 @@ export function ProjectSelector({
                 setQuery(event.target.value)
                 setActiveIndex(0)
               }}
-              className="h-7 border-0 bg-transparent px-1 text-xs shadow-none focus-visible:ring-0"
+              className={cn(
+                'border-0 bg-transparent px-1 shadow-none focus-visible:ring-0',
+                mobile ? 'h-9 text-base' : 'h-7 text-xs',
+              )}
             />
           </div>
           <div className="min-h-0 max-h-60 overflow-y-auto">
@@ -210,7 +221,7 @@ export function ProjectSelector({
                 </p>
               ) : (
                 filtered.map((project, index) => (
-                  <TooltipHint key={project.cwd} content={project.cwd}>
+                  <TooltipHint key={project.cwd} content={project.cwd} open={mobile ? false : undefined}>
                     <span className="flex w-full min-w-0">
                       <button
                         key={project.cwd}
@@ -222,7 +233,8 @@ export function ProjectSelector({
                         onClick={() => void choose(index)}
                         onMouseEnter={() => setActiveIndex(index)}
                         className={cn(
-                          'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-secondary/60 disabled:opacity-50 cursor-pointer',
+                          'flex w-full items-center gap-1.5 rounded-lg px-2 text-left transition-colors hover:bg-secondary/60 disabled:opacity-50 cursor-pointer',
+                          mobile ? 'min-h-[44px] py-2 text-sm' : 'py-1.5 text-xs',
                           activeIndex === index && 'bg-secondary/70 text-foreground font-medium',
                         )}
                       >
@@ -245,26 +257,29 @@ export function ProjectSelector({
             </div>
           </div>
           <div className="shrink-0 space-y-0.5 border-t border-border/40 pt-1">
-            <button
-              type="button"
-              data-project-index={filtered.length}
-              disabled={blocked}
-              onClick={() => void choose(filtered.length)}
-              className={cn(
-                'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs hover:bg-secondary/60 disabled:opacity-50 cursor-pointer transition-colors',
-                activeIndex === filtered.length && 'bg-secondary/70 text-foreground font-medium',
-              )}
-            >
-              <Plus className="size-3.5 shrink-0" />
-              新建项目
-            </button>
+            {!mobile && (
+              <button
+                type="button"
+                data-project-index={filtered.length}
+                disabled={blocked}
+                onClick={() => void choose(filtered.length)}
+                className={cn(
+                  'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs hover:bg-secondary/60 disabled:opacity-50 cursor-pointer transition-colors',
+                  activeIndex === filtered.length && 'bg-secondary/70 text-foreground font-medium',
+                )}
+              >
+                <Plus className="size-3.5 shrink-0" />
+                新建项目
+              </button>
+            )}
             <button
               type="button"
               data-project-index={filtered.length + 1}
               disabled={blocked}
               onClick={() => void choose(filtered.length + 1)}
               className={cn(
-                'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs hover:bg-secondary/60 disabled:opacity-50 cursor-pointer transition-colors',
+                'flex w-full items-center gap-1.5 rounded-lg px-2 hover:bg-secondary/60 disabled:opacity-50 cursor-pointer transition-colors',
+                mobile ? 'min-h-[44px] py-2 text-sm' : 'py-1.5 text-xs',
                 activeIndex === filtered.length + 1 && 'bg-secondary/70 text-foreground font-medium',
               )}
             >

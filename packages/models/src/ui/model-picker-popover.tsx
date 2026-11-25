@@ -87,6 +87,7 @@ function formatProviderName(provider?: string): string {
 }
 
 export type ModelPickerPopoverProps = {
+  mobile?: boolean
   models: PiModel[]
   currentModel?: PiModel
   thinkingLevel?: SessionThinkingLevel
@@ -114,6 +115,7 @@ type SliderGesture = {
 }
 
 export function ModelPickerPopover({
+  mobile = false,
   models,
   currentModel,
   thinkingLevel = 'medium',
@@ -383,7 +385,7 @@ export function ModelPickerPopover({
           closedByOutsidePointer.current = false
           setQuery('')
           setShowSearch(false)
-          setView('thinking')
+          setView(mobile && activeLevels.length <= 1 ? 'models' : 'thinking')
         }
         setOpen(nextOpen)
       }}
@@ -405,21 +407,27 @@ export function ModelPickerPopover({
             className={cn(
               'model-thinking-theme inline-flex min-w-0 max-w-full whitespace-nowrap items-center justify-center select-none cursor-pointer transition-colors rounded-full',
               'bg-secondary/60 hover:bg-secondary text-foreground/90 hover:text-foreground',
-              'size-7 p-0 @min-[500px]:h-7 @min-[500px]:w-auto @min-[500px]:px-2.5 @min-[500px]:text-xs @min-[500px]:font-normal @min-[500px]:gap-1.5',
+              mobile
+                ? 'h-9 w-auto gap-1.5 px-3 text-xs font-normal active:bg-secondary'
+                : 'size-7 p-0 @min-[500px]:h-7 @min-[500px]:w-auto @min-[500px]:px-2.5 @min-[500px]:text-xs @min-[500px]:font-normal @min-[500px]:gap-1.5',
               disabled && 'cursor-not-allowed opacity-60',
               open && 'bg-secondary text-foreground',
             )}
           >
-            {/* 窄视口或窄容器：仅显示大脑图标（参考 GPT） */}
-            <Brain className="model-thinking-accent size-4 shrink-0 @min-[500px]:hidden" />
+            {/* 窄视口或窄容器：仅显示大脑图标（桌面窄分栏）；移动端底栏已精简，直接展示模型名与思考强度 */}
+            {!mobile && <Brain className="model-thinking-accent size-4 shrink-0 @min-[500px]:hidden" />}
 
-            {/* 宽容器：稳定显示模型名称、思考强度与下拉箭头，结构稳定不突变 */}
-            <div className="hidden min-w-0 @min-[500px]:inline-flex items-center gap-1.5">
-              <div className="flex min-w-0 items-center gap-1 max-w-[160px]">
+            {/* 宽容器或移动端：稳定显示模型名称、思考强度与下拉箭头，结构稳定不突变 */}
+            <div
+              className={cn('min-w-0 items-center gap-1.5', mobile ? 'inline-flex' : 'hidden @min-[500px]:inline-flex')}
+            >
+              <div className={cn('flex min-w-0 items-center gap-1', mobile ? 'max-w-[165px]' : 'max-w-[160px]')}>
                 <span className="min-w-0 truncate">{displayName}</span>
-                <span className="model-thinking-accent min-w-[2em] text-center font-medium shrink-0 text-[0.6875rem]">
-                  {currentLevelLabel}
-                </span>
+                {activeLevels.length > 1 && (
+                  <span className="model-thinking-accent min-w-[2em] text-center font-medium shrink-0 text-[0.6875rem]">
+                    {currentLevelLabel}
+                  </span>
+                )}
                 {showFast && <span className="shrink-0 text-[0.6875rem] font-medium">Fast</span>}
               </div>
               <ChevronDown className="size-3 text-muted-foreground/80 shrink-0 ml-0.5" />
@@ -438,7 +446,10 @@ export function ModelPickerPopover({
         sideOffset={8}
         collisionPadding={12}
         avoidCollisions={true}
-        className="flex max-h-[min(24rem,calc(100vh-100px))] w-64 max-w-[calc(100vw-24px)] flex-col rounded-2xl border-border/80 bg-popover p-3 shadow-xl select-none"
+        className={cn(
+          'flex max-h-[min(24rem,calc(100dvh-100px))] max-w-[calc(100vw-24px)] flex-col rounded-2xl border-border/80 bg-popover p-3 shadow-xl select-none',
+          mobile ? 'w-[min(calc(100vw-24px),340px)]' : 'w-64',
+        )}
       >
         {view === 'thinking' ? (
           /* 图 1：思考强度配置面板 */
@@ -509,9 +520,12 @@ export function ModelPickerPopover({
                   type="button"
                   onClick={() => setView('models')}
                   aria-label="切换模型"
-                  className="group mt-1 inline-flex items-center gap-0.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm"
+                  className={cn(
+                    'group mt-1 inline-flex items-center gap-0.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md',
+                    mobile && 'px-2 py-1 active:bg-secondary/60',
+                  )}
                 >
-                  <span className="truncate max-w-[160px]">{displayName}</span>
+                  <span className={cn('truncate', mobile ? 'max-w-[200px]' : 'max-w-[160px]')}>{displayName}</span>
                   <ChevronRight className="size-3 shrink-0 text-muted-foreground/70 group-hover:text-foreground transition-colors" />
                 </button>
               </div>
@@ -553,7 +567,10 @@ export function ModelPickerPopover({
                   gestureRef.current = null
                   setDragRatio(null)
                 }}
-                className="relative flex items-center w-full py-1.5 cursor-pointer touch-none select-none outline-none focus-visible:ring-2 rounded-full"
+                className={cn(
+                  'relative flex items-center w-full cursor-pointer touch-none select-none outline-none focus-visible:ring-2 rounded-full',
+                  mobile ? 'py-2.5' : 'py-1.5',
+                )}
               >
                 {/* 轨道层：高 24px，圆球两侧各留 12px。 */}
                 <div className="relative h-6 w-full rounded-full bg-foreground/10 flex items-center">
@@ -678,8 +695,11 @@ export function ModelPickerPopover({
                   placeholder="搜索模型..."
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  className="h-7 rounded-md bg-secondary/30 pr-7 pl-7 text-xs focus-visible:ring-1 focus-visible:ring-ring"
-                  autoFocus
+                  className={cn(
+                    'rounded-md bg-secondary/30 pr-7 pl-7 focus-visible:ring-1 focus-visible:ring-ring',
+                    mobile ? 'h-9 text-base' : 'h-7 text-xs',
+                  )}
+                  autoFocus={!mobile}
                 />
                 {query && (
                   <button
@@ -723,7 +743,8 @@ export function ModelPickerPopover({
                           onSelectModel(model)
                         }}
                         className={cn(
-                          'flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-sm transition-colors cursor-pointer',
+                          'flex w-full items-center justify-between rounded-xl px-2.5 text-left text-sm transition-colors cursor-pointer',
+                          mobile ? 'min-h-[44px] py-2.5' : 'py-2',
                           isSelected
                             ? 'bg-secondary text-foreground font-medium'
                             : 'text-foreground/90 hover:bg-secondary/60 hover:text-foreground',

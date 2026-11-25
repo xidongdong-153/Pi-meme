@@ -8,6 +8,7 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import type { PiMessage } from '@pi-meme/contracts/pi'
 
 export function WorkspaceContent({
+  mobile = false,
   hasConversation,
   connection,
   ready,
@@ -46,6 +47,7 @@ export function WorkspaceContent({
   editor?: MessageEditorState
   notice: ReactNode
   children: ReactNode
+  mobile?: boolean
 }) {
   const contentRef = useRef<HTMLDivElement>(null)
   const welcomeRef = useRef<HTMLDivElement>(null)
@@ -164,6 +166,15 @@ export function WorkspaceContent({
                   </div>
                 )}
               </div>
+            ) : mobile ? (
+              <div className="flex flex-1 flex-col items-center justify-center px-6 py-8 min-h-0 overflow-y-auto">
+                <div ref={welcomeRef} className="w-full max-w-md text-center space-y-4">
+                  <BrandMark size={44} className="mx-auto" />
+                  <h1 className="text-xl font-semibold tracking-tight text-foreground">
+                    {isStandalone ? '今天想聊点什么？' : `在 ${projectName} 中开始`}
+                  </h1>
+                </div>
+              </div>
             ) : (
               <div className="flex flex-1 flex-col items-center justify-center p-6 min-h-0 overflow-y-auto">
                 <div ref={welcomeRef} className="w-full max-w-2xl text-center space-y-6">
@@ -215,10 +226,16 @@ export function WorkspaceContent({
         )}
       </div>
 
-      {/* 对话流底部的输入区 Dock */}
-      {hasConversation && (
-        <div className="chat-surface w-full pb-4 pt-1 shrink-0">
-          <div className="chat-content-column">{composer}</div>
+      {/* 对话流底部的输入区 Dock（移动端在首页也固定吸附底部，与对话态位置一致） */}
+      {(hasConversation || (mobile && ready)) && (
+        <div
+          className={
+            mobile
+              ? 'chat-surface w-full shrink-0 px-3 pt-1 pb-[max(0.75rem,env(safe-area-inset-bottom))]'
+              : 'chat-surface w-full pb-4 pt-1 shrink-0'
+          }
+        >
+          <div className={mobile ? 'w-full' : 'chat-content-column'}>{composer}</div>
         </div>
       )}
 
