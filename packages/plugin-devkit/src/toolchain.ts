@@ -94,10 +94,7 @@ async function prepareToolchain() {
           // 工具链只使用 TypeScript，排除 Flow 声明以容纳更大的 Windows esbuild 二进制。
           if (name === 'csstype' && file.endsWith('.js.flow')) return false
           if (name === 'typescript')
-            return (
-              !path.extname(file) ||
-              /(?:package\.json|typescript\.js|lib\.[\w.]+\.d\.ts|LICENSE\.txt|NOTICE\.txt)$/.test(file)
-            )
+            return !path.extname(file) || /(?:package\.json|lib\.[\w.]+\.d\.ts|LICENSE\.txt|NOTICE\.txt)$/.test(file)
           if (
             ['@earendil-works/pi-ai', '@earendil-works/pi-coding-agent', '@earendil-works/pi-agent-core'].includes(name)
           )
@@ -106,6 +103,14 @@ async function prepareToolchain() {
         },
       })
     }
+    // 压紧随包编译器的空白，保留标识符和内联许可，为 Windows esbuild 留出快照空间。
+    await build({
+      entryPoints: [path.join(repo, 'node_modules/typescript/lib/typescript.js')],
+      outfile: path.join(modules, 'typescript/lib/typescript.js'),
+      platform: 'node',
+      minifyWhitespace: true,
+      legalComments: 'inline',
+    })
     await writeSdk(repo, staging)
     await cp(path.join(repo, 'LICENSE'), path.join(staging, 'LICENSE'))
     await mkdir(path.join(staging, 'notices'), { recursive: true })
