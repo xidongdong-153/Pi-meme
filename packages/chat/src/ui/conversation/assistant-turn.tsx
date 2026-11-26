@@ -122,13 +122,24 @@ function AssistantTurnContent({
         turn.collaboration,
         hideAgentOperations,
         turn.agentStatuses,
+        turn.finalTextId,
       ),
     )
     if (!progress) return base
-    const index = base.findIndex((item) => item.type === 'text' && item.finalReply)
+    // 运行中保持任务进度固定在轮次底部，避免“边说边调工具”时跨段移位与动画重启；结案后再落位到最终回复前。
+    const index = turn.isLive ? -1 : base.findIndex((item) => item.type === 'text' && item.finalReply)
     const insertion = index < 0 ? base.length : index
     return [...base.slice(0, insertion), { type: 'task_progress' as const, progress }, ...base.slice(insertion)]
-  }, [turn.activities, turn.finalText, turn.collaboration, hideAgentOperations, turn.agentStatuses, progress])
+  }, [
+    turn.activities,
+    turn.finalText,
+    turn.finalTextId,
+    turn.collaboration,
+    hideAgentOperations,
+    turn.agentStatuses,
+    turn.isLive,
+    progress,
+  ])
   const visualizationKeys = React.useMemo(
     () =>
       new Set(
@@ -245,7 +256,7 @@ function AssistantTurnContent({
                         segment.type === 'question' ||
                         segment.type === 'image_activity'
                       ? `${segment.type}-${segment.item.id}`
-                      : `text-${index}`
+                      : (segment.id ?? `text-${index}`)
             return (
               <RetainedDisclosure
                 open={open}

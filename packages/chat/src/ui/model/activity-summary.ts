@@ -2,24 +2,24 @@ import type { ActivityItem, RenderSegment } from './types'
 import { parseComputerTool, parseToolMeta, type ToolKind } from './tool-details'
 import { getThinkingLabel } from './thinking-labels'
 
-export function groupAdjacentActivities(items: ActivityItem[], finalText = ''): RenderSegment[] {
+export function groupAdjacentActivities(items: ActivityItem[], finalText = '', finalTextId?: string): RenderSegment[] {
   const groups: RenderSegment[] = []
-  const appendText = (text: string) => {
+  const appendText = (text: string, id?: string) => {
     if (!text.trim()) return
     const previous = groups.at(-1)
     if (previous?.type === 'text') previous.text += `\n\n${text}`
-    else groups.push({ type: 'text', text })
+    else groups.push({ type: 'text', ...(id ? { id } : {}), text })
   }
   for (const item of items) {
     if (item.type === 'narration') {
-      appendText(item.text)
+      appendText(item.text, item.id)
       continue
     }
     const previous = groups.at(-1)
     if (previous?.type === 'activity') previous.items.push(item)
     else groups.push({ type: 'activity', items: [item] })
   }
-  appendText(finalText)
+  appendText(finalText, finalTextId)
   return groups
 }
 

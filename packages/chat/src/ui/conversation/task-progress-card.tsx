@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { memo, useEffect, useId, useState } from 'react'
 import { AlertCircle, Check, CheckCircle2, ChevronDown, CirclePause } from 'lucide-react'
 import type { TaskProgress, TaskStep, TaskStepStatus } from '@pi-meme/contracts/task-progress'
 import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
@@ -107,7 +107,7 @@ function StepIndicator({ step, activeWorking }: { step: TaskStep; activeWorking:
   )
 }
 
-export function TaskProgressCard({
+function TaskProgressCardContent({
   progress,
   live,
   paused,
@@ -352,3 +352,5 @@ export function TaskProgressCard({
     </section>
   )
 }
+
+export const TaskProgressCard = memo(TaskProgressCardContent)

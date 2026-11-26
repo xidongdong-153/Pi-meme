@@ -77,7 +77,7 @@ function ActivityGroupContent({
       {segments.map((segment, index) =>
         segment.type === 'text' ? (
           <MarkdownContent
-            key={index}
+            key={segment.id ?? index}
             isStreaming={isLive && index === segments.length - 1}
             imagePresentation="activity"
           >

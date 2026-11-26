@@ -380,6 +380,7 @@ export function groupAgentActivities(
   collaboration: AgentCollaborationStatus[] = [],
   hideAgentOperations = false,
   agentStatuses: AgentStatusEvent[] = [],
+  finalTextId?: string,
 ): AgentActivitySegment[] {
   const shown = (item: ActivityItem): ActivityItem | undefined => {
     if (hideAgentOperations && isAgentOperation(item)) return undefined
@@ -449,7 +450,8 @@ export function groupAgentActivities(
   // 最终回复保持完整 Markdown：消息之间也可能延续代码块、列表或引用。
   // 正文内部发生的事件保留原时间与锚点，但统一在完整正文之后呈现。
   for (const item of textStatuses) if (item.afterFinalTextLength! <= 0) groups.push({ type: 'agent_status', item })
-  if (finalText.trim()) groups.push({ type: 'text', text: finalText, finalReply: true })
+  if (finalText.trim())
+    groups.push({ type: 'text', ...(finalTextId ? { id: finalTextId } : {}), text: finalText, finalReply: true })
   for (const item of textStatuses) if (item.afterFinalTextLength! > 0) groups.push({ type: 'agent_status', item })
   return groups
 }

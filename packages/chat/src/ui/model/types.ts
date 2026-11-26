@@ -110,7 +110,7 @@ export type ActivityItem =
 export type ActionItemData = ActivityItem
 
 export type RenderSegment =
-  { type: 'text'; text: string; finalReply?: true } | { type: 'activity'; items: ActivityItem[] }
+  { type: 'text'; id?: string; text: string; finalReply?: true } | { type: 'activity'; items: ActivityItem[] }
 
 export type AgentCollaborationStatus = {
   id: string
@@ -156,6 +156,7 @@ export type TurnChunk =
       collaboration?: AgentCollaborationStatus[]
       agentStatuses?: AgentStatusEvent[]
       finalText: string
+      finalTextId?: string
       sourceMessages?: PiMessage[]
       finalReplyMessages?: PiMessage[]
       images: Array<PiImage & { id?: string }>

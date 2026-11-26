@@ -5,7 +5,7 @@ import type { ActivityItem, AgentStatusEvent, ChatState, TurnChunk } from './typ
 
 type RawTurnItem =
   | { kind: 'activity'; item: ActivityItem }
-  | { kind: 'text'; text: string; message?: PiMessage }
+  | { kind: 'text'; id: string; text: string; message?: PiMessage }
   | { kind: 'agent_status'; item: AgentStatusEvent }
 type GroupBoundary = { last: boolean; timestamp?: number; assigned: ReadonlySet<string> }
 const emptyCompleted: Record<number, boolean> = {}
@@ -86,6 +86,7 @@ export function groupConversationTurns(
 
     const activities: ActivityItem[] = []
     const finalTextParts: string[] = []
+    let finalTextId: string | undefined
     const inlineStatuses: AgentStatusEvent[] = []
     const textBoundaries = new Map<AgentStatusEvent, number>()
     let finalTextLength = 0
@@ -100,8 +101,9 @@ export function groupConversationTurns(
         else if (activities.length) status.afterActivityId = activities.at(-1)!.id
         inlineStatuses.push(status)
       } else if (i <= lastWorkIdx) {
-        if (item.text.trim()) activities.push({ id: `narration-${i}`, type: 'narration', text: item.text.trim() })
+        if (item.text.trim()) activities.push({ id: item.id, type: 'narration', text: item.text.trim() })
       } else if (item.text) {
+        if (!finalTextId && item.text.trim()) finalTextId = item.id
         if (finalTextParts.length) finalTextLength += 2
         finalTextParts.push(item.text)
         finalTextLength += item.text.length
@@ -152,6 +154,7 @@ export function groupConversationTurns(
         activities,
         ...(inlineStatuses.length ? { agentStatuses: inlineStatuses } : {}),
         finalText,
+        ...(finalTextId ? { finalTextId } : {}),
         sourceMessages,
         finalReplyMessages,
         images: turnImages,
@@ -273,6 +276,7 @@ export function groupConversationTurns(
     }
 
     if (msg.role === 'assistant') {
+      const assistantIndex = sourceMessages.length - 1
       if (Array.isArray(msg.content)) {
         for (let pIdx = 0; pIdx < msg.content.length; pIdx++) {
           const part = msg.content[pIdx]!
@@ -310,13 +314,23 @@ export function groupConversationTurns(
             }
           } else if (part.type === 'text') {
             if (part.text) {
-              turnItems.push({ kind: 'text', text: part.text, message: msg })
+              turnItems.push({
+                kind: 'text',
+                id: `text-${msg.timestamp ?? 'm'}-${assistantIndex}-${pIdx}`,
+                text: part.text,
+                message: msg,
+              })
             }
           }
         }
       } else if (typeof msg.content === 'string') {
         if (msg.content) {
-          turnItems.push({ kind: 'text', text: msg.content, message: msg })
+          turnItems.push({
+            kind: 'text',
+            id: `text-${msg.timestamp ?? 'm'}-${assistantIndex}-0`,
+            text: msg.content,
+            message: msg,
+          })
         }
       }
     }

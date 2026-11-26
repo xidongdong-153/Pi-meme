@@ -32,7 +32,26 @@ export function useConversationScroll(
   const restoreLoading = React.useRef<object | undefined>(undefined)
   const [, retryRestore] = React.useReducer((value: number) => value + 1, 0)
   const previousTop = React.useRef(0)
+  const previousScrollHeight = React.useRef(0)
+  const previousClientHeight = React.useRef(0)
   const upwardIntent = React.useRef(false)
+  const syncDimensions = React.useCallback((container: HTMLDivElement) => {
+    previousScrollHeight.current = container.scrollHeight
+    previousClientHeight.current = container.clientHeight
+  }, [])
+  const pinToBottomIfFollowing = React.useCallback(
+    (container: HTMLDivElement) => {
+      if (!followBottomRef.current || pendingRestore.current) return false
+      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
+      if (Math.abs(maxScrollTop - container.scrollTop) > 0.5) {
+        container.scrollTop = maxScrollTop
+      }
+      previousTop.current = container.scrollTop
+      syncDimensions(container)
+      return true
+    },
+    [syncDimensions],
+  )
   const cancelRestore = React.useCallback(() => {
     cancelAnimationFrame(historyFrame.current)
     cancelAnimationFrame(restoreFrame.current)
@@ -84,7 +103,22 @@ export function useConversationScroll(
   }, [captureAnchor, restoreAnchor])
 
   React.useLayoutEffect(() => {
-    restoreAnchor()
+    const container = containerRef.current
+    if (
+      !container ||
+      pendingRestore.current ||
+      activeSession.current !== sessionKey ||
+      previousResetVersion.current !== scrollResetVersion
+    )
+      return
+    const resized =
+      container.scrollHeight !== previousScrollHeight.current || container.clientHeight !== previousClientHeight.current
+    if (followBottomRef.current) {
+      if (resized) pinToBottomIfFollowing(container)
+    } else {
+      restoreAnchor()
+      syncDimensions(container)
+    }
   })
 
   React.useLayoutEffect(() => cancelRestore, [sessionKey, cancelRestore])
@@ -192,13 +226,16 @@ export function useConversationScroll(
     const distanceToBottom = Math.max(0, container.scrollHeight - container.clientHeight - container.scrollTop)
     if (!pendingRestore.current && !historyRequest.current) {
       if (movingUp && upwardIntent.current && distanceToBottom > BOTTOM_THRESHOLD) followBottomRef.current = false
-      else if (distanceToBottom <= 1 || (!upwardIntent.current && distanceToBottom <= BOTTOM_THRESHOLD))
+      else if (distanceToBottom <= 1 || (!upwardIntent.current && distanceToBottom <= BOTTOM_THRESHOLD)) {
         followBottomRef.current = true
+        anchor.current = undefined
+      }
     }
-    if (anchor.current) captureAnchor()
+    if (!followBottomRef.current && anchor.current) captureAnchor()
+    syncDimensions(container)
     updateScrollState()
     if (movingUp && upwardIntent.current && container.scrollTop <= 120) void loadHistory()
-  }, [captureAnchor, loadHistory, updateScrollState])
+  }, [captureAnchor, loadHistory, syncDimensions, updateScrollState])
 
   // 首次挂载恢复刷新前的阅读位置；切换会话时回到底部，临时隐藏同一会话时保留位置。
   React.useLayoutEffect(() => {
@@ -238,6 +275,7 @@ export function useConversationScroll(
       followBottomRef.current = true
       el.scrollTop = el.scrollHeight
       previousTop.current = el.scrollTop
+      syncDimensions(el)
       setShowScrollTop(el.scrollTop > 1)
       setShowScrollBottom(false)
       return
@@ -247,6 +285,7 @@ export function useConversationScroll(
     // 可见轮次和滚动位置都在同一次渲染中恢复，下一帧再校准一次，避免布局未完成时被 clamp。
     el.scrollTop = saved.top
     previousTop.current = el.scrollTop
+    syncDimensions(el)
     setShowScrollTop(el.scrollTop > 1)
     const frame = requestAnimationFrame(() => {
       const target = containerRef.current
@@ -261,11 +300,12 @@ export function useConversationScroll(
           ? target.scrollTop + turn.getBoundingClientRect().top - target.getBoundingClientRect().top - saved.offset
           : saved.top
       previousTop.current = target.scrollTop
+      syncDimensions(target)
       updateScrollState()
     })
     restoreFrame.current = frame
     return () => cancelAnimationFrame(frame)
-  }, [sessionKey, scrollResetVersion, cancelRestore, updateScrollState])
+  }, [sessionKey, scrollResetVersion, cancelRestore, syncDimensions, updateScrollState])
 
   React.useLayoutEffect(() => {
     const saved = pendingRestore.current
@@ -285,6 +325,7 @@ export function useConversationScroll(
             saved.offset
           : saved.top
       previousTop.current = container.scrollTop
+      syncDimensions(container)
       captureAnchor()
       updateScrollState()
     } else if (!history.loading) {
@@ -320,9 +361,10 @@ export function useConversationScroll(
       followBottomRef.current = true
       container.scrollTo({ top: container.scrollHeight, behavior })
       previousTop.current = container.scrollTop
+      syncDimensions(container)
       updateScrollState()
     },
-    [cancelRestore, updateScrollState],
+    [cancelRestore, syncDimensions, updateScrollState],
   )
 
   // 只有本窗口的真实发送请求触发回底；历史补读和其他窗口的新消息保留阅读位置。
@@ -332,20 +374,23 @@ export function useConversationScroll(
     if (scrollToBottomVersion) followLatest('instant')
   }, [scrollToBottomVersion, followLatest])
 
-  // 监听容器及内部尺寸变化（如流式新增、折叠展开）：若处于吸底状态则跟进吸底，并实时更新箭头可见性
+  // 监听容器及内部尺寸变化（如流式新增、折叠展开）：在 Paint 前同步吸底或恢复锚点，仅异步合并状态更新
   React.useEffect(() => {
     const container = containerRef.current
     if (!container || typeof ResizeObserver === 'undefined') return
     let frame = 0
     const onResize = () => {
+      const target = containerRef.current
+      if (!target || pendingRestore.current) return
+      if (followBottomRef.current) {
+        pinToBottomIfFollowing(target)
+      } else {
+        restoreAnchor()
+        syncDimensions(target)
+      }
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
-        const target = containerRef.current
-        if (!target) return
-        if (followBottomRef.current) {
-          target.scrollTop = target.scrollHeight
-          previousTop.current = target.scrollTop
-        } else restoreAnchor()
+        if (!containerRef.current) return
         updateScrollState()
       })
     }
@@ -356,7 +401,7 @@ export function useConversationScroll(
       observer.disconnect()
       cancelAnimationFrame(frame)
     }
-  }, [restoreAnchor, updateScrollState])
+  }, [pinToBottomIfFollowing, restoreAnchor, syncDimensions, updateScrollState])
 
   // 手动点击回到底部
   const scrollToBottom = React.useCallback(() => {

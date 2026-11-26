@@ -419,14 +419,19 @@ export const Conversation = React.memo(
       const container = containerRef.current
       if (!container) return
       const messages = container.querySelectorAll<HTMLElement>('[data-conversation-user]')
+      if (!messages.length) {
+        setActiveKey(undefined)
+        return
+      }
+      if (container.scrollHeight - container.scrollTop - container.clientHeight <= 2) {
+        setActiveKey(messages[messages.length - 1]?.dataset.conversationUser)
+        return
+      }
       const boundary = container.getBoundingClientRect().top + 80
       let current = messages[0]
       for (const message of messages) {
         if (message.getBoundingClientRect().top > boundary) break
         current = message
-      }
-      if (container.scrollHeight - container.scrollTop - container.clientHeight <= 2) {
-        current = messages[messages.length - 1]
       }
       setActiveKey(current?.dataset.conversationUser)
     }, [containerRef])
@@ -465,8 +470,8 @@ export const Conversation = React.memo(
             data-overflow-top={showScrollTop}
             className={
               mobile
-                ? 'scroll-fade flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-y-contain py-3 text-sm select-text'
-                : 'scroll-fade flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto py-6 text-sm select-text [scrollbar-gutter:stable_both-edges]'
+                ? 'scroll-fade flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-y-contain py-3 text-sm select-text [overflow-anchor:none]'
+                : 'scroll-fade flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto py-6 text-sm select-text [overflow-anchor:none] [scrollbar-gutter:stable_both-edges]'
             }
             aria-label="对话消息流"
             tabIndex={0}
