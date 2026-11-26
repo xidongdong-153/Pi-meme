@@ -1,4 +1,3 @@
-import { OverflowTooltip } from '@pi-meme/ui/components/ui/tooltip'
 import * as React from 'react'
 import type { PiPauseInterval } from '@pi-meme/contracts/pi'
 import { activeDuration } from '../model/active-duration'
@@ -167,14 +166,12 @@ function ActivityDisclosureContent({
           >
             <IconComponent className="size-[1.15em]" />
           </span>
-          <OverflowTooltip content={meta.summary}>
-            <span
-              role={waitingForInput ? 'status' : undefined}
-              className={cn('min-w-0 truncate', isWorking && 'thought-shimmer')}
-            >
-              {meta.summary}
-            </span>
-          </OverflowTooltip>
+          <span
+            role={waitingForInput ? 'status' : undefined}
+            className={cn('min-w-0 truncate', isWorking && 'thought-shimmer')}
+          >
+            {meta.summary}
+          </span>
           {!open && timedItem && timedItem.type !== 'narration' && isCommandExecution(timedItem) && (
             <ActivityDuration
               startedAt={timedItem.startedAt}
