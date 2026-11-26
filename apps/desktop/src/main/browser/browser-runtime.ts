@@ -16,15 +16,18 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type {
   BrowserAnnotation,
+  BrowserAnnotationMode,
   BrowserCommand,
   BrowserDownload,
   BrowserEvent,
   BrowserOverlayAction,
+  BrowserOverlayAnnotationItem,
   BrowserOverlayState,
   BrowserPermission,
   BrowserRect,
   BrowserSnapshot,
   BrowserTab,
+  BrowserViewMode,
   BrowserWorkspace,
   BrowserWorkspaceMetadata,
 } from '@pi-meme/contracts/browser'
@@ -45,6 +48,9 @@ type Tab = {
   view: WebContentsView
   bounds?: BrowserRect
   enabled: boolean
+  mode: BrowserAnnotationMode
+  viewMode: BrowserViewMode
+  original: boolean
   theme: 'dark' | 'light'
   colors?: ThemeColors
   annotations: BrowserAnnotation[]
@@ -52,10 +58,14 @@ type Tab = {
   editor?: BrowserAnnotation
   editorPosition?: BrowserRect
   editorOriginal?: BrowserAnnotation
+  editorScreenshotInitial?: BrowserSnapshot['settings']['screenshots']
+  editorError?: string
   editorHeight?: number
   expanded: boolean
   hidden: boolean
   toolbarOffset: { x: number; y: number }
+  toolbarWidth?: number
+  toolbarHeight?: number
   toolbarMenuOpen: boolean
   screenshot: BrowserSnapshot['settings']['screenshots']
   find?: { requestId: number; text: string }
@@ -116,20 +126,58 @@ export function registerBrowserRuntime(options: {
         ? [{ ...annotation, markerNumber: index + 1 }]
         : [],
     )
+  const overlayItems = (tab: Tab): BrowserOverlayAnnotationItem[] =>
+    tab.annotations.map((annotation, index) => ({
+      id: annotation.id,
+      markerNumber: index + 1,
+      tabId: annotation.tabId,
+      documentId: annotation.documentId,
+      url: annotation.url,
+      title: annotation.title,
+      kind: annotation.kind,
+      tag: annotation.tag,
+      comment: annotation.comment,
+      rect: annotation.rect,
+      isCurrentPage: annotation.tabId === tab.state.id && annotation.documentId === tab.state.documentId,
+      hasImage: Boolean(annotation.image),
+    }))
+  const editorMarkerNumber = (tab: Tab) => {
+    if (!tab.editor) return undefined
+    if (tab.editorOriginal) {
+      const index = tab.annotations.findIndex((item) => item.id === tab.editorOriginal?.id)
+      return index >= 0 ? index + 1 : tab.annotations.length + 1
+    }
+    return tab.annotations.length + 1
+  }
+  const hasUnsavedEditorChanges = (tab: Tab) => {
+    if (!tab.editorVisible || !tab.editor) return false
+    if (!tab.editorOriginal) return tab.editor.comment.trim().length > 0
+    return (
+      tab.editor.comment !== tab.editorOriginal.comment ||
+      (tab.editorScreenshotInitial !== undefined && tab.screenshot !== tab.editorScreenshotInitial)
+    )
+  }
   const overlayState = (item: Overlay): BrowserOverlayState => ({
     kind: item.kind,
     tabId: item.tab.state.id,
     owner: item.tab.state.owner,
     annotation: item.tab.editor ? { ...item.tab.editor, image: undefined } : undefined,
+    markerNumber: editorMarkerNumber(item.tab),
+    items: overlayItems(item.tab),
+    mode: item.tab.mode,
+    viewMode: item.tab.viewMode,
     screenshot: item.tab.screenshot,
     count: item.tab.annotations.length,
     enabled: item.tab.enabled,
     hidden: item.tab.hidden,
+    original: item.tab.original,
     editing: !!item.tab.editorOriginal,
     expanded: item.tab.expanded,
     toolbarOffset: item.tab.toolbarOffset,
+    viewportWidth: item.tab.bounds?.width,
     theme: item.tab.theme,
     colors: item.tab.colors,
+    error: item.kind === 'editor' ? item.tab.editorError : undefined,
   })
   const positionOverlays = (tab: Tab) => {
     const bounds = tab.bounds
@@ -137,16 +185,19 @@ export function registerBrowserRuntime(options: {
     for (const item of overlays)
       if (item.tab === tab) {
         if (item.kind === 'toolbar') {
-          const width = Math.min(392, bounds.width)
-          const height = tab.toolbarMenuOpen ? 210 : 52
+          const maxWidth = Math.max(180, bounds.width - 12)
+          const width = Math.min(Math.max(220, tab.toolbarWidth ?? 580), maxWidth)
+          const fallbackHeight = tab.toolbarMenuOpen ? 280 : 48
+          const height = Math.min(Math.max(44, tab.toolbarHeight ?? fallbackHeight), Math.max(44, bounds.height - 16))
           const originX = Math.round((bounds.width - width) / 2)
-          const x = Math.max(0, Math.min(bounds.width - width, originX + tab.toolbarOffset.x))
-          const y = Math.max(0, Math.min(bounds.height - height, bounds.height - height - 8 + tab.toolbarOffset.y))
+          const x = Math.max(6, Math.min(bounds.width - width - 6, originX + tab.toolbarOffset.x))
+          const bottomAnchor = bounds.height - 10 + tab.toolbarOffset.y
+          const y = Math.max(8, Math.min(bounds.height - height - 8, bottomAnchor - height))
           item.view.setBounds({
             x: bounds.x + Math.round(x),
             y: bounds.y + Math.round(y),
-            width,
-            height,
+            width: Math.round(width),
+            height: Math.round(height),
           })
         } else {
           const sourceBox = tab.editorPosition ?? tab.editor?.rect
@@ -160,18 +211,21 @@ export function registerBrowserRuntime(options: {
               }
             : undefined
           if (!box) continue
-          const width = Math.min(tab.expanded ? 356 : 336, bounds.width)
-          const height = Math.min(
-            tab.expanded ? Math.max(356, tab.editorHeight ?? 64) : (tab.editorHeight ?? 64),
-            bounds.height,
-          )
-          const top = box.y + box.height + 8
-          const y = top + height <= bounds.height - 60 ? top : Math.max(0, box.y - height - 8)
+          const width = Math.min(tab.expanded ? 372 : 356, Math.max(240, bounds.width - 16))
+          const height = Math.min(Math.max(112, tab.editorHeight ?? 148), Math.max(112, bounds.height - 76))
+          const below = box.y + box.height + 10
+          const above = box.y - height - 10
+          const y =
+            below + height <= bounds.height - 64
+              ? below
+              : above >= 8
+                ? above
+                : Math.max(8, Math.min(bounds.height - height - 64, below))
           item.view.setBounds({
-            x: bounds.x + Math.round(Math.max(0, Math.min(box.x, bounds.width - width))),
-            y: bounds.y + Math.round(Math.min(y, bounds.height - height)),
-            width,
-            height,
+            x: bounds.x + Math.round(Math.max(8, Math.min(box.x, bounds.width - width - 8))),
+            y: bounds.y + Math.round(Math.max(8, Math.min(y, bounds.height - height - 8))),
+            width: Math.round(width),
+            height: Math.round(height),
           })
         }
         item.view.webContents.send('browser:overlay-update', overlayState(item))
@@ -183,6 +237,7 @@ export function registerBrowserRuntime(options: {
     const found = [...overlays].find((item) => item.kind === kind && item.tab === tab)
     if (found) {
       positionOverlays(tab)
+      if (kind === 'editor') found.view.webContents.focus()
       return
     }
     closeOverlays(kind)
@@ -246,13 +301,31 @@ export function registerBrowserRuntime(options: {
       picker(tab, { original: false })
     }
   }
-  const setEnabled = async (tab: Tab, enabled: boolean, region = false) => {
+  const setEnabled = async (tab: Tab, enabled: boolean, region?: boolean) => {
     tab.enabled = enabled
-    picker(tab, { enabled, region, hidden: tab.hidden, editing: enabled && tab.editorVisible, reset: !enabled })
-    emit({ type: 'annotation-mode', tabId: tab.state.id, enabled })
+    if (region !== undefined) tab.mode = region ? 'region' : 'element'
+    if (!enabled) {
+      tab.original = false
+      tab.editorVisible = false
+      tab.editorError = undefined
+      tab.toolbarMenuOpen = false
+    }
+    picker(tab, {
+      enabled,
+      region: tab.mode === 'region',
+      hidden: tab.hidden,
+      original: tab.original,
+      editing: enabled && tab.editorVisible,
+      nextNumber: tab.annotations.length + 1,
+      annotations: visibleMarkers(tab),
+      colors: tab.colors,
+      reset: !enabled,
+    })
+    emit({ type: 'annotation-mode', tabId: tab.state.id, enabled, mode: tab.mode })
     if (enabled) {
       await showOverlay(tab, 'toolbar')
       if (tab.editor && tab.editorVisible) await showOverlay(tab, 'editor')
+      positionOverlays(tab)
     } else closeOverlays()
   }
   const command = async (tab: Tab, value: BrowserCommand) => {
@@ -305,16 +378,22 @@ export function registerBrowserRuntime(options: {
         }
         break
       case 'annotate':
-        await setEnabled(tab, value.enabled, Boolean(value.region))
+        await setEnabled(tab, value.enabled, value.region)
+        break
+      case 'view-mode':
+        if (tab.viewMode !== value.mode) {
+          tab.viewMode = value.mode
+          positionOverlays(tab)
+        }
         break
       case 'markers':
         if (!Array.isArray(value.annotations)) throw new Error('批注标记无效')
         tab.annotations = value.annotations.filter(validAnnotation)
-        picker(tab, { annotations: visibleMarkers(tab) })
+        picker(tab, { annotations: visibleMarkers(tab), nextNumber: tab.annotations.length + 1 })
         positionOverlays(tab)
         break
       case 'annotation-state':
-        emit({ type: 'annotation-mode', tabId: tab.state.id, enabled: tab.enabled })
+        emit({ type: 'annotation-mode', tabId: tab.state.id, enabled: tab.enabled, mode: tab.mode })
         break
       case 'restore-editor':
         if (!validAnnotation(value.annotation) || value.annotation.tabId !== tab.state.id)
@@ -322,9 +401,11 @@ export function registerBrowserRuntime(options: {
         tab.editor = value.annotation
         tab.editorPosition = value.annotation.rect
         tab.editorOriginal = tab.annotations.find((item) => item.id === value.annotation.id)
+        tab.editorScreenshotInitial = tab.screenshot
+        tab.editorError = undefined
         tab.editorHeight = undefined
         tab.editorVisible = true
-        picker(tab, { highlightId: tab.editorOriginal?.id ?? null })
+        picker(tab, { highlightId: tab.editorOriginal?.id ?? null, editing: true })
         await setEnabled(tab, true)
         await showOverlay(tab, 'editor')
         break
@@ -351,11 +432,12 @@ export function registerBrowserRuntime(options: {
         }
         const captured = await capture(tab, 'viewport', annotation)
         const workspace = await options.rpc<BrowserWorkspace>('browser:workspace', [tab.state.owner])
-        await options.rpc('browser:save-workspace', [
-          tab.state.owner,
-          { ...workspace, annotations: [...workspace.annotations, captured] },
-        ])
+        const annotations = [...workspace.annotations, captured]
+        await options.rpc('browser:save-workspace', [tab.state.owner, { ...workspace, annotations }])
+        tab.annotations = annotations
+        picker(tab, { annotations: visibleMarkers(tab), nextNumber: tab.annotations.length + 1 })
         emit({ type: 'annotation', owner: tab.state.owner, annotation: captured })
+        positionOverlays(tab)
         break
       }
     }
@@ -405,6 +487,9 @@ export function registerBrowserRuntime(options: {
         canGoForward: false,
       },
       enabled: false,
+      mode: 'element',
+      viewMode: 'split',
+      original: false,
       theme: 'dark',
       annotations: [],
       editorVisible: false,
@@ -506,9 +591,13 @@ export function registerBrowserRuntime(options: {
     web.on('dom-ready', () => {
       picker(tab, {
         enabled: tab.enabled,
+        region: tab.mode === 'region',
         hidden: tab.hidden,
+        original: tab.original,
         documentId: tab.state.documentId,
         annotations: visibleMarkers(tab),
+        nextNumber: tab.annotations.length + 1,
+        colors: tab.colors,
       })
       if (tab.enabled && visible === tab) void showOverlay(tab, 'toolbar').catch(console.error)
     })
@@ -593,108 +682,17 @@ export function registerBrowserRuntime(options: {
       ? tab
       : undefined
   }
-  ipcMain.on('browser:selected', (event, value: unknown) => {
-    const tab = guestHandler(event)
-    if (
-      !tab ||
-      !tab.enabled ||
-      tab !== visible ||
-      !value ||
-      typeof value !== 'object' ||
-      (value as BrowserAnnotation).documentId !== tab.state.documentId
-    )
-      return
-    const annotation = {
-      ...(value as BrowserAnnotation),
-      id: randomUUID(),
-      tabId: tab.state.id,
-      documentId: tab.state.documentId,
-      url: tab.state.url,
-      title: tab.state.title,
-      capturedAt: new Date().toISOString(),
-      comment: '',
-    }
-    delete annotation.image
-    if (!validAnnotation(annotation)) return
-    tab.editor = annotation
-    tab.editorPosition = annotation.rect
-    tab.editorOriginal = undefined
-    tab.editorHeight = undefined
-    tab.expanded = false
-    picker(tab, { highlightId: null, editing: true })
-    tab.editorVisible = true
-    void capture(tab, tab.screenshot, annotation)
-      .then((saved) => {
-        if (tab.editor?.id !== annotation.id || tab.state.documentId !== annotation.documentId) return
-        tab.editor = saved
-        emit({ type: 'editor', owner: tab.state.owner, annotation: saved })
-        return showOverlay(tab, 'editor')
-      })
-      .catch((cause) => {
-        if (tab.editor?.id !== annotation.id || tab.state.documentId !== annotation.documentId) return
-        tab.editor = annotation
-        emit({ type: 'editor', owner: tab.state.owner, annotation })
-        void showOverlay(tab, 'editor').catch(console.error)
-        console.error(String(cause))
-      })
-  })
-  ipcMain.on('browser:selection-position', (event, box: BrowserRect) => {
-    const tab = guestHandler(event)
-    if (tab?.editor && tab.editorVisible && box && [box.x, box.y, box.width, box.height].every(Number.isFinite)) {
-      tab.editorPosition = box
-      positionOverlays(tab)
-    }
-  })
-  ipcMain.on('browser:selection-cancel', (event) => {
-    const tab = guestHandler(event)
-    if (!tab || tab !== visible || !tab.enabled || !tab.editorVisible) return
+  const clearEditorState = (tab: Tab) => {
     tab.editor = undefined
     tab.editorPosition = undefined
     tab.editorOriginal = undefined
+    tab.editorScreenshotInitial = undefined
+    tab.editorError = undefined
     tab.editorHeight = undefined
     tab.editorVisible = false
     tab.expanded = false
-    picker(tab, { reset: true })
-    emit({ type: 'editor', owner: tab.state.owner })
-    closeOverlays('editor')
-  })
-  ipcMain.on('browser:marker-click', (event, id: unknown) => {
-    const tab = guestHandler(event)
-    if (!tab || !tab.enabled || typeof id !== 'string') return
-    const annotation = tab.annotations.find(
-      (item) => item.id === id && item.tabId === tab.state.id && item.documentId === tab.state.documentId,
-    )
-    if (!annotation) return
-    tab.editorOriginal = annotation
-    tab.editorHeight = undefined
-    tab.editor = structuredClone(annotation)
-    tab.editorPosition = annotation.rect
-    tab.editorVisible = true
-    tab.expanded = false
-    picker(tab, { highlightId: id, editing: true })
-    emit({ type: 'editor', owner: tab.state.owner, annotation: tab.editor })
-    void showOverlay(tab, 'editor').catch(console.error)
-  })
-  ipcMain.on('browser:picker-exit', (event) => {
-    const tab = guestHandler(event)
-    if (tab) void setEnabled(tab, false)
-  })
-  const trusted = (event: IpcMainInvokeEvent) => {
-    const window = options.getWindow()
-    if (
-      !window ||
-      event.sender !== window.webContents ||
-      event.senderFrame !== event.sender.mainFrame ||
-      new URL(event.senderFrame.url).origin !== options.origin()
-    )
-      throw new Error('不允许此页面调用浏览器接口')
   }
-  ipcMain.handle('browser:overlay-state', (event) => {
-    const item = overlayFor(event.sender)
-    if (!item || event.senderFrame !== event.sender.mainFrame) throw new Error('批注浮层已失效')
-    return overlayState(item)
-  })
-  const saveEditor = async (tab: Tab) => {
+  const saveEditor = async (tab: Tab, options_?: { keepOverlayOpen?: boolean }) => {
     if (overlayBusy || !tab.editor) throw new Error('正在处理批注，请稍后重试')
     overlayBusy = true
     const selected = structuredClone(tab.editor)
@@ -723,18 +721,181 @@ export function registerBrowserRuntime(options: {
       else annotations[previous] = annotation
       await options.rpc('browser:save-workspace', [tab.state.owner, { ...workspace, annotations, editor: undefined }])
       tab.annotations = annotations
-      tab.editor = undefined
-      tab.editorPosition = undefined
-      tab.editorOriginal = undefined
-      picker(tab, { annotations: visibleMarkers(tab), reset: true })
+      clearEditorState(tab)
+      picker(tab, { annotations: visibleMarkers(tab), nextNumber: tab.annotations.length + 1, reset: true })
       emit({ type: 'annotation', owner: tab.state.owner, annotation })
       emit({ type: 'editor', owner: tab.state.owner })
-      closeOverlays('editor')
+      if (!options_?.keepOverlayOpen) closeOverlays('editor')
       positionOverlays(tab)
     } finally {
       overlayBusy = false
     }
   }
+  const openMarkerEditor = async (tab: Tab, id: string, scroll = false) => {
+    const annotation = tab.annotations.find(
+      (item) => item.id === id && item.tabId === tab.state.id && item.documentId === tab.state.documentId,
+    )
+    if (!annotation) return
+    if (tab.editorVisible && tab.editor?.id === id) {
+      if (scroll) picker(tab, { highlightId: id, editing: true, scrollToId: id })
+      return
+    }
+    if (hasUnsavedEditorChanges(tab)) {
+      try {
+        await saveEditor(tab, { keepOverlayOpen: true })
+      } catch (cause) {
+        tab.editorError = String(cause)
+        positionOverlays(tab)
+        return
+      }
+    }
+    tab.editorOriginal = annotation
+    tab.editorScreenshotInitial = tab.screenshot
+    tab.editorError = undefined
+    tab.editorHeight = undefined
+    tab.editor = structuredClone(annotation)
+    tab.editorPosition = annotation.rect
+    tab.editorVisible = true
+    tab.expanded = false
+    picker(tab, { highlightId: id, editing: true, ...(scroll ? { scrollToId: id } : {}) })
+    emit({ type: 'editor', owner: tab.state.owner, annotation: tab.editor })
+    await showOverlay(tab, 'editor')
+    positionOverlays(tab)
+  }
+  ipcMain.on('browser:selected', (event, value: unknown) => {
+    const tab = guestHandler(event)
+    if (
+      !tab ||
+      !tab.enabled ||
+      tab !== visible ||
+      !value ||
+      typeof value !== 'object' ||
+      (value as BrowserAnnotation).documentId !== tab.state.documentId
+    )
+      return
+    const annotation = {
+      ...(value as BrowserAnnotation),
+      id: randomUUID(),
+      tabId: tab.state.id,
+      documentId: tab.state.documentId,
+      url: tab.state.url,
+      title: tab.state.title,
+      capturedAt: new Date().toISOString(),
+      comment: '',
+    }
+    delete annotation.image
+    if (!validAnnotation(annotation)) return
+    void (async () => {
+      if (hasUnsavedEditorChanges(tab)) {
+        try {
+          await saveEditor(tab, { keepOverlayOpen: true })
+        } catch (cause) {
+          tab.editorError = String(cause)
+          picker(tab, {
+            highlightId: tab.editorOriginal?.id ?? null,
+            editing: true,
+            annotations: visibleMarkers(tab),
+            nextNumber: tab.annotations.length + 1,
+          })
+          positionOverlays(tab)
+          return
+        }
+      }
+      if (!tab.enabled || tab !== visible || tab.state.documentId !== annotation.documentId) return
+      tab.editor = annotation
+      tab.editorPosition = annotation.rect
+      tab.editorOriginal = undefined
+      tab.editorScreenshotInitial = tab.screenshot
+      tab.editorError = undefined
+      tab.editorHeight = undefined
+      tab.expanded = false
+      picker(tab, { highlightId: null, editing: true, nextNumber: tab.annotations.length + 1 })
+      tab.editorVisible = true
+      try {
+        const saved = await capture(tab, tab.screenshot, annotation)
+        if (tab.editor?.id !== annotation.id || tab.state.documentId !== annotation.documentId) return
+        tab.editor = saved
+        emit({ type: 'editor', owner: tab.state.owner, annotation: saved })
+        await showOverlay(tab, 'editor')
+        positionOverlays(tab)
+      } catch (cause) {
+        if (tab.editor?.id !== annotation.id || tab.state.documentId !== annotation.documentId) return
+        tab.editor = annotation
+        emit({ type: 'editor', owner: tab.state.owner, annotation })
+        await showOverlay(tab, 'editor').catch(console.error)
+        positionOverlays(tab)
+        console.error(String(cause))
+      }
+    })()
+  })
+  ipcMain.on('browser:selection-position', (event, box: BrowserRect) => {
+    const tab = guestHandler(event)
+    if (tab?.editor && tab.editorVisible && box && [box.x, box.y, box.width, box.height].every(Number.isFinite)) {
+      tab.editorPosition = box
+      positionOverlays(tab)
+    }
+  })
+  ipcMain.on('browser:selection-dismiss', (event) => {
+    const tab = guestHandler(event)
+    if (!tab || tab !== visible || !tab.enabled || !tab.editorVisible) return
+    void (async () => {
+      if (hasUnsavedEditorChanges(tab)) {
+        try {
+          await saveEditor(tab)
+          return
+        } catch (cause) {
+          tab.editorError = String(cause)
+          positionOverlays(tab)
+          return
+        }
+      }
+      clearEditorState(tab)
+      picker(tab, { reset: true, nextNumber: tab.annotations.length + 1 })
+      emit({ type: 'editor', owner: tab.state.owner })
+      closeOverlays('editor')
+      positionOverlays(tab)
+    })()
+  })
+  ipcMain.on('browser:selection-cancel', (event) => {
+    const tab = guestHandler(event)
+    if (!tab || tab !== visible || !tab.enabled || !tab.editorVisible) return
+    clearEditorState(tab)
+    picker(tab, { reset: true, nextNumber: tab.annotations.length + 1 })
+    emit({ type: 'editor', owner: tab.state.owner })
+    closeOverlays('editor')
+    positionOverlays(tab)
+  })
+  ipcMain.on('browser:marker-click', (event, id: unknown) => {
+    const tab = guestHandler(event)
+    if (!tab || !tab.enabled || typeof id !== 'string') return
+    void openMarkerEditor(tab, id).catch(console.error)
+  })
+  ipcMain.on('browser:original-toggle', (event, pressed: unknown) => {
+    const tab = guestHandler(event)
+    if (!tab || !tab.enabled || typeof pressed !== 'boolean') return
+    tab.original = pressed
+    picker(tab, { original: pressed })
+    positionOverlays(tab)
+  })
+  ipcMain.on('browser:picker-exit', (event) => {
+    const tab = guestHandler(event)
+    if (tab) void setEnabled(tab, false)
+  })
+  const trusted = (event: IpcMainInvokeEvent) => {
+    const window = options.getWindow()
+    if (
+      !window ||
+      event.sender !== window.webContents ||
+      event.senderFrame !== event.sender.mainFrame ||
+      new URL(event.senderFrame.url).origin !== options.origin()
+    )
+      throw new Error('不允许此页面调用浏览器接口')
+  }
+  ipcMain.handle('browser:overlay-state', (event) => {
+    const item = overlayFor(event.sender)
+    if (!item || event.senderFrame !== event.sender.mainFrame) throw new Error('批注浮层已失效')
+    return overlayState(item)
+  })
   ipcMain.handle('browser:overlay-action', async (event, action: BrowserOverlayAction) => {
     const item = overlayFor(event.sender)
     if (!item || event.senderFrame !== event.sender.mainFrame || visible !== item.tab) throw new Error('批注目标已切换')
@@ -747,16 +908,26 @@ export function registerBrowserRuntime(options: {
       if (item.kind === 'editor') item.view.webContents.focus()
       return
     }
+    if (action.type === 'mode') {
+      if (!['element', 'region'].includes(action.mode)) throw new Error('批注模式无效')
+      tab.mode = action.mode
+      picker(tab, { region: tab.mode === 'region' })
+      emit({ type: 'annotation-mode', tabId: tab.state.id, enabled: tab.enabled, mode: tab.mode })
+      positionOverlays(tab)
+      return
+    }
     if (action.type === 'comment') {
       if (item.kind !== 'editor' || !tab.editor || typeof action.text !== 'string' || action.text.length > 16000)
         throw new Error('批注评论无效')
       tab.editor.comment = action.text
+      tab.editorError = undefined
       emit({ type: 'editor', owner: tab.state.owner, annotation: tab.editor })
       return
     }
     if (action.type === 'include') {
       if (!['element', 'viewport', 'none'].includes(action.screenshot)) throw new Error('截图方式无效')
       tab.screenshot = action.screenshot
+      tab.editorError = undefined
       positionOverlays(tab)
       return
     }
@@ -782,14 +953,34 @@ export function registerBrowserRuntime(options: {
       }
       return
     }
+    if (action.type === 'resize-toolbar') {
+      if (
+        item.kind !== 'toolbar' ||
+        !Number.isFinite(action.width) ||
+        !Number.isFinite(action.height) ||
+        action.width < 120 ||
+        action.width > 1600 ||
+        action.height < 40 ||
+        action.height > 900
+      )
+        throw new Error('工具条尺寸无效')
+      const width = Math.round(action.width)
+      const height = Math.round(action.height)
+      if (tab.toolbarWidth !== width || tab.toolbarHeight !== height) {
+        tab.toolbarWidth = width
+        tab.toolbarHeight = height
+        positionOverlays(tab)
+      }
+      return
+    }
     if (action.type === 'move-toolbar') {
       if (item.kind !== 'toolbar' || !tab.bounds || !Number.isFinite(action.x) || !Number.isFinite(action.y))
         throw new Error('工具条位置无效')
-      const width = Math.min(392, tab.bounds.width)
+      const width = Math.min(Math.max(220, tab.toolbarWidth ?? 580), Math.max(180, tab.bounds.width - 12))
       const originX = Math.round((tab.bounds.width - width) / 2)
       tab.toolbarOffset = {
-        x: Math.max(-originX, Math.min(tab.bounds.width - width - originX, action.x)),
-        y: Math.max(-(tab.bounds.height - 60), Math.min(8, action.y)),
+        x: Math.max(-originX + 6, Math.min(tab.bounds.width - width - originX - 6, action.x)),
+        y: Math.max(-(tab.bounds.height - 64), Math.min(4, action.y)),
       }
       positionOverlays(tab)
       return
@@ -801,37 +992,47 @@ export function registerBrowserRuntime(options: {
       return
     }
     if (action.type === 'original') {
+      tab.original = action.pressed
       picker(tab, { original: action.pressed })
+      positionOverlays(tab)
+      return
+    }
+    if (action.type === 'focus-marker') {
+      if (typeof action.id !== 'string') throw new Error('批注标识无效')
+      tab.toolbarMenuOpen = false
+      await openMarkerEditor(tab, action.id, true)
+      return
+    }
+    if (action.type === 'open-chat') {
+      emit({ type: 'focus-chat', owner: tab.state.owner })
       return
     }
     if (action.type === 'cancel') {
-      if (tab.editorOriginal) {
-        tab.editor = undefined
-        tab.editorPosition = undefined
-        tab.editorOriginal = undefined
-        emit({ type: 'editor', owner: tab.state.owner })
-      }
-      tab.editorVisible = false
-      picker(tab, { reset: true })
+      clearEditorState(tab)
+      picker(tab, { reset: true, nextNumber: tab.annotations.length + 1 })
+      emit({ type: 'editor', owner: tab.state.owner })
       closeOverlays('editor')
+      positionOverlays(tab)
       return
     }
     if (action.type === 'remove') {
-      if (item.kind !== 'editor' || !tab.editorOriginal) throw new Error('批注目标无效')
-      const id = tab.editorOriginal.id
+      const id = action.id ?? tab.editorOriginal?.id
+      if (!id) throw new Error('批注目标无效')
       const workspace = await options.rpc<BrowserWorkspace>('browser:workspace', [tab.state.owner])
-      await options.rpc('browser:save-workspace', [
-        tab.state.owner,
-        { ...workspace, annotations: workspace.annotations.filter((value) => value.id !== id), editor: undefined },
-      ])
-      tab.annotations = tab.annotations.filter((value) => value.id !== id)
-      tab.editor = undefined
-      tab.editorPosition = undefined
-      tab.editorOriginal = undefined
-      picker(tab, { annotations: visibleMarkers(tab), reset: true })
+      const annotations = workspace.annotations.filter((value) => value.id !== id)
+      await options.rpc('browser:save-workspace', [tab.state.owner, { ...workspace, annotations, editor: undefined }])
+      tab.annotations = annotations
+      if (tab.editorOriginal?.id === id || tab.editor?.id === id) {
+        clearEditorState(tab)
+        closeOverlays('editor')
+      }
+      picker(tab, {
+        annotations: visibleMarkers(tab),
+        nextNumber: tab.annotations.length + 1,
+        reset: !tab.editorVisible,
+      })
       emit({ type: 'annotation-remove', owner: tab.state.owner, id })
-      emit({ type: 'editor', owner: tab.state.owner })
-      closeOverlays('editor')
+      if (!tab.editorVisible) emit({ type: 'editor', owner: tab.state.owner })
       positionOverlays(tab)
       return
     }
@@ -840,11 +1041,14 @@ export function registerBrowserRuntime(options: {
       return
     }
     if (action.type === 'discard') {
+      const workspace = await options.rpc<BrowserWorkspace>('browser:workspace', [tab.state.owner])
+      await options.rpc('browser:save-workspace', [
+        tab.state.owner,
+        { ...workspace, annotations: [], editor: undefined },
+      ])
       tab.annotations = []
-      tab.editor = undefined
-      tab.editorPosition = undefined
-      tab.editorOriginal = undefined
-      picker(tab, { annotations: [], reset: true })
+      clearEditorState(tab)
+      picker(tab, { annotations: [], nextNumber: 1, reset: true })
       emit({ type: 'editor', owner: tab.state.owner })
       emit({ type: 'discard', owner: tab.state.owner })
       closeOverlays('editor')
@@ -855,7 +1059,8 @@ export function registerBrowserRuntime(options: {
       if (submitBusy) return
       submitBusy = true
       try {
-        if (tab.editor) await saveEditor(tab)
+        if (tab.editorVisible && tab.editor) await saveEditor(tab)
+        await setEnabled(tab, false)
         if (visible === tab) emit({ type: 'submit', owner: tab.state.owner })
       } finally {
         submitBusy = false
@@ -1351,6 +1556,7 @@ export function registerBrowserRuntime(options: {
             throw new Error('浏览器主题颜色无效')
           tab.colors = colors
         }
+        picker(tab, { colors: tab.colors })
         tab.view.setBounds(tab.bounds)
         tab.view.webContents.setBackgroundThrottling(true)
         tab.view.setVisible(!tab.state.error && tab.state.url !== 'about:blank')

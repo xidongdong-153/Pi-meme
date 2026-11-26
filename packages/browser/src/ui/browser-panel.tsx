@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Search,
   Settings,
+  SquareDashed,
   X,
   ZoomIn,
   ZoomOut,
@@ -32,6 +33,7 @@ import type {
   BrowserPlatform,
   BrowserTab,
   BrowserHistory,
+  BrowserViewMode,
 } from '@pi-meme/contracts/browser'
 import type { ThemeColors } from '@pi-meme/contracts/settings'
 
@@ -62,6 +64,7 @@ export function BrowserPanel({
   tab,
   annotations,
   editor,
+  viewMode = 'split',
   onSettings,
   saveError,
   onRetrySave,
@@ -70,6 +73,7 @@ export function BrowserPanel({
   tab: BrowserTab
   annotations: BrowserAnnotation[]
   editor?: BrowserAnnotation
+  viewMode?: BrowserViewMode
   onSettings: (section?: 'general' | 'history' | 'downloads' | 'clear') => void
   saveError?: string
   onRetrySave?: () => void
@@ -83,6 +87,8 @@ export function BrowserPanel({
   currentTab.current = tab
   const currentAnnotations = useRef(annotations)
   currentAnnotations.current = annotations
+  const currentViewMode = useRef(viewMode)
+  currentViewMode.current = viewMode
   const [recent, setRecent] = useState<BrowserHistory[]>([])
   const [fullUrl, setFullUrl] = useState(false)
   const [focused, setFocused] = useState(false)
@@ -259,6 +265,7 @@ export function BrowserPanel({
         if (cancelled) return
         frame = requestAnimationFrame(measure)
         void platform.command(tab.id, { type: 'annotation-state' }).catch(() => {})
+        void platform.command(tab.id, { type: 'view-mode', mode: currentViewMode.current }).catch(() => {})
         void platform.command(tab.id, { type: 'markers', annotations: currentAnnotations.current }).catch(() => {})
         if (editor) void platform.command(tab.id, { type: 'annotate', enabled: true })
       })
@@ -271,6 +278,9 @@ export function BrowserPanel({
       void platform.present(tab.id, null).catch(() => {})
     }
   }, [platform, tab.id, tab.owner])
+  useEffect(() => {
+    void platform.command(tab.id, { type: 'view-mode', mode: viewMode }).catch(() => {})
+  }, [platform, tab.id, viewMode])
   useEffect(() => {
     void platform.command(tab.id, { type: 'markers', annotations }).catch(() => {})
   }, [platform, tab.id, annotations])
@@ -498,7 +508,7 @@ export function BrowserPanel({
               截取屏幕截图
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => menuCommand({ type: 'annotate', enabled: true, region: true })}>
-              <MousePointer2 />
+              <SquareDashed />
               区域批注
             </DropdownMenuItem>
             <DropdownMenuItem

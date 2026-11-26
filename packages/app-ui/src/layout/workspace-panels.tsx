@@ -54,6 +54,7 @@ export function WorkspacePanels({
   onNewWebPage,
   onClosePanel,
   browserPanelIds = emptyBrowserPanels,
+  chatAnnotationCount = 0,
   focusComposerRequest,
   activity,
   dataFacts = {},
@@ -103,6 +104,7 @@ export function WorkspacePanels({
   onNewWebPage?: () => void
   onClosePanel?: (id: string) => void | boolean | Promise<void | boolean>
   browserPanelIds?: string[]
+  chatAnnotationCount?: number
   focusComposerRequest?: number
   panels: UiPanel[]
   activity?: { count: number; known: boolean }
@@ -467,8 +469,8 @@ export function WorkspacePanels({
   }, [browserIdsKey, storageKey, setLayout])
   useEffect(() => {
     if (!focusComposerRequest) return
-    changeView(false, true)
-    onFocusComposer?.()
+    if (unified) setToolActive(false)
+    requestAnimationFrame(() => onFocusComposer?.())
   }, [focusComposerRequest])
   const changeSidebar = useCallback(
     (open: boolean, width: number) => {
@@ -590,6 +592,14 @@ export function WorkspacePanels({
               <OverflowTooltip content={sessionTitle}>
                 <span className="min-w-0 flex-1 truncate">{sessionTitle}</span>
               </OverflowTooltip>
+              {showTool && chatAnnotationCount > 0 && (
+                <span
+                  aria-label={`${chatAnnotationCount} 条待发送批注`}
+                  className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-semibold tabular-nums text-primary"
+                >
+                  {chatAnnotationCount}
+                </span>
+              )}
             </button>
             {menu}
           </div>

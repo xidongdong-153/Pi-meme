@@ -102,6 +102,24 @@ export function validAnnotation(value: unknown): value is BrowserAnnotation {
   )
 }
 
+export function annotationTargetLabel(annotation: Pick<BrowserAnnotation, 'kind' | 'tag'>) {
+  return annotation.kind === 'element' && annotation.tag ? `<${annotation.tag}>` : '区域选区'
+}
+
+export function annotationEmptyComment(annotation: Pick<BrowserAnnotation, 'kind'>) {
+  return annotation.kind === 'element' ? '仅标记位置' : '仅标记区域'
+}
+
+export function annotationSourceLabel(annotation: Pick<BrowserAnnotation, 'title' | 'url'>) {
+  try {
+    const parsed = new URL(annotation.url)
+    const location = `${parsed.host}${parsed.pathname === '/' ? '' : parsed.pathname}`
+    return annotation.title && annotation.title !== '新网页' ? `${annotation.title} · ${location}` : location
+  } catch {
+    return annotation.title || annotation.url
+  }
+}
+
 export function browserAnnotationSummary(text: string) {
   const parsed = parseAnnotations(messageAttachmentParts(text).text, [])
   if (!parsed.annotations.length) return text

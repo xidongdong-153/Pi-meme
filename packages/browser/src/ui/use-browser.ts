@@ -9,6 +9,7 @@ export function useBrowser({
   onAnnotation,
   onAnnotationRemove,
   onDiscard,
+  onFocusChat,
   onSubmit,
   onSettings,
   onOpen,
@@ -20,6 +21,7 @@ export function useBrowser({
   onAnnotation: (annotation: BrowserAnnotation, added: boolean) => void
   onAnnotationRemove: (id: string) => void
   onDiscard: () => void
+  onFocusChat?: () => void
   onSubmit: () => void
   onSettings: () => void
   onOpen: (id: string) => void
@@ -30,8 +32,28 @@ export function useBrowser({
     ready: false,
   })
   const [error, setError] = useState('')
-  const current = useRef({ owner, active, onAnnotation, onAnnotationRemove, onDiscard, onSubmit, onSettings, onOpen })
-  current.current = { owner, active, onAnnotation, onAnnotationRemove, onDiscard, onSubmit, onSettings, onOpen }
+  const current = useRef({
+    owner,
+    active,
+    onAnnotation,
+    onAnnotationRemove,
+    onDiscard,
+    onFocusChat,
+    onSubmit,
+    onSettings,
+    onOpen,
+  })
+  current.current = {
+    owner,
+    active,
+    onAnnotation,
+    onAnnotationRemove,
+    onDiscard,
+    onFocusChat,
+    onSubmit,
+    onSettings,
+    onOpen,
+  }
   const workspace = useRef<BrowserWorkspace>({ tabs: [], annotations: [] })
   const loaded = useRef('')
   const restorePending = useRef(new Set<string>())
@@ -108,6 +130,10 @@ export function useBrowser({
       const target = current.current
       if (event.type === 'settings') {
         if (target.active) target.onSettings()
+        return
+      }
+      if (event.type === 'focus-chat') {
+        if (event.owner === target.owner && target.active) target.onFocusChat?.()
         return
       }
       if (event.type === 'submit') {

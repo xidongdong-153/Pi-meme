@@ -2,6 +2,22 @@ import type { ThemeColors } from './settings'
 
 export type BrowserRect = { x: number; y: number; width: number; height: number }
 export type BrowserImage = { type: 'image'; data: string; mimeType: string }
+export type BrowserAnnotationMode = 'element' | 'region'
+export type BrowserViewMode = 'unified' | 'split'
+export type BrowserOverlayAnnotationItem = {
+  id: string
+  markerNumber: number
+  tabId: string
+  documentId: number
+  url: string
+  title: string
+  kind: 'element' | 'region'
+  tag?: string
+  comment: string
+  rect: BrowserRect
+  isCurrentPage: boolean
+  hasImage: boolean
+}
 export type BrowserAnnotation = {
   id: string
   tabId: string
@@ -80,11 +96,12 @@ export type BrowserEvent =
   | { type: 'tab'; tab: BrowserTab }
   | { type: 'find-result'; tabId: string; text: string; active: number; matches: number }
   | { type: 'browser-shortcut'; tabId: string; action: 'find' | 'address' | 'close-find' }
-  | { type: 'annotation-mode'; tabId: string; enabled: boolean }
+  | { type: 'annotation-mode'; tabId: string; enabled: boolean; mode?: BrowserAnnotationMode }
   | { type: 'annotation'; owner: string; annotation: BrowserAnnotation }
   | { type: 'annotation-remove'; owner: string; id: string }
   | { type: 'editor'; owner: string; annotation?: BrowserAnnotation }
   | { type: 'open'; tab: BrowserTab }
+  | { type: 'focus-chat'; owner: string }
   | { type: 'submit'; owner: string }
   | { type: 'discard'; owner: string }
   | { type: 'settings' }
@@ -95,6 +112,7 @@ export type BrowserCommand =
   | { type: 'zoom'; value: number }
   | { type: 'find'; text: string; forward?: boolean; next?: boolean }
   | { type: 'annotate'; enabled: boolean; region?: boolean }
+  | { type: 'view-mode'; mode: BrowserViewMode }
   | { type: 'markers'; annotations: BrowserAnnotation[] }
   | { type: 'restore-editor'; annotation: BrowserAnnotation }
   | { type: 'annotation-state' }
@@ -130,26 +148,35 @@ export type BrowserOverlayState = {
   tabId: string
   owner: string
   annotation?: BrowserAnnotation
+  markerNumber?: number
+  items: BrowserOverlayAnnotationItem[]
+  mode: BrowserAnnotationMode
+  viewMode: BrowserViewMode
   screenshot: BrowserSettings['screenshots']
   count: number
   enabled: boolean
   hidden: boolean
+  original: boolean
   editing: boolean
   expanded: boolean
   toolbarOffset: { x: number; y: number }
+  viewportWidth?: number
   theme: 'dark' | 'light'
   colors?: ThemeColors
   error?: string
 }
 export type BrowserOverlayAction =
-  | { type: 'ready' | 'cancel' | 'exit' | 'submit' | 'screenshot' | 'discard' }
+  | { type: 'ready' | 'cancel' | 'exit' | 'submit' | 'screenshot' | 'discard' | 'open-chat' }
+  | { type: 'mode'; mode: BrowserAnnotationMode }
   | { type: 'comment'; text: string }
   | { type: 'include'; screenshot: BrowserSettings['screenshots'] }
   | { type: 'add' }
   | { type: 'expand'; expanded: boolean }
   | { type: 'resize-editor'; height: number }
-  | { type: 'remove' }
+  | { type: 'remove'; id?: string }
+  | { type: 'focus-marker'; id: string }
   | { type: 'move-toolbar'; x: number; y: number }
+  | { type: 'resize-toolbar'; width: number; height: number }
   | { type: 'toolbar-menu'; open: boolean }
   | { type: 'hide'; hidden: boolean }
   | { type: 'original'; pressed: boolean }

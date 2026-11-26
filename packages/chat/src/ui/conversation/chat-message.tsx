@@ -1,5 +1,10 @@
 import type { BrowserAnnotation } from '@pi-meme/contracts/browser'
-import { parseAnnotations } from '@pi-meme/contracts/browser-annotations'
+import {
+  annotationEmptyComment,
+  annotationSourceLabel,
+  annotationTargetLabel,
+  parseAnnotations,
+} from '@pi-meme/contracts/browser-annotations'
 import { UserMessageContent } from './user-message-content'
 import { userMessageBubbleClassName } from './user-message-bubble'
 import { UserMessageAttachments } from './user-message-attachments'
@@ -225,7 +230,7 @@ function MessageAnnotationSummary({ annotations }: { annotations: BrowserAnnotat
           }}
         >
           <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="whitespace-nowrap">{annotations.length} 条注释</span>
+          <span className="whitespace-nowrap tabular-nums">{annotations.length} 条批注</span>
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -233,7 +238,7 @@ function MessageAnnotationSummary({ annotations }: { annotations: BrowserAnnotat
         aria-label="批注详情"
         side="top"
         align="end"
-        className="max-h-[min(20rem,var(--radix-popover-content-available-height))] w-[min(350px,calc(100vw-32px))] overflow-y-auto p-1.5"
+        className="max-h-[min(20rem,var(--radix-popover-content-available-height))] w-[min(360px,calc(100vw-32px))] overflow-y-auto p-1.5"
         onPointerEnter={clearHoverTimer}
         onPointerLeave={(event) => {
           if (event.pointerType === 'mouse') scheduleClose()
@@ -247,12 +252,22 @@ function MessageAnnotationSummary({ annotations }: { annotations: BrowserAnnotat
         }}
       >
         <div className="divide-y divide-border/70">
-          {annotations.map((annotation) => (
+          {annotations.map((annotation, index) => (
             <div key={annotation.id} className="px-2.5 py-3">
-              <span className="rounded-md border border-border px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-                {annotation.tag || '区域'}
-              </span>
-              <p className="mt-2 whitespace-pre-wrap break-words text-sm">{annotation.comment || '分析选中的元素'}</p>
+              <div className="flex items-center gap-1.5">
+                <span className="inline-flex h-4.5 min-w-4.5 shrink-0 items-center justify-center rounded-full bg-primary/15 px-1 text-[11px] font-semibold tabular-nums text-primary">
+                  {index + 1}
+                </span>
+                <span className="truncate rounded-md border border-border px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+                  {annotationTargetLabel(annotation)}
+                </span>
+              </div>
+              <p className="mt-1 truncate text-[11px] text-muted-foreground">{annotationSourceLabel(annotation)}</p>
+              <p
+                className={`mt-1.5 whitespace-pre-wrap break-words text-sm ${annotation.comment.trim() ? 'text-foreground' : 'text-muted-foreground'}`}
+              >
+                {annotation.comment.trim() || annotationEmptyComment(annotation)}
+              </p>
             </div>
           ))}
         </div>

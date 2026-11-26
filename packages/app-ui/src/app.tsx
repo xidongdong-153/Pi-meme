@@ -2094,7 +2094,7 @@ function AppContent({
     onDiscard: () => chat.composerStore.setAttachments((items) => items.filter((item) => !item.browserAnnotation)),
     onAnnotationRemove: (id) =>
       chat.composerStore.setAttachments((items) => items.filter((item) => item.browserAnnotation?.id !== id)),
-    onAnnotation: (annotation, added) => {
+    onAnnotation: (annotation) => {
       const sent = chat.chat.messages.some((message) => {
         if (message.role !== 'user') return false
         const text =
@@ -2112,8 +2112,8 @@ function AppContent({
           ? items.map((item) => (item.id === annotation.id ? annotationAttachment(annotation) : item))
           : [...items, annotationAttachment(annotation)],
       )
-      if (added) setBrowserFocus((value) => value + 1)
     },
+    onFocusChat: () => setBrowserFocus((value) => value + 1),
     onSubmit: () => {
       setBrowserFocus((value) => value + 1)
       requestAnimationFrame(() => {
@@ -2228,6 +2228,7 @@ function AppContent({
             tab={tab}
             annotations={browser.workspace?.annotations ?? []}
             editor={browser.workspace?.editor}
+            viewMode={workspaceView.unified ? 'unified' : 'split'}
             onSettings={(section = 'general') => {
               setBrowserSettingsTarget(section)
               openSettings('browser')
@@ -3486,6 +3487,7 @@ function AppContent({
               onSideChatContainer={setSideChatTarget}
               onSideChatVisibilityChange={setSideChatVisible}
               closingPanelIds={sideChat.closing ? [sideChatTabId] : undefined}
+              chatAnnotationCount={browser.workspace?.annotations.length ?? 0}
               focusComposerRequest={browserFocus}
               onFocusComposer={
                 !sideChatFocused && !chat.inputDisabled && !chat.editing
