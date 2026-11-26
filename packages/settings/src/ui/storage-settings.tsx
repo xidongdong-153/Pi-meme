@@ -21,10 +21,12 @@ export function clearStorageCache(bridge?: object) {
 }
 
 export function StorageSettings({
+  mobile = false,
   bridge,
   onBeforeRestart,
   onMaintaining,
 }: {
+  mobile?: boolean
   bridge: Pick<SettingsBridge, 'getStorageInfo' | 'storage'>
   onBeforeRestart: () => Promise<void>
   onMaintaining: (value: boolean) => void
@@ -152,7 +154,7 @@ export function StorageSettings({
                 </p>
               )}
             </div>
-            {bridge.storage && (
+            {!mobile && bridge.storage && (
               <div className="flex gap-2">
                 <Button
                   className={settingsControlClassName}
@@ -236,7 +238,7 @@ export function StorageSettings({
           </SettingsCard>
         </SettingsGroup>
       )}
-      {desktop && desktop.backupPaths.length > 0 && (
+      {!mobile && desktop && desktop.backupPaths.length > 0 && (
         <SettingsGroup title="迁移备份">
           <SettingsCard className="space-y-3 divide-y-0 px-4 py-3">
             <p className="text-[11px] leading-relaxed text-muted-foreground">

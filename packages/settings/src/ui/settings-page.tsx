@@ -16,6 +16,7 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import { SettingsCard, SettingsGroup, settingsControlClassName } from '@pi-meme/ui/components/settings'
 
 export type SettingsPageProps = {
+  mobile?: boolean
   section: 'about' | 'appearance' | 'general' | 'instructions'
   snapshot: SettingsSnapshot | null
   piVersion?: string
@@ -45,6 +46,7 @@ export type SettingsPageProps = {
 }
 
 export function SettingsPage({
+  mobile = false,
   section,
   snapshot,
   piVersion,
@@ -66,6 +68,7 @@ export function SettingsPage({
         <InstructionSettings bridge={bridge} cwd={cwd} busy={busy} onDirty={onDirty} onSaving={onSaving} />
       ) : section === 'general' ? (
         <GeneralSettings
+          mobile={mobile}
           accessSettings={accessSettings}
           settings={snapshot?.settings}
           onEditor={onEditor}
@@ -76,7 +79,7 @@ export function SettingsPage({
       ) : section === 'about' ? (
         <SettingsGroup title="Pi">
           <SettingsCard>
-            <dl className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs">
+            <dl className="settings-row flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs">
               <dt className="font-medium">内置版本</dt>
               <dd>
                 <CrossfadeText>{piVersion ? `v${piVersion}` : '尚未连接'}</CrossfadeText>
@@ -85,7 +88,7 @@ export function SettingsPage({
           </SettingsCard>
         </SettingsGroup>
       ) : (
-        <ThemeSettings snapshot={snapshot} {...appearance} />
+        <ThemeSettings mobile={mobile} snapshot={snapshot} {...appearance} />
       )}
       {snapshot?.errors.map((message) => (
         <p key={message} role="alert" className="rounded-lg bg-destructive/10 p-3 text-xs text-destructive">

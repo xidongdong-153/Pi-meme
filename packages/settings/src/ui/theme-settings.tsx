@@ -1,6 +1,6 @@
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useEffect, useRef, useState } from 'react'
-import { Download, FolderOpen, RefreshCw, Upload } from 'lucide-react'
+import { ChevronDown, ChevronRight, Download, FolderOpen, RefreshCw, Upload } from 'lucide-react'
 import type {
   AppearanceOverrides,
   AppearanceOperation,
@@ -51,6 +51,7 @@ const accents = [
 ]
 const styleLabels = ['常规', '粗体', '斜体', '粗斜体']
 export function ThemeSettings({
+  mobile = false,
   snapshot: loadedSnapshot,
   onOperation,
   status = 'idle',
@@ -65,6 +66,7 @@ export function ThemeSettings({
   onExport,
   loadFonts,
 }: {
+  mobile?: boolean
   snapshot: SettingsSnapshot | null
   onOperation: (operation: AppearanceOperation) => void
   status?: AppearanceSaveStatus
@@ -129,6 +131,7 @@ export function ThemeSettings({
   const lightPreview = resolveTheme(value, snapshot.themes, 'light', false)
   const darkPreview = resolveTheme(value, snapshot.themes, 'dark', false)
   const [resetting, setResetting] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   function change(patch: AppearancePatch) {
     onOperation({ type: 'patch', patch })
   }
@@ -266,8 +269,12 @@ export function ThemeSettings({
           }
         >
           <AppearanceGroup>
-            <AppearanceRow label="模式">
-              <div role="group" aria-label="外观模式" className="flex max-w-full flex-wrap gap-2">
+            <AppearanceRow label={mobile ? '颜色模式' : '模式'}>
+              <div
+                role="group"
+                aria-label="外观模式"
+                className={mobile ? 'grid w-full grid-cols-3 gap-2.5 pt-1' : 'flex max-w-full flex-wrap gap-2'}
+              >
                 {(['system', 'light', 'dark'] as const).map((entry) => (
                   <Button
                     key={entry}
@@ -278,11 +285,11 @@ export function ThemeSettings({
                       setEditing(entry === 'system' ? (systemDark ? 'dark' : 'light') : entry)
                       change({ mode: entry })
                     }}
-                    className={`h-auto flex-col gap-0 rounded-lg border p-1.5 shadow-none ${value.mode === entry ? 'border-primary bg-primary/5' : 'border-border/70'}`}
+                    className={`h-auto flex-col gap-0 rounded-xl border p-1.5 shadow-none ${mobile ? 'w-full' : 'rounded-lg'} ${value.mode === entry ? 'border-primary bg-primary/5 ring-1 ring-primary/40' : 'border-border/70'}`}
                   >
                     <span
                       aria-hidden="true"
-                      className="flex h-12 w-20 overflow-hidden rounded-md border border-border"
+                      className={`flex overflow-hidden rounded-md border border-border ${mobile ? 'aspect-[16/10] w-full' : 'h-12 w-20'}`}
                       style={{
                         background:
                           entry === 'system'
@@ -320,37 +327,41 @@ export function ThemeSettings({
                         />
                       </span>
                     </span>
-                    <span className="mt-1 block text-xs">
-                      {entry === 'system' ? '系统' : entry === 'light' ? '浅色' : '深色'}
+                    <span className="mt-1.5 block text-xs">
+                      {entry === 'system' ? '跟随系统' : entry === 'light' ? '浅色' : '深色'}
                     </span>
                   </Button>
                 ))}
               </div>
             </AppearanceRow>
             <AppearanceRow label="主题">
-              <TooltipHint content="导入 JSON 主题">
-                <Button variant="ghost" size="icon-sm" aria-label="导入主题" onClick={onImport}>
-                  <Upload className="size-4" />
-                </Button>
-              </TooltipHint>
-              <TooltipHint content="导出颜色、字体和布局；背景图片随插件分发">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="导出主题"
-                  onClick={() =>
-                    onExport({
-                      ...theme,
-                      plugin: undefined,
-                      background: undefined,
-                      id: `custom-${mode}`,
-                      name: `自定义${mode === 'light' ? '浅色' : '深色'}`,
-                    })
-                  }
-                >
-                  <Download className="size-4" />
-                </Button>
-              </TooltipHint>
+              {!mobile && (
+                <>
+                  <TooltipHint content="导入 JSON 主题">
+                    <Button variant="ghost" size="icon-sm" aria-label="导入主题" onClick={onImport}>
+                      <Upload className="size-4" />
+                    </Button>
+                  </TooltipHint>
+                  <TooltipHint content="导出颜色、字体和布局；背景图片随插件分发">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="导出主题"
+                      onClick={() =>
+                        onExport({
+                          ...theme,
+                          plugin: undefined,
+                          background: undefined,
+                          id: `custom-${mode}`,
+                          name: `自定义${mode === 'light' ? '浅色' : '深色'}`,
+                        })
+                      }
+                    >
+                      <Download className="size-4" />
+                    </Button>
+                  </TooltipHint>
+                </>
+              )}
               <Select
                 value={theme.id}
                 onValueChange={(id) => {
@@ -363,7 +374,7 @@ export function ThemeSettings({
               >
                 <SelectTrigger
                   aria-label="外观主题"
-                  className={`w-48 min-w-0 bg-secondary/60 ${settingsControlClassName}`}
+                  className={`${mobile ? 'w-40' : 'w-48'} min-w-0 bg-secondary/60 ${settingsControlClassName}`}
                 >
                   <CrossfadeText className="min-w-0" textClassName="truncate">
                     {ready ? theme.name : '正在读取…'}
@@ -412,108 +423,114 @@ export function ThemeSettings({
                 />
               )}
             </AppearanceRow>
-            <AppearanceRow label="背景">
-              <ColorControl
-                label="背景"
-                value={theme.colors.background}
-                onChange={(next) => color('background', next)}
-                onReset={() => color('background')}
-              />
-            </AppearanceRow>
-            <AppearanceRow label="前景">
-              <ColorControl
-                label="前景"
-                value={theme.colors.text}
-                onChange={(next) => color('text', next)}
-                onReset={() => color('text')}
-              />
-            </AppearanceRow>
-            {theme.background && (
-              <AppearanceRow label="主题背景图" description="图片来自已安装主题插件">
-                {theme.background.url && (
-                  <img src={theme.background.url} alt={theme.name} className="h-16 w-24 rounded object-cover" />
-                )}
-              </AppearanceRow>
-            )}
-            {theme.background && (
+            {(!mobile || advancedOpen) && (
               <>
-                <AppearanceRow label="背景图透明度">
+                <AppearanceRow label="背景">
+                  <ColorControl
+                    label="背景"
+                    value={theme.colors.background}
+                    onChange={(next) => color('background', next)}
+                    onReset={() => color('background')}
+                  />
+                </AppearanceRow>
+                <AppearanceRow label="前景">
+                  <ColorControl
+                    label="前景"
+                    value={theme.colors.text}
+                    onChange={(next) => color('text', next)}
+                    onReset={() => color('text')}
+                  />
+                </AppearanceRow>
+                {theme.background && (
+                  <AppearanceRow label="主题背景图" description="图片来自已安装主题插件">
+                    {theme.background.url && (
+                      <img src={theme.background.url} alt={theme.name} className="h-16 w-24 rounded object-cover" />
+                    )}
+                  </AppearanceRow>
+                )}
+                {theme.background && (
+                  <>
+                    <AppearanceRow label="背景图透明度">
+                      <RangeControl
+                        label="背景图透明度"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        value={theme.background.opacity}
+                        display={`${Math.round(theme.background.opacity * 100)}%`}
+                        onChange={(opacity) => override({ background: { ...overrides.background, opacity } })}
+                        customized={overrides.background?.opacity !== undefined}
+                        onReset={() => resetBackground('opacity')}
+                      />
+                    </AppearanceRow>
+                    <AppearanceRow label="背景图模糊">
+                      <RangeControl
+                        label="背景图模糊"
+                        min={0}
+                        max={32}
+                        value={theme.background.blur}
+                        display={`${theme.background.blur} px`}
+                        onChange={(blur) => override({ background: { ...overrides.background, blur } })}
+                        customized={overrides.background?.blur !== undefined}
+                        onReset={() => resetBackground('blur')}
+                      />
+                    </AppearanceRow>
+                  </>
+                )}
+                <AppearanceRow label="间距" description="调整内边距和元素间距，保留图标与控件尺寸">
                   <RangeControl
-                    label="背景图透明度"
+                    label="主题间距"
+                    min={0.5}
+                    max={2}
+                    step={0.1}
+                    value={theme.tokens?.spacing ?? 1}
+                    display={`${Math.round((theme.tokens?.spacing ?? 1) * 100)}%`}
+                    onChange={(spacing) => override({ tokens: { ...overrides.tokens, spacing } })}
+                    customized={overrides.tokens?.spacing !== undefined}
+                    onReset={() => resetToken('spacing')}
+                  />
+                </AppearanceRow>
+                <AppearanceRow label="圆角" description="调整卡片、输入框和按钮；圆形控件保持圆形">
+                  <RangeControl
+                    label="主题圆角"
                     min={0}
+                    max={24}
+                    value={theme.tokens?.radius ?? 8}
+                    display={`${theme.tokens?.radius ?? 8} px`}
+                    onChange={(radius) => override({ tokens: { ...overrides.tokens, radius } })}
+                    customized={overrides.tokens?.radius !== undefined}
+                    onReset={() => resetToken('radius')}
+                  />
+                </AppearanceRow>
+                <AppearanceRow label="面板透明度" description="调整卡片与侧边栏的背景透明度">
+                  <RangeControl
+                    label="面板透明度"
+                    min={0.4}
                     max={1}
                     step={0.05}
-                    value={theme.background.opacity}
-                    display={`${Math.round(theme.background.opacity * 100)}%`}
-                    onChange={(opacity) => override({ background: { ...overrides.background, opacity } })}
-                    customized={overrides.background?.opacity !== undefined}
-                    onReset={() => resetBackground('opacity')}
+                    value={theme.tokens?.surfaceOpacity ?? 1}
+                    display={`${Math.round((theme.tokens?.surfaceOpacity ?? 1) * 100)}%`}
+                    onChange={(surfaceOpacity) => override({ tokens: { ...overrides.tokens, surfaceOpacity } })}
+                    customized={overrides.tokens?.surfaceOpacity !== undefined}
+                    onReset={() => resetToken('surfaceOpacity')}
                   />
                 </AppearanceRow>
-                <AppearanceRow label="背景图模糊">
-                  <RangeControl
-                    label="背景图模糊"
-                    min={0}
-                    max={32}
-                    value={theme.background.blur}
-                    display={`${theme.background.blur} px`}
-                    onChange={(blur) => override({ background: { ...overrides.background, blur } })}
-                    customized={overrides.background?.blur !== undefined}
-                    onReset={() => resetBackground('blur')}
-                  />
-                </AppearanceRow>
+                <AppearanceRow label="字体">{fontControl('ui', '界面字体')}</AppearanceRow>
               </>
             )}
-            <AppearanceRow label="间距" description="调整内边距和元素间距，保留图标与控件尺寸">
-              <RangeControl
-                label="主题间距"
-                min={0.5}
-                max={2}
-                step={0.1}
-                value={theme.tokens?.spacing ?? 1}
-                display={`${Math.round((theme.tokens?.spacing ?? 1) * 100)}%`}
-                onChange={(spacing) => override({ tokens: { ...overrides.tokens, spacing } })}
-                customized={overrides.tokens?.spacing !== undefined}
-                onReset={() => resetToken('spacing')}
-              />
-            </AppearanceRow>
-            <AppearanceRow label="圆角" description="调整卡片、输入框和按钮；圆形控件保持圆形">
-              <RangeControl
-                label="主题圆角"
-                min={0}
-                max={24}
-                value={theme.tokens?.radius ?? 8}
-                display={`${theme.tokens?.radius ?? 8} px`}
-                onChange={(radius) => override({ tokens: { ...overrides.tokens, radius } })}
-                customized={overrides.tokens?.radius !== undefined}
-                onReset={() => resetToken('radius')}
-              />
-            </AppearanceRow>
-            <AppearanceRow label="面板透明度" description="调整卡片与侧边栏的背景透明度">
-              <RangeControl
-                label="面板透明度"
-                min={0.4}
-                max={1}
-                step={0.05}
-                value={theme.tokens?.surfaceOpacity ?? 1}
-                display={`${Math.round((theme.tokens?.surfaceOpacity ?? 1) * 100)}%`}
-                onChange={(surfaceOpacity) => override({ tokens: { ...overrides.tokens, surfaceOpacity } })}
-                customized={overrides.tokens?.surfaceOpacity !== undefined}
-                onReset={() => resetToken('surfaceOpacity')}
-              />
-            </AppearanceRow>
-            <AppearanceRow label="字体">{fontControl('ui', '界面字体')}</AppearanceRow>
           </AppearanceGroup>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button className={settingsControlClassName} variant="outline" size="sm" onClick={onOpenDirectory}>
-              <FolderOpen className="size-4" />
-              打开主题目录
-            </Button>
-            <Button className={settingsControlClassName} variant="outline" size="sm" onClick={onReload}>
-              <RefreshCw className="size-4" />
-              重新加载主题
-            </Button>
-          </div>
+          {!mobile && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button className={settingsControlClassName} variant="outline" size="sm" onClick={onOpenDirectory}>
+                <FolderOpen className="size-4" />
+                打开主题目录
+              </Button>
+              <Button className={settingsControlClassName} variant="outline" size="sm" onClick={onReload}>
+                <RefreshCw className="size-4" />
+                重新加载主题
+              </Button>
+            </div>
+          )}
         </SettingsGroup>
         <div className="space-y-6">
           <AppearanceGroup>
@@ -553,47 +570,71 @@ export function ThemeSettings({
                 ))}
               </div>
             </AppearanceRow>
-            <AppearanceRow label="分别设置浅色和深色模式" description="分别设置主题、颜色、字体和布局；编辑时实时预览">
-              <Switch
+            {(!mobile || advancedOpen) && (
+              <AppearanceRow
                 label="分别设置浅色和深色模式"
-                checked={value.separate}
-                onChange={(separate) => {
-                  if (separate) setEditing(mode)
-                  onOperation({ type: 'separate', mode, separate })
-                }}
-              />
-            </AppearanceRow>
+                description="分别设置主题、颜色、字体和布局；编辑时实时预览"
+              >
+                <Switch
+                  label="分别设置浅色和深色模式"
+                  checked={value.separate}
+                  onChange={(separate) => {
+                    if (separate) setEditing(mode)
+                    onOperation({ type: 'separate', mode, separate })
+                  }}
+                />
+              </AppearanceRow>
+            )}
           </AppearanceGroup>
-          <AppearanceGroup>
-            <AppearanceRow label="界面字体样式">{styleControl('ui', '界面字体样式')}</AppearanceRow>
-            <AppearanceRow label="内容字体">
-              {fontControl('content', '内容字体')}
-              {styleControl('content', '内容字体样式')}
-            </AppearanceRow>
-            <AppearanceRow label="代码字体">
-              {fontControl('code', '代码字体')}
-              {styleControl('code', '代码字体样式')}
-            </AppearanceRow>
-            <AppearanceRow label="半透明侧边栏">
-              <Switch
-                label="半透明侧边栏"
-                checked={value.translucentSidebar}
-                onChange={(translucentSidebar) => change({ translucentSidebar })}
-              />
-            </AppearanceRow>
-            <AppearanceRow label="对比度" description="调整卡片、边框和辅助文字的层次">
-              <RangeControl
-                label="对比度"
-                min={0}
-                max={100}
-                value={value.contrast}
-                display={String(value.contrast)}
-                onChange={(contrast) => change({ contrast })}
-                customized={value.contrast !== 50}
-                onReset={() => change({ contrast: 50 })}
-              />
-            </AppearanceRow>
-          </AppearanceGroup>
+          {mobile && (
+            <button
+              type="button"
+              aria-expanded={advancedOpen}
+              onClick={() => setAdvancedOpen((prev) => !prev)}
+              className="flex min-h-[44px] w-full items-center justify-between border-y border-[var(--surface-hairline)] py-3 text-sm font-medium text-foreground/85 active:text-foreground"
+            >
+              <span>高级外观</span>
+              {advancedOpen ? (
+                <ChevronDown className="size-4 text-muted-foreground" />
+              ) : (
+                <ChevronRight className="size-4 text-muted-foreground" />
+              )}
+            </button>
+          )}
+          {(!mobile || advancedOpen) && (
+            <AppearanceGroup>
+              <AppearanceRow label="界面字体样式">{styleControl('ui', '界面字体样式')}</AppearanceRow>
+              <AppearanceRow label="内容字体">
+                {fontControl('content', '内容字体')}
+                {styleControl('content', '内容字体样式')}
+              </AppearanceRow>
+              <AppearanceRow label="代码字体">
+                {fontControl('code', '代码字体')}
+                {styleControl('code', '代码字体样式')}
+              </AppearanceRow>
+              {!mobile && (
+                <AppearanceRow label="半透明侧边栏">
+                  <Switch
+                    label="半透明侧边栏"
+                    checked={value.translucentSidebar}
+                    onChange={(translucentSidebar) => change({ translucentSidebar })}
+                  />
+                </AppearanceRow>
+              )}
+              <AppearanceRow label="对比度" description="调整卡片、边框和辅助文字的层次">
+                <RangeControl
+                  label="对比度"
+                  min={0}
+                  max={100}
+                  value={value.contrast}
+                  display={String(value.contrast)}
+                  onChange={(contrast) => change({ contrast })}
+                  customized={value.contrast !== 50}
+                  onReset={() => change({ contrast: 50 })}
+                />
+              </AppearanceRow>
+            </AppearanceGroup>
+          )}
         </div>
         {resetting ? (
           <div role="alert" className="flex flex-wrap items-center gap-3 text-xs">

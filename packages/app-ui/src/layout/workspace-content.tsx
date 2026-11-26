@@ -168,10 +168,32 @@ export function WorkspaceContent({
               </div>
             ) : mobile ? (
               <div className="flex flex-1 flex-col items-center justify-center px-6 py-8 min-h-0 overflow-y-auto">
-                <div ref={welcomeRef} className="w-full max-w-md text-center space-y-4">
-                  <BrandMark size={44} className="mx-auto" />
-                  <h1 className="text-xl font-semibold tracking-tight text-foreground">
-                    {isStandalone ? '今天想聊点什么？' : `在 ${projectName} 中开始`}
+                <div ref={welcomeRef} className="w-full max-w-md text-center">
+                  <h1 className="text-[22px] font-semibold tracking-tight text-foreground">
+                    {isStandalone ? (
+                      '我们要做什么？'
+                    ) : (
+                      <>
+                        在{' '}
+                        {onSelectProject ? (
+                          <button
+                            type="button"
+                            onClick={(event) => onSelectProject(event.currentTarget)}
+                            data-state={projectSelectorOpen ? 'open' : 'closed'}
+                            aria-label={`切换项目：当前为 ${projectName}`}
+                            aria-expanded={projectSelectorOpen}
+                            className="inline-flex items-center rounded-lg px-1.5 py-0.5 -my-0.5 underline decoration-dotted underline-offset-8 decoration-muted-foreground/60 transition-colors active:bg-secondary/70"
+                          >
+                            {projectName}
+                          </button>
+                        ) : (
+                          <span className="underline decoration-dotted underline-offset-8 decoration-muted-foreground/60">
+                            {projectName}
+                          </span>
+                        )}{' '}
+                        中做什么？
+                      </>
+                    )}
                   </h1>
                 </div>
               </div>
@@ -231,7 +253,7 @@ export function WorkspaceContent({
         <div
           className={
             mobile
-              ? 'chat-surface w-full shrink-0 px-3 pt-1 pb-[max(0.75rem,env(safe-area-inset-bottom))]'
+              ? 'chat-surface w-full shrink-0 px-3.5 pt-1 pb-[max(0.75rem,env(safe-area-inset-bottom))]'
               : 'chat-surface w-full pb-4 pt-1 shrink-0'
           }
         >

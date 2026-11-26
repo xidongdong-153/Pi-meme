@@ -546,6 +546,7 @@ export const Conversation = React.memo(
                           <InlineMessageEditor editor={editor} />
                         ) : (
                           <ChatMessage
+                            mobile={mobile}
                             message={turn.message}
                             pending={turn.message === pendingPrompt?.message}
                             tools={chat.tools}
@@ -560,6 +561,7 @@ export const Conversation = React.memo(
                   return (
                     <AssistantConversationTurn
                       key={turn.key}
+                      mobile={mobile}
                       turn={turn}
                       hideAgentOperations={!readOnly || agentOnly || turn.hideAgentOperations}
                       imageGenerations={imageGenerations.get(turn.key)}
@@ -573,8 +575,8 @@ export const Conversation = React.memo(
                       retry={turn.isLive && chat.retry?.kind === 'model' ? chat.retry : undefined}
                       isPaused={Boolean(chat.paused && turn.isLive)}
                       pauseIntervals={chat.pauseIntervals}
-                      canFork={!mobile && canForkReplies}
-                      onFork={readOnly || mobile ? undefined : onForkReply}
+                      canFork={canForkReplies}
+                      onFork={readOnly ? undefined : onForkReply}
                       onCopyError={onCopyError}
                       onOpenAgent={mobile ? undefined : onOpenAgent}
                       agents={chat.agents}
@@ -582,12 +584,12 @@ export const Conversation = React.memo(
                       onActivityToggle={handleActivityToggle}
                       renderReply={!agentOnly && !turn.isLive && renderPlan ? planReply : undefined}
                       changes={
-                        !mobile && finalReplyKeys.has(turn.key) && turn.userEntryId !== undefined
+                        finalReplyKeys.has(turn.key) && turn.userEntryId !== undefined
                           ? changesByEntry.get(turn.userEntryId)
                           : undefined
                       }
-                      onViewChanges={mobile ? undefined : onViewChanges}
-                      onUndoChanges={mobile ? undefined : onUndoChanges}
+                      onViewChanges={onViewChanges}
+                      onUndoChanges={onUndoChanges}
                       changesDisabled={changesDisabled}
                     />
                   )

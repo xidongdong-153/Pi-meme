@@ -56,6 +56,7 @@ function InlineImageActivity({
 }
 
 function AssistantTurnContent({
+  mobile = false,
   turn,
   isFinalReply = !turn.isLive,
   hideAgentOperations = turn.hideAgentOperations,
@@ -76,6 +77,7 @@ function AssistantTurnContent({
   progress,
   interrupted,
 }: {
+  mobile?: boolean
   turn: Extract<TurnChunk, { type: 'assistant_turn' }>
   isFinalReply?: boolean
   hideAgentOperations?: boolean
@@ -326,8 +328,14 @@ function AssistantTurnContent({
         </div>
         {changes}
         {hasReplyContent && (
-          <div className="mt-1 flex h-7 items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+          <div
+            className={cn(
+              'mt-1 flex items-center gap-1',
+              mobile ? 'min-h-9' : 'h-7 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100',
+            )}
+          >
             <MessageActions
+              mobile={mobile}
               onCopy={() => navigator.clipboard.writeText(turn.finalText)}
               onCopyError={onCopyError}
               canCopy={Boolean(turn.finalText.trim())}

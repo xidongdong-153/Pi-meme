@@ -574,13 +574,61 @@ body {
   padding-inline: 16px;
 }
 
-[data-mobile-web] [data-message-role='user'] > div > .opacity-0,
-[data-mobile-web] [data-message-role='assistant'] > div > .opacity-0 {
-  opacity: 0.72;
+[data-mobile-web] [data-message-role='user'] [data-message-body] {
+  border-radius: 20px;
+  border-top-right-radius: 6px;
+  padding: 10px 14px;
 }
 
 [data-mobile-web] pre,
 [data-mobile-web] table {
   max-width: 100%;
   overflow-x: auto;
+}
+
+[data-mobile-web] .no-scrollbar {
+  scrollbar-width: none;
+}
+
+[data-mobile-web] .no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* 移动端全页设置：扁平细线分组、放大触控热区与药丸控件 */
+[data-mobile-web] .mobile-settings-page .settings-group > div:first-child {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--surface-hairline);
+}
+
+[data-mobile-web] .mobile-settings-page .settings-group > div:first-child h3 {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+[data-mobile-web] .mobile-settings-page .settings-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+  font-size: 14px;
+}
+
+[data-mobile-web] .mobile-settings-page .settings-row {
+  padding-inline: 0;
+  padding-block: 14px;
+  font-size: 14px;
+}
+
+[data-mobile-web] .mobile-settings-page .settings-control {
+  height: 36px;
+  border-radius: 9999px;
+  padding-inline: 14px;
+  font-size: 13px;
+}
+
+[data-mobile-web]
+  .mobile-settings-page
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+[data-mobile-web] .mobile-settings-page textarea {
+  font-size: 16px;
 }

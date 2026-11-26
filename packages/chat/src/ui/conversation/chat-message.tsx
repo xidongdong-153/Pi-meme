@@ -21,6 +21,7 @@ import { messageText } from '../model/message-text'
 import { PluginMessageActions } from '@pi-meme/ui/components/plugin-message-actions'
 
 export function ChatMessage({
+  mobile = false,
   message,
   tools,
   live = false,
@@ -30,6 +31,7 @@ export function ChatMessage({
   canEdit,
   onCopyError,
 }: {
+  mobile?: boolean
   message: PiMessage
   tools: ChatState['tools']
   live?: boolean
@@ -150,8 +152,16 @@ export function ChatMessage({
           </span>
         )}
         {isUser && !pending && (
-          <div className="mt-1 flex h-7 items-center gap-1 text-sm text-muted-foreground/70 opacity-0 transition-opacity focus-within:opacity-100 group-hover/message:opacity-100">
+          <div
+            className={cn(
+              'mt-1 flex items-center gap-1 text-sm text-muted-foreground/75',
+              mobile
+                ? 'min-h-9'
+                : 'h-7 opacity-0 transition-opacity focus-within:opacity-100 group-hover/message:opacity-100',
+            )}
+          >
             <MessageActions
+              mobile={mobile}
               onCopy={() => navigator.clipboard.writeText(messageText(message))}
               onCopyError={onCopyError}
               canCopy={Boolean(messageText(message).trim())}

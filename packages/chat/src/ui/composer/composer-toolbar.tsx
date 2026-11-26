@@ -1,12 +1,14 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ArrowUp, CornerDownLeft, Lightbulb, LoaderCircle, Play, Plus, RotateCcw, Square, X } from 'lucide-react'
 import type { TaskMode } from '@pi-meme/contracts/plan'
 import type { PiState } from '@pi-meme/contracts/pi'
+import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipHint, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { cn } from '@pi-meme/ui/lib/utils'
 
 export type ComposerToolbarProps = {
   mobile?: boolean
+  renderMobilePlusMenu?: (actions: { onAddFiles: () => void; close: () => void }) => ReactNode
   goalControl?: ReactNode
   compact?: boolean
   mode?: TaskMode
@@ -41,6 +43,7 @@ export type ComposerToolbarProps = {
 
 export function ComposerToolbar({
   mobile = false,
+  renderMobilePlusMenu,
   goalControl,
   compact,
   mode,
@@ -66,6 +69,7 @@ export function ComposerToolbar({
   contextUsage,
   editing,
 }: ComposerToolbarProps) {
+  const [plusMenuOpen, setPlusMenuOpen] = useState(false)
   const hasInput = Boolean(draft.trim()) || hasAttachments
   const canSend = !disabled && hasInput
   const canRecover = !hasInput && !editing && !editingQueue && !running && !paused && Boolean(recovery && onRecover)
@@ -101,25 +105,60 @@ export function ComposerToolbar({
   return (
     <div className={cn('composer-toolbar mt-2 flex items-center justify-between pt-1 gap-2', !mobile && 'flex-wrap')}>
       <div className="composer-leading flex min-w-0 flex-wrap items-center gap-1.5">
-        <Tooltip delayDuration={300}>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={onAddFiles}
-              aria-label="添加附件"
-              className={cn(
-                'inline-flex shrink-0 items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary/70 transition-colors cursor-pointer select-none',
-                mobile ? 'size-9 rounded-full text-foreground/90 active:bg-secondary' : 'size-7 rounded-lg',
-                compact && !mobile && 'rounded-full text-foreground',
-                disabled && 'cursor-not-allowed',
-              )}
+        {mobile && renderMobilePlusMenu ? (
+          <Popover open={plusMenuOpen} onOpenChange={setPlusMenuOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                disabled={disabled}
+                aria-label="更多操作与附件"
+                aria-expanded={plusMenuOpen}
+                className={cn(
+                  'inline-flex size-9 shrink-0 items-center justify-center rounded-full text-foreground/90 transition-colors active:bg-secondary cursor-pointer select-none',
+                  plusMenuOpen && 'bg-secondary text-foreground',
+                  disabled && 'cursor-not-allowed opacity-45',
+                )}
+              >
+                <Plus className={cn('size-5 transition-transform duration-150', plusMenuOpen && 'rotate-45')} />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              side="top"
+              align="start"
+              sideOffset={10}
+              collisionPadding={14}
+              className="w-[min(calc(100vw-28px),320px)] max-h-[min(60dvh,420px)] overflow-y-auto overscroll-contain rounded-2xl border-border/80 bg-popover p-1.5 shadow-xl"
             >
-              <Plus className={mobile ? 'size-5' : 'size-4'} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">添加图片或附件</TooltipContent>
-        </Tooltip>
+              {renderMobilePlusMenu({
+                onAddFiles: () => {
+                  setPlusMenuOpen(false)
+                  onAddFiles?.()
+                },
+                close: () => setPlusMenuOpen(false),
+              })}
+            </PopoverContent>
+          </Popover>
+        ) : (
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={onAddFiles}
+                aria-label="添加附件"
+                className={cn(
+                  'inline-flex shrink-0 items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary/70 transition-colors cursor-pointer select-none',
+                  mobile ? 'size-9 rounded-full text-foreground/90 active:bg-secondary' : 'size-7 rounded-lg',
+                  compact && !mobile && 'rounded-full text-foreground',
+                  disabled && 'cursor-not-allowed',
+                )}
+              >
+                <Plus className={mobile ? 'size-5' : 'size-4'} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">添加图片或附件</TooltipContent>
+          </Tooltip>
+        )}
         {!mobile && !compact && access}
         {!mobile && goalControl}
         {!mobile && !compact && plan && (

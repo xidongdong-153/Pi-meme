@@ -19,6 +19,7 @@ import {
   Sparkles,
   User,
   Users,
+  X,
 } from 'lucide-react'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import {
@@ -42,7 +43,7 @@ function PluginSettingsIcon({ className, strokeWidth }: { className?: string; st
   )
 }
 
-const groups = [
+export const SETTINGS_GROUPS = [
   {
     label: '个人',
     sections: [
@@ -101,9 +102,26 @@ const groups = [
     ],
   },
 ] as const
-type Section = (typeof groups)[number]['sections'][number]
+
+type Section = (typeof SETTINGS_GROUPS)[number]['sections'][number]
 export type SettingsSection = Section['id']
-const sections = groups.flatMap<Section>((group) => group.sections)
+const sections = SETTINGS_GROUPS.flatMap<Section>((group) => group.sections)
+
+const MOBILE_HIDDEN_SECTIONS: ReadonlySet<SettingsSection> = new Set(['shortcuts', 'computer'])
+
+export function isMobileSettingsSectionAvailable(sectionId: SettingsSection, showBrowser = false): boolean {
+  if (MOBILE_HIDDEN_SECTIONS.has(sectionId)) return false
+  if (sectionId === 'browser' && !showBrowser) return false
+  return true
+}
+
+export function resolveMobileSettingsSection(sectionId: SettingsSection, showBrowser = false): SettingsSection {
+  return isMobileSettingsSectionAvailable(sectionId, showBrowser) ? sectionId : 'general'
+}
+
+export function getSettingsSection(sectionId: SettingsSection): Section {
+  return sections.find((entry) => entry.id === sectionId) ?? sections[0]!
+}
 
 type SettingsNavigationProps = {
   sectionId: SettingsSection
@@ -111,25 +129,32 @@ type SettingsNavigationProps = {
   onNavigate: (section: SettingsSection) => void
 }
 
-function SettingsNavigation({ sectionId, saving, onNavigate }: SettingsNavigationProps) {
+export function SettingsDirectory({
+  sectionId,
+  saving,
+  onNavigate,
+  mobile = false,
+  showBrowser = true,
+  className,
+}: SettingsNavigationProps & {
+  mobile?: boolean
+  showBrowser?: boolean
+  className?: string
+}) {
   const [query, setQuery] = useState('')
   const search = query.trim().toLowerCase()
-  const visibleGroups = groups
-    .map((group) => ({
-      ...group,
-      sections: group.sections.filter((entry) =>
-        `${entry.label} ${entry.description} ${entry.id}`.toLowerCase().includes(search),
-      ),
-    }))
-    .filter((group) => group.sections.length > 0)
+  const visibleGroups = SETTINGS_GROUPS.map((group) => ({
+    ...group,
+    sections: group.sections.filter((entry) => {
+      if (mobile && !isMobileSettingsSectionAvailable(entry.id, showBrowser)) return false
+      return `${entry.label} ${entry.description} ${entry.id}`.toLowerCase().includes(search)
+    }),
+  })).filter((group) => group.sections.length > 0)
 
   return (
-    <aside className="flex min-h-0 shrink-0 flex-col border-b border-border/70 bg-secondary/45 pt-[env(safe-area-inset-top)] sm:pt-0 @min-[660px]/settings:w-[clamp(11.5rem,22cqw,14.5rem)] @min-[660px]/settings:border-r @min-[660px]/settings:border-b-0">
-      <div className="flex shrink-0 items-center gap-4 px-4 py-3 pr-14 @min-[660px]/settings:block @min-[660px]/settings:px-3 @min-[660px]/settings:pt-4 @min-[660px]/settings:pb-2">
-        <DialogTitle className="shrink-0 whitespace-nowrap text-base font-semibold @min-[660px]/settings:px-1.5">
-          设置
-        </DialogTitle>
-        <div className="relative mt-3 hidden @min-[660px]/settings:block">
+    <div className={cn('flex min-h-0 flex-1 flex-col', className)}>
+      <div className={cn('shrink-0', mobile ? 'px-3 pt-1 pb-2.5' : 'px-3 pt-2 pb-2')}>
+        <div className="relative">
           <Search
             aria-hidden="true"
             className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
@@ -138,18 +163,86 @@ function SettingsNavigation({ sectionId, saving, onNavigate }: SettingsNavigatio
           <Input
             aria-label="搜索设置"
             placeholder="搜索设置"
+            autoFocus={false}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            className="h-9 rounded-full border-foreground/15 bg-transparent pl-8.5 text-xs shadow-none focus-visible:border-foreground/35 focus-visible:ring-0"
+            className={cn(
+              'rounded-full border-foreground/15 bg-transparent pl-8.5 shadow-none focus-visible:border-foreground/35 focus-visible:ring-0',
+              mobile ? 'h-9 pr-8 text-base' : 'h-9 text-xs',
+            )}
           />
+          {mobile && query && (
+            <button
+              type="button"
+              aria-label="清空设置搜索"
+              onClick={() => setQuery('')}
+              className="absolute right-1.5 top-1/2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground active:bg-secondary active:text-foreground"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
         </div>
+      </div>
+      <nav
+        aria-label="设置分类"
+        className={cn(
+          'min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain [scrollbar-gutter:stable]',
+          mobile ? 'px-2 pt-1 pb-[max(1.25rem,env(safe-area-inset-bottom))]' : 'px-2.5 pt-1 pb-5',
+        )}
+      >
+        {visibleGroups.map((group) => (
+          <section key={group.label} aria-label={group.label}>
+            <h3 className={cn('mb-1.5 text-xs font-medium text-muted-foreground', mobile ? 'px-3' : 'px-2.5')}>
+              {group.label}
+            </h3>
+            <div className="space-y-0.5">
+              {group.sections.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-current={sectionId === id ? 'page' : undefined}
+                  aria-controls="settings-content"
+                  disabled={saving}
+                  onClick={() => onNavigate(id)}
+                  className={cn(
+                    'settings-nav-item flex w-full items-center gap-2.5 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50',
+                    mobile ? 'min-h-[42px] rounded-xl px-3 py-2 text-[14px]' : 'h-8 rounded-lg px-2.5 text-[13px]',
+                    sectionId === id
+                      ? 'bg-foreground/9 font-medium text-foreground'
+                      : 'text-foreground/80 hover:bg-foreground/5 hover:text-foreground active:bg-foreground/8',
+                  )}
+                >
+                  <Icon aria-hidden="true" className="settings-nav-icon size-4 shrink-0" strokeWidth={1.65} />
+                  <span className="truncate">{label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        ))}
+        {visibleGroups.length === 0 && (
+          <p role="status" className="px-3 text-xs text-muted-foreground">
+            没有匹配的设置
+          </p>
+        )}
+      </nav>
+    </div>
+  )
+}
+
+function SettingsNavigation({ sectionId, saving, onNavigate }: SettingsNavigationProps) {
+  return (
+    <aside className="flex min-h-0 shrink-0 flex-col border-b border-border/70 bg-secondary/45 pt-[env(safe-area-inset-top)] sm:pt-0 @min-[660px]/settings:w-[clamp(11.5rem,22cqw,14.5rem)] @min-[660px]/settings:border-r @min-[660px]/settings:border-b-0">
+      <div className="flex shrink-0 items-center gap-4 px-4 py-3 pr-14 @min-[660px]/settings:block @min-[660px]/settings:px-3 @min-[660px]/settings:pt-4 @min-[660px]/settings:pb-1">
+        <DialogTitle className="shrink-0 whitespace-nowrap text-base font-semibold @min-[660px]/settings:px-1.5">
+          设置
+        </DialogTitle>
         <div className="min-w-0 flex-1 @min-[660px]/settings:hidden">
           <Select value={sectionId} onValueChange={(value) => onNavigate(value as SettingsSection)} disabled={saving}>
             <SelectTrigger aria-label="设置分类" className="h-8 bg-transparent text-xs shadow-none">
               <SelectValue />
             </SelectTrigger>
             <SelectContent side="bottom" align="start">
-              {groups.map((group) => (
+              {SETTINGS_GROUPS.map((group) => (
                 <SelectGroup key={group.label}>
                   <SelectLabel>{group.label}</SelectLabel>
                   {group.sections.map(({ id, label }) => (
@@ -163,42 +256,9 @@ function SettingsNavigation({ sectionId, saving, onNavigate }: SettingsNavigatio
           </Select>
         </div>
       </div>
-      <nav
-        aria-label="设置分类"
-        className="hidden min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-2.5 pt-3 pb-5 [scrollbar-gutter:stable] @min-[660px]/settings:block"
-      >
-        {visibleGroups.map((group) => (
-          <section key={group.label} aria-label={group.label}>
-            <h3 className="mb-1.5 px-2.5 text-xs font-medium text-muted-foreground">{group.label}</h3>
-            <div className="space-y-0.5">
-              {group.sections.map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  type="button"
-                  aria-current={sectionId === id ? 'page' : undefined}
-                  aria-controls="settings-content"
-                  disabled={saving}
-                  onClick={() => onNavigate(id)}
-                  className={cn(
-                    'settings-nav-item flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50',
-                    sectionId === id
-                      ? 'bg-foreground/9 font-medium text-foreground'
-                      : 'text-foreground/80 hover:bg-foreground/5 hover:text-foreground',
-                  )}
-                >
-                  <Icon aria-hidden="true" className="settings-nav-icon size-4 shrink-0" strokeWidth={1.65} />
-                  <span className="truncate">{label}</span>
-                </button>
-              ))}
-            </div>
-          </section>
-        ))}
-        {visibleGroups.length === 0 && (
-          <p role="status" className="px-2.5 text-xs text-muted-foreground">
-            没有匹配的设置
-          </p>
-        )}
-      </nav>
+      <div className="hidden min-h-0 flex-1 flex-col @min-[660px]/settings:flex">
+        <SettingsDirectory sectionId={sectionId} saving={saving} onNavigate={onNavigate} />
+      </div>
     </aside>
   )
 }
@@ -210,7 +270,7 @@ function SettingsPanel({
   sectionId: SettingsSection
   renderContent: (section: SettingsSection) => ReactNode
 }) {
-  const section = sections.find((entry) => entry.id === sectionId)!
+  const section = getSettingsSection(sectionId)
   return (
     <section
       id="settings-content"

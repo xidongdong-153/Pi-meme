@@ -1,6 +1,7 @@
 import type { TaskMode, QueuedInput } from '@pi-meme/contracts/plan'
 import * as React from 'react'
 import type { ClipboardEvent, DragEvent, ReactNode } from 'react'
+import { Lightbulb, X } from 'lucide-react'
 import type { ChatBridge } from '@pi-meme/contracts/desktop'
 import type { PiSlashCommand, PiState } from '@pi-meme/contracts/pi'
 import type { ChatState } from '../model/types'
@@ -33,6 +34,7 @@ export type ComposerAgentPlugins = {
 
 export type ComposerProps = {
   mobile?: boolean
+  renderMobilePlusMenu?: (actions: { onAddFiles: () => void; close: () => void }) => ReactNode
   placeholder?: string
   compact?: boolean
   composerStore?: ComposerDraftStore
@@ -120,6 +122,7 @@ export type ComposerProps = {
 
 export function Composer({
   mobile = false,
+  renderMobilePlusMenu,
   placeholder,
   compact,
   composerStore,
@@ -265,11 +268,15 @@ export function Composer({
         aria-label="消息输入"
         className={cn(
           'composer @container relative flex flex-col shadow-md transition-colors',
-          mobile ? 'rounded-[22px] px-3 pt-2.5 pb-2' : 'rounded-[20px] p-3',
+          mobile ? 'rounded-[26px] border border-[var(--surface-hairline)] px-3.5 pt-3 pb-2' : 'rounded-[20px] p-3',
           compact && !mobile && 'composer-compact',
           dragging && 'ring-2 ring-primary/40',
         )}
-        style={{ backgroundColor: 'color-mix(in srgb, var(--background), var(--foreground) 11%)' }}
+        style={{
+          backgroundColor: mobile
+            ? 'color-mix(in srgb, var(--background), var(--foreground) 9%)'
+            : 'color-mix(in srgb, var(--background), var(--foreground) 11%)',
+        }}
         onSubmit={(event) => {
           event.preventDefault()
           if (
@@ -339,6 +346,36 @@ export function Composer({
             {input.images?.length ? `（${input.images.length} 张图片）` : ''}
           </button>
         ))}
+        {mobile && (mode === 'plan' || selectedSkills.length > 0) && (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            {mode === 'plan' && onMode && (
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => onMode('default')}
+                aria-label="关闭计划模式"
+                className="inline-flex h-7 items-center gap-1 rounded-full bg-primary/15 px-2.5 text-xs font-medium text-primary transition-colors active:bg-primary/25 disabled:opacity-45"
+              >
+                <Lightbulb className="size-3.5 shrink-0" />
+                <span>计划模式</span>
+                <X className="size-3 shrink-0 opacity-80" />
+              </button>
+            )}
+            {selectedSkills.map((skill) => (
+              <button
+                key={skill.name}
+                type="button"
+                disabled={disabled}
+                onClick={() => onSkills(selectedSkills.filter((item) => item.name !== skill.name))}
+                aria-label={`移除技能：${skill.name}`}
+                className="inline-flex h-7 max-w-full items-center gap-1 rounded-full bg-secondary px-2.5 text-xs text-foreground transition-colors active:bg-secondary/70 disabled:opacity-45"
+              >
+                <span className="truncate">/{skill.name}</span>
+                <X className="size-3 shrink-0 text-muted-foreground" />
+              </button>
+            ))}
+          </div>
+        )}
         <ComposerAttachments
           attachments={attachments}
           onRemoveImage={onRemoveImage}
@@ -399,6 +436,7 @@ export function Composer({
           <div className="composer-below">{!mobile && widgetsBelow}</div>
           <ComposerToolbar
             mobile={mobile}
+            renderMobilePlusMenu={renderMobilePlusMenu}
             compact={compact}
             goalControl={goalControl}
             mode={mode}

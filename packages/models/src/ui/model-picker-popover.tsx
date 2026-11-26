@@ -406,10 +406,9 @@ export function ModelPickerPopover({
             data-thinking-level={activeLevel}
             className={cn(
               'model-thinking-theme inline-flex min-w-0 max-w-full whitespace-nowrap items-center justify-center select-none cursor-pointer transition-colors rounded-full',
-              'bg-secondary/60 hover:bg-secondary text-foreground/90 hover:text-foreground',
               mobile
-                ? 'h-9 w-auto gap-1.5 px-3 text-xs font-normal active:bg-secondary'
-                : 'size-7 p-0 @min-[500px]:h-7 @min-[500px]:w-auto @min-[500px]:px-2.5 @min-[500px]:text-xs @min-[500px]:font-normal @min-[500px]:gap-1.5',
+                ? 'h-9 w-auto gap-1.5 px-2.5 text-[13px] font-normal bg-transparent text-foreground/85 hover:bg-secondary/60 active:bg-secondary/75'
+                : 'bg-secondary/60 hover:bg-secondary text-foreground/90 hover:text-foreground size-7 p-0 @min-[500px]:h-7 @min-[500px]:w-auto @min-[500px]:px-2.5 @min-[500px]:text-xs @min-[500px]:font-normal @min-[500px]:gap-1.5',
               disabled && 'cursor-not-allowed opacity-60',
               open && 'bg-secondary text-foreground',
             )}
@@ -417,20 +416,25 @@ export function ModelPickerPopover({
             {/* 窄视口或窄容器：仅显示大脑图标（桌面窄分栏）；移动端底栏已精简，直接展示模型名与思考强度 */}
             {!mobile && <Brain className="model-thinking-accent size-4 shrink-0 @min-[500px]:hidden" />}
 
-            {/* 宽容器或移动端：稳定显示模型名称、思考强度与下拉箭头，结构稳定不突变 */}
+            {/* 宽容器或移动端：稳定显示模型名称与思考强度，移动端去胶囊化并省去下拉箭头 */}
             <div
               className={cn('min-w-0 items-center gap-1.5', mobile ? 'inline-flex' : 'hidden @min-[500px]:inline-flex')}
             >
-              <div className={cn('flex min-w-0 items-center gap-1', mobile ? 'max-w-[165px]' : 'max-w-[160px]')}>
+              <div className={cn('flex min-w-0 items-center gap-1', mobile ? 'max-w-[175px]' : 'max-w-[160px]')}>
                 <span className="min-w-0 truncate">{displayName}</span>
                 {activeLevels.length > 1 && (
-                  <span className="model-thinking-accent min-w-[2em] text-center font-medium shrink-0 text-[0.6875rem]">
+                  <span className="model-thinking-accent min-w-[1.5em] text-center font-medium shrink-0 text-xs">
                     {currentLevelLabel}
                   </span>
                 )}
-                {showFast && <span className="shrink-0 text-[0.6875rem] font-medium">Fast</span>}
+                {showFast &&
+                  (mobile ? (
+                    <Zap aria-label="Fast 模式" className="size-3 shrink-0 fill-current text-amber-500" />
+                  ) : (
+                    <span className="shrink-0 text-[0.6875rem] font-medium">Fast</span>
+                  ))}
               </div>
-              <ChevronDown className="size-3 text-muted-foreground/80 shrink-0 ml-0.5" />
+              {!mobile && <ChevronDown className="size-3 text-muted-foreground/80 shrink-0 ml-0.5" />}
             </div>
           </button>
         </PopoverTrigger>
@@ -448,7 +452,7 @@ export function ModelPickerPopover({
         avoidCollisions={true}
         className={cn(
           'flex max-h-[min(24rem,calc(100dvh-100px))] max-w-[calc(100vw-24px)] flex-col rounded-2xl border-border/80 bg-popover p-3 shadow-xl select-none',
-          mobile ? 'w-[min(calc(100vw-24px),340px)]' : 'w-64',
+          mobile ? 'w-[min(calc(100vw-28px),340px)]' : 'w-64',
         )}
       >
         {view === 'thinking' ? (

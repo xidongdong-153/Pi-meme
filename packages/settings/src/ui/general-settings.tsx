@@ -6,11 +6,13 @@ import { cn } from '@pi-meme/ui/lib/utils'
 import { StorageSettings } from './storage-settings'
 
 export function GeneralSettings({
+  mobile = false,
   accessSettings,
   settings,
   onEditor,
   ...storage
 }: {
+  mobile?: boolean
   accessSettings: ReactNode
   settings?: DesktopSettings
   onEditor: (value: GeneralSessionSettings) => void
@@ -117,7 +119,7 @@ export function GeneralSettings({
       <SettingsGroup title="权限">
         <SettingsCard>{accessSettings}</SettingsCard>
       </SettingsGroup>
-      <StorageSettings {...storage} />
+      <StorageSettings mobile={mobile} {...storage} />
     </div>
   )
 }

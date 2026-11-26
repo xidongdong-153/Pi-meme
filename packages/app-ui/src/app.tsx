@@ -59,6 +59,7 @@ import { SidebarMenus } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
 import { buildSidebarModel } from '@pi-meme/workspace/ui/sidebar/sidebar-model'
 import { SessionSearchDialog } from '@pi-meme/workspace/ui/sidebar/session-search-dialog'
 import { MobileChatShell } from './layout/mobile-chat-shell'
+import { MobileWorkSheet, type MobileWorkSheetSection, type MobileWorkSheetTab } from './layout/mobile-work-sheet'
 import { useMobileWeb } from './layout/use-mobile-web'
 import { ModelPickerPopover } from '@pi-meme/models/ui/model-picker-popover'
 import { ExtensionWidgets } from '@pi-meme/interaction/ui/extension-widgets'
@@ -102,6 +103,7 @@ import { PluginWorkspacePage, pluginRouteForEntry, rememberPluginRoute } from '.
 import type { RegisteredNavigation } from '@pi-meme/plugin-sdk/navigation'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
+import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { PluginSlot } from './plugins/plugin-slot'
 import { WorkspacePanels } from './layout/workspace-panels'
 import {
@@ -115,9 +117,14 @@ import { useAgentPluginSelection } from './plugins/use-agent-plugin-selection'
 import {
   Activity,
   Blocks,
+  Check,
   FileDiff,
   Folder,
   Globe,
+  Lightbulb,
+  Paperclip,
+  PieChart,
+  Sparkles,
   TerminalSquare,
   Network,
   ListTree,
@@ -128,7 +135,7 @@ import type { HostApi, AppSession, FilePreview, SessionRef } from '@pi-meme/cont
 import type { SystemClientRequest, SystemClientExecutionContext } from '@pi-meme/contracts/system-tools'
 import { CustomizationPage } from './plugins/customization-page'
 import { PluginPage } from './settings/plugin-page'
-import { SettingsDialog, type SettingsSection } from './settings/settings-page'
+import { resolveMobileSettingsSection, SettingsDialog, type SettingsSection } from './settings/settings-page'
 import { WorkspaceViewSettings } from './settings/workspace-view-settings'
 import { SkillPage } from './settings/skill-page'
 import { useUserProfile } from './settings/user-profile'
@@ -524,11 +531,19 @@ function AppContent({
     path?: string
     revision: number
   }>()
+  const [mobileWorkSheetOpen, setMobileWorkSheetOpen] = useState(false)
+  const [mobileWorkSheetTab, setMobileWorkSheetTab] = useState<MobileWorkSheetTab>('plan')
+  const [mobileLinkedFile, setMobileLinkedFile] = useState<LinkedFileTab | null>(null)
   const latestUserEntry = chat.chat.messages.findLast((message) => message.role === 'user')?.sourceEntry?.id
   const liveChanges = turnChanges.turns.find((turn) => turn.entryId === latestUserEntry)
   const viewChanges = (entryId: string, path?: string) => {
     if (!appSession) return
     setChangeSelection({ sessionId: appSession.sessionId, entryId, path, revision: Date.now() })
+    if (mobileWeb) {
+      setMobileWorkSheetTab('changes')
+      setMobileWorkSheetOpen(true)
+      return
+    }
     setSystemRequest({
       id: 'builtin:git',
       revision: Date.now(),
@@ -625,7 +640,7 @@ function AppContent({
   const gitAvailability = useGitAvailability({
     host,
     session: appSession,
-    enabled: active && chatVisible && toolsVisible && !remoteOffline,
+    enabled: active && chatVisible && (toolsVisible || (mobileWeb && mobileWorkSheetOpen)) && !remoteOffline,
     revision: JSON.stringify([chat.refreshToken, chat.chat.historyRevision]),
     targetKey: JSON.stringify([cwd, chat.connection.generation, chat.editingEntryId, chat.chat.historyRevision]),
     onEvent: bridge.onEvent,
@@ -634,9 +649,9 @@ function AppContent({
   })
   const [chatPaneVisible, setChatPaneVisible] = useState(false)
   useEffect(() => {
-    chat.setReadVisible(active && (mobileWeb || (chatVisible && chatPaneVisible)))
+    chat.setReadVisible(active && (mobileWeb ? !settingsOpen : chatVisible && chatPaneVisible))
     return () => chat.setReadVisible(false)
-  }, [chatVisible, active, chatPaneVisible, mobileWeb, chat.setReadVisible])
+  }, [chatVisible, active, chatPaneVisible, mobileWeb, settingsOpen, chat.setReadVisible])
   const [mcpLocation, setMcpLocation] = useState<McpSettingsLocation>()
   const openMcpSettings = (location: McpSettingsLocation) => {
     openSettings('mcp')
@@ -1030,10 +1045,6 @@ function AppContent({
     () => ({
       loadPreview: (url: string) => call<LinkPreview>('chat:link-preview', [url]),
       openFile: async (path: string, location?: { line?: string; column?: string; session?: SessionRef }) => {
-        if (mobileWeb) {
-          chat.setError('请在桌面端查看完整文件面板')
-          return
-        }
         const session = location?.session ?? appSession
         if (!session) throw new Error('当前内容没有可用的会话文件读取器')
         const id = `builtin:file:${JSON.stringify([session.hostId, session.sessionId, path])}`
@@ -1043,6 +1054,12 @@ function AppContent({
           session,
           line: location?.line ? Number(location.line) : undefined,
           column: location?.column ? Number(location.column) : undefined,
+        }
+        if (mobileWeb) {
+          setMobileLinkedFile(tab)
+          setMobileWorkSheetTab('file')
+          setMobileWorkSheetOpen(true)
+          return
         }
         setFileTabs((tabs) =>
           tabs.some((item) => item.id === id) ? tabs.map((item) => (item.id === id ? tab : item)) : [...tabs, tab],
@@ -1243,8 +1260,154 @@ function AppContent({
         ? '给 Pi meme 发消息…'
         : `在“${project}”中发消息…`
     : undefined
+  const mobileAccessControl = mobileWeb ? (
+    <AgentAccessSelector
+      key={`mobile:${chat.connection.sessionKey}`}
+      mobile
+      mode={chat.connection.accessMode}
+      taskMode={chat.mode}
+      busy={chat.accessBusy}
+      supported={chat.connection.restrictedAccessSupported === true}
+      onChange={(mode) => void chat.setAccessMode(mode)}
+    />
+  ) : null
+  const mobileContextUsagePercent = (() => {
+    const usage = chat.sessionStats?.contextUsage
+    const request =
+      !usage?.compactionId || contextRequest?.compactionId === usage.compactionId ? contextRequest : undefined
+    const tokens =
+      request?.prompt?.tokens ??
+      (request?.usage ? request.usage.input + request.usage.cacheRead + request.usage.cacheWrite : usage?.tokens)
+    const capacity = request?.prompt?.window ?? (request ? undefined : usage?.contextWindow)
+    if (typeof tokens === 'number' && typeof capacity === 'number' && capacity > 0) {
+      return Math.min(100, Math.max(0, Math.round((tokens / capacity) * 100)))
+    }
+    return undefined
+  })()
+  const mobileSkillCommands = useMemo(
+    () => chat.commands.filter((command) => command.source === 'skill' || command.name).slice(0, 12),
+    [chat.commands],
+  )
+  const mobilePlanDisabled =
+    !ready ||
+    chat.inputDisabled ||
+    chat.busy ||
+    chat.editing ||
+    chat.editingQueue !== null ||
+    chat.goal?.status === 'active'
   const composerProps: ComponentProps<typeof Composer> = {
     mobile: mobileWeb,
+    renderMobilePlusMenu: mobileWeb
+      ? ({ onAddFiles, close }) => (
+          <div className="space-y-1 text-sm">
+            <button
+              type="button"
+              onClick={onAddFiles}
+              className="flex min-h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left text-foreground transition-colors active:bg-secondary"
+            >
+              <Paperclip className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                <span className="block font-medium">添加图片和文件</span>
+                <span className="block text-xs text-muted-foreground">从相册或本地文件上传</span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              disabled={mobilePlanDisabled}
+              onClick={() => {
+                chat.changeMode(chat.mode === 'plan' ? 'default' : 'plan')
+                close()
+              }}
+              className="flex min-h-[44px] w-full items-center gap-3 rounded-xl px-3 text-left text-foreground transition-colors active:bg-secondary disabled:opacity-45"
+            >
+              <Lightbulb
+                className={
+                  chat.mode === 'plan' ? 'size-4 shrink-0 text-primary' : 'size-4 shrink-0 text-muted-foreground'
+                }
+              />
+              <span className="min-w-0 flex-1 font-medium">计划模式</span>
+              <span
+                className={
+                  chat.mode === 'plan'
+                    ? 'rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary'
+                    : 'text-xs text-muted-foreground'
+                }
+              >
+                {chat.mode === 'plan' ? '已开启' : '未开启'}
+              </span>
+            </button>
+
+            <div className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl px-3">
+              <span className="text-sm font-medium text-foreground">访问权限</span>
+              {mobileAccessControl}
+            </div>
+
+            {mobileSkillCommands.length > 0 && (
+              <div className="border-t border-border/50 pt-1.5">
+                <div className="flex items-center gap-1.5 px-3 py-1 text-xs font-medium text-muted-foreground">
+                  <Sparkles className="size-3.5" />
+                  <span>选择技能</span>
+                </div>
+                <div className="max-h-36 space-y-0.5 overflow-y-auto">
+                  {mobileSkillCommands.map((skill) => {
+                    const selected = chat.selectedSkills.some((item) => item.name === skill.name)
+                    return (
+                      <button
+                        key={skill.name}
+                        type="button"
+                        onClick={() => {
+                          chat.setSelectedSkills(
+                            selected
+                              ? chat.selectedSkills.filter((item) => item.name !== skill.name)
+                              : [...chat.selectedSkills, skill],
+                          )
+                          close()
+                        }}
+                        className="flex min-h-[40px] w-full items-center justify-between gap-2 rounded-xl px-3 text-left text-sm text-foreground/90 transition-colors active:bg-secondary"
+                      >
+                        <span className="min-w-0 truncate">/{skill.name}</span>
+                        {selected && <Check className="size-4 shrink-0 text-primary" />}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {hasConversation && (
+              <div className="flex min-h-[44px] items-center justify-between gap-2 border-t border-border/50 px-3 pt-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    close()
+                    setMobileWorkSheetTab('context')
+                    setMobileWorkSheetOpen(true)
+                  }}
+                  className="flex min-w-0 flex-1 items-center gap-2.5 py-1.5 text-left text-sm text-foreground active:opacity-75"
+                >
+                  <PieChart className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate">
+                    上下文用量{mobileContextUsagePercent !== undefined ? ` · ${mobileContextUsagePercent}%` : ''}
+                  </span>
+                </button>
+                {!chat.inputDisabled && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      close()
+                      void chat.compactNow()
+                    }}
+                    className="h-8 shrink-0 rounded-full border border-border/80 px-3 text-xs font-medium text-foreground transition-colors active:bg-secondary"
+                  >
+                    压缩
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      : undefined,
     placeholder: mobileComposerPlaceholder,
     compact: interaction?.method === 'questions',
     mode: chat.mode,
@@ -1459,16 +1622,86 @@ function AppContent({
       )}
       <div
         data-testid="workspace-card"
+        style={
+          showWorkspaceSlot && mobileWeb
+            ? { backgroundColor: 'color-mix(in srgb, var(--background), var(--foreground) 5.5%)' }
+            : undefined
+        }
         className={
           showWorkspaceSlot
             ? mobileWeb
-              ? 'relative mx-2.5 -mb-2 flex h-11 min-w-0 items-center justify-between gap-1 rounded-t-2xl border border-b-0 border-border/60 bg-secondary/50 px-2 pb-2'
+              ? 'no-scrollbar relative mx-3.5 -mb-2.5 flex h-11 min-w-0 items-center justify-between gap-1 overflow-x-auto rounded-t-[18px] border border-b-0 border-[var(--surface-hairline)] px-2.5 pb-2.5'
               : 'relative mx-3 -mb-2 flex h-12 min-w-0 items-center justify-between gap-1 rounded-t-[14px] border border-border/80 bg-card/95 px-1.5 pb-2'
             : 'hidden'
         }
       >
         <div className="flex min-w-0 flex-1 items-center gap-1">
           {projectSelector}
+          {mobileWeb && (
+            <>
+              <button
+                type="button"
+                disabled={mobilePlanDisabled}
+                aria-pressed={chat.mode === 'plan'}
+                onClick={() => chat.changeMode(chat.mode === 'plan' ? 'default' : 'plan')}
+                className={
+                  chat.mode === 'plan'
+                    ? 'inline-flex h-8 shrink-0 items-center gap-1 rounded-lg bg-primary/15 px-2 text-xs font-medium text-primary transition-colors active:bg-primary/25 disabled:opacity-45'
+                    : 'inline-flex h-8 shrink-0 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground transition-colors active:bg-secondary/70 disabled:opacity-45'
+                }
+              >
+                <Lightbulb className="size-3.5 shrink-0" />
+                <span>计划</span>
+              </button>
+              {mobileAccessControl}
+              {mobileSkillCommands.length > 0 && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className={
+                        chat.selectedSkills.length > 0
+                          ? 'inline-flex h-8 shrink-0 items-center gap-1 rounded-lg bg-secondary px-2 text-xs font-medium text-foreground transition-colors active:bg-secondary/70'
+                          : 'inline-flex h-8 shrink-0 items-center gap-1 rounded-lg px-2 text-xs text-muted-foreground transition-colors active:bg-secondary/70'
+                      }
+                    >
+                      <Sparkles className="size-3.5 shrink-0" />
+                      <span>{chat.selectedSkills.length > 0 ? `技能 · ${chat.selectedSkills.length}` : '技能'}</span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="top"
+                    align="end"
+                    sideOffset={8}
+                    className="w-[min(calc(100vw-32px),260px)] max-h-60 overflow-y-auto rounded-2xl border-border/80 bg-popover p-1.5 shadow-xl"
+                  >
+                    <div className="space-y-0.5">
+                      {mobileSkillCommands.map((skill) => {
+                        const selected = chat.selectedSkills.some((item) => item.name === skill.name)
+                        return (
+                          <button
+                            key={skill.name}
+                            type="button"
+                            onClick={() =>
+                              chat.setSelectedSkills(
+                                selected
+                                  ? chat.selectedSkills.filter((item) => item.name !== skill.name)
+                                  : [...chat.selectedSkills, skill],
+                              )
+                            }
+                            className="flex min-h-[40px] w-full items-center justify-between gap-2 rounded-xl px-2.5 text-left text-sm text-foreground/90 active:bg-secondary"
+                          >
+                            <span className="truncate">/{skill.name}</span>
+                            {selected && <Check className="size-4 shrink-0 text-primary" />}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              )}
+            </>
+          )}
           {chat.retryNewChat && (
             <button
               type="button"
@@ -1689,7 +1922,7 @@ function AppContent({
             historyLoading: chat.historyLoading,
             historyError: chat.historyError,
             canEditMessages: !mobileWeb && !chat.inputDisabled && !chat.navigationBusy && !chat.editing,
-            canForkReplies: !mobileWeb && !chat.busy && !chat.navigationBusy && !chat.editing,
+            canForkReplies: !chat.busy && !chat.navigationBusy && !chat.editing,
             onEditMessage: chat.editMessage,
             onForkReply: (timestamp) => void chat.forkReply(timestamp),
             onCopyError: chat.setError,
@@ -1711,7 +1944,10 @@ function AppContent({
                 document={document}
                 onOpen={
                   mobileWeb
-                    ? undefined
+                    ? () => {
+                        setMobileWorkSheetTab('plan')
+                        setMobileWorkSheetOpen(true)
+                      }
                     : () => {
                         setPlanRequest({
                           id: document.id,
@@ -2304,6 +2540,367 @@ function AppContent({
     [serviceUI, bridge],
   )
   const appearanceMode = appearance.snapshot?.settings.appearance?.mode ?? 'system'
+  const showBrowserSettings = Boolean(browserPlatform)
+  const mobileSettingsSection = resolveMobileSettingsSection(navigation.settings.section, showBrowserSettings)
+
+  const renderSettingsContent = (section: SettingsSection) => {
+    if (section === 'shortcuts') return <ShortcutSettings />
+    if (section === 'memory')
+      return (
+        <MemorySettings
+          key={hostId}
+          host={host}
+          connected={
+            currentService
+              ? currentService.status === 'connected'
+              : chat.connection.status !== 'disconnected' && chat.connection.status !== 'connecting'
+          }
+          hostLabel={
+            currentService ? serviceLabel(currentService) : hostLocal ? '此计算机' : (hostAddress ?? '当前服务')
+          }
+          currentProjectId={appSession?.project?.projectId}
+          models={chat.models}
+          onModels={() => openSettings('models')}
+          onDirty={setMemoryDirty}
+          onSaving={setMemorySaving}
+          discardVersion={memoryDiscardVersion}
+          renderSource={(message) => <HistoryMarkdown>{message.text}</HistoryMarkdown>}
+          onOpenSourceSession={async (source) => {
+            const sourceSession = await host.sessions.get(source.session)
+            if (!sourceSession.sessionFile) throw new Error('来源会话当前无法打开')
+            if (!serviceUI && !(await beforeDeactivate())) return
+            if (await switchSession(sourceSession.sessionFile)) navigation.showActiveSession()
+          }}
+        />
+      )
+    if (section === 'computer')
+      return (
+        <ComputerSettings
+          hostId={hostId}
+          onTry={() => {
+            chat.setDraft((draft) =>
+              draft.includes(computerMention)
+                ? draft
+                : `${computerMention} ${draft || '帮我在日历里找下周三下午半小时的空档。'}`,
+            )
+            navigation.home()
+          }}
+        />
+      )
+    if (section === 'browser')
+      return (
+        <BrowserSettings
+          platform={browserPlatform}
+          onOpen={(url) => void browser.create(url)}
+          initialSection={browserSettingsTarget === 'clear' ? 'general' : browserSettingsTarget}
+          openClear={browserSettingsTarget === 'clear'}
+        />
+      )
+    const contentProps: Omit<ComponentProps<typeof SettingsContent>, 'section'> = {
+      mobile: mobileWeb,
+      bridge,
+      cwd: chat.connection.cwd,
+      busy: chat.busy || chat.connection.status === 'connecting',
+      snapshot: settings.snapshot,
+      piVersion: chat.connection.piVersion,
+      error: settings.error,
+      onDirty: setInstructionsDirty,
+      onSaving: setInstructionsSaving,
+      onMaintaining: setStorageMaintaining,
+      onBeforeRestart: async () => {
+        if (serviceUI) serviceUI.beforeRestart()
+        else assertRestartAllowed()
+        await appearance.flushAppearance()
+      },
+      accessSettings: (
+        <AccessSettings
+          value={settings.snapshot?.settings.defaultAccessMode}
+          loading={!settings.snapshot}
+          supported={Boolean(chat.connection.restrictedAccessSupported)}
+          reason={chat.connection.restrictedAccessReason}
+          busy={chat.busy}
+          saving={settings.saving}
+          onSave={(mode) => void settings.saveAccessMode(mode)}
+        />
+      ),
+      onOperation: appearance.onOperation,
+      onEditor: (value) => void settings.saveEditor(value),
+      onPreview: appearance.previewAppearance,
+      onFlush: appearance.flushAppearance,
+      loadFonts: settings.getInstalledFonts,
+      onImport: () => void settings.importTheme(),
+      onExport: (theme) => void settings.exportTheme(theme),
+      onReload: () => void settings.reload(),
+      onOpenDirectory: () => void settings.openDirectory(),
+    }
+
+    if (section === 'host' && serviceUI) return serviceUI.remoteSettings
+    if (section === 'host')
+      return (
+        <HostSettings
+          hostId={hostId}
+          address={hostAddress}
+          local={hostLocal}
+          onConnect={onHostConnection}
+          connections={hostConnections}
+          call={call}
+        />
+      )
+    if (section === 'skills')
+      return (
+        <SkillPage
+          client={resources}
+          cwd={cwd}
+          commands={chat.commands}
+          skillUsages={chat.chat.skillUsages}
+          resourceSnapshot={chat.state?.resourceSnapshot}
+          onChanged={async () => {
+            await chat.refreshSnapshot()
+          }}
+          onUse={(command) => {
+            chat.setSelectedSkills([...chat.selectedSkills, command])
+            chat.setDraft(appendSkillInvocation(chat.draft))
+            navigation.home()
+          }}
+          onCreate={() => invokeSystemSkill('skill-creator')}
+        />
+      )
+    if (section === 'plugins')
+      return (
+        <PluginPage
+          client={plugins}
+          plugins={pluginDescriptors}
+          errors={registry.errors()}
+          onChanged={async () => {
+            await refreshPlugins()
+            await chat.refreshSnapshot()
+          }}
+          onCreate={() => invokeSystemSkill('plugin-creator', '帮我创建一个插件')}
+          onOpenSystem={
+            appSession && !mobileWeb
+              ? (id) => {
+                  navigation.home()
+                  setSystemRequest({
+                    id:
+                      id === '@pi-meme/git'
+                        ? 'builtin:git'
+                        : id === '@pi-meme/file-directory'
+                          ? 'builtin:files'
+                          : 'builtin:terminal',
+                    revision: Date.now(),
+                    target: pluginProps.target,
+                  })
+                }
+              : undefined
+          }
+          renderSettings={(id) => <PluginSlot registry={registry} pluginId={id} slot="settings" props={pluginProps} />}
+        />
+      )
+    if (section === 'general')
+      return (
+        <div className="space-y-6">
+          <GeneralSettings
+            mobile={mobileWeb}
+            accessSettings={contentProps.accessSettings}
+            settings={settings.snapshot?.settings}
+            onEditor={contentProps.onEditor}
+            bridge={bridge}
+            onBeforeRestart={contentProps.onBeforeRestart}
+            onMaintaining={setInstructionsSaving}
+          />
+          {settings.snapshot?.errors.map((message) => (
+            <p key={message} role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+              {message}
+            </p>
+          ))}
+          {settings.error && (
+            <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+              {settings.error}
+            </p>
+          )}
+        </div>
+      )
+    if (section === 'about' || section === 'appearance' || section === 'instructions')
+      return (
+        <>
+          {section === 'appearance' && !mobileWeb && <WorkspaceViewSettings workspaceView={workspaceView} />}
+          <SettingsContent
+            section={section}
+            {...contentProps}
+            {...(section === 'appearance'
+              ? {
+                  snapshot: appearance.snapshot,
+                  error: appearance.error,
+                  onOperation: appearance.onOperation,
+                  status: appearance.status,
+                  frozen: appearance.frozen,
+                  onRetry: () => void appearance.retryAppearance(),
+                  onAdoptLatest: appearance.adoptLatestAppearance,
+                  onPreview: appearance.previewAppearance,
+                  onFlush: appearance.flushAppearance,
+                  loadFonts: appearance.getInstalledFonts,
+                  onImport: () => void appearance.importTheme(),
+                  onExport: (theme) => void appearance.exportTheme(theme),
+                  onReload: () => void appearance.reload(),
+                  onOpenDirectory: () => void appearance.openDirectory(),
+                }
+              : {})}
+          />
+        </>
+      )
+    if (section === 'subagents')
+      return (
+        <SubagentDefaultsSettings
+          models={chat.models}
+          value={settings.subagentDefaults}
+          loading={!settings.snapshot}
+          connected={!remoteOffline}
+          pending={settings.subagentPending}
+          status={settings.subagentStatus}
+          failed={settings.subagentFailed}
+          onSave={settings.saveSubagentDefaults}
+          onModels={() => openSettings('models')}
+        />
+      )
+    if (section === 'image-generation')
+      return (
+        <ImageGenerationSettings
+          api={host.imageGeneration}
+          hostLabel={
+            currentService ? serviceLabel(currentService) : hostLocal ? '此计算机' : (hostAddress ?? '当前设备')
+          }
+        />
+      )
+    if (section === 'models')
+      return <ModelConfigSettings {...{ busy: chat.modelPickerDisabled, bridge, models: chat.models }} />
+    if (section === 'mcp')
+      return (
+        <McpSettings
+          key={`${hostId}:${mcpLocation?.sessionKey ?? chat.connection.sessionKey}:${mcpLocation?.name ?? ''}`}
+          bridge={bridge}
+          sessionKey={
+            mcpLocation?.sessionKey ??
+            (chat.connection.workspaceKind === 'standalone' ? undefined : chat.connection.sessionKey)
+          }
+          projectLabel={!mcpLocation && chat.connection.workspaceKind !== 'standalone' ? project : undefined}
+          initial={mcpLocation}
+          renderProvider={(providerId, onConnected) => (
+            <BuiltinProviders bridge={bridge} disabled={false} providerId={providerId} onConnected={onConnected} />
+          )}
+        />
+      )
+    if (section === 'account')
+      return (
+        <AccountSettings
+          profile={userProfile.profile}
+          loading={userProfile.loading}
+          updateProfile={userProfile.updateProfile}
+        />
+      )
+    if (section === 'profile') return <ProfileSettings {...{ loadUsage: bridge.getUsageStats }} />
+    return null
+  }
+
+  const activeMobileLinkedFile =
+    mobileLinkedFile &&
+    (!appSession ||
+      (mobileLinkedFile.session.hostId === appSession.hostId &&
+        mobileLinkedFile.session.sessionId === appSession.sessionId))
+      ? mobileLinkedFile
+      : null
+
+  const mobileWorkSections: MobileWorkSheetSection[] = mobileWeb
+    ? [
+        ...(chat.planDocuments.length > 0
+          ? [
+              {
+                id: 'plan' as const,
+                label: '计划',
+                badge: chat.planDocuments.length,
+                content: <PlanPanel documents={chat.planDocuments} />,
+              },
+            ]
+          : []),
+        ...(appSession && (turnChanges.turns.length > 0 || gitAvailability.fact.value)
+          ? [
+              {
+                id: 'changes' as const,
+                label: '变更',
+                badge: turnChanges.turns.length || undefined,
+                content: (
+                  <GitPanel
+                    visible={mobileWorkSheetOpen && mobileWorkSheetTab === 'changes'}
+                    key={JSON.stringify(appSession)}
+                    cwd={appSession.cwd ?? cwd}
+                    projectKey={`${appSession.hostId}:${appSession.cwd ?? cwd}`}
+                    bridge={{
+                      review: (query) => host.git.review(appSession, query),
+                      file: (input) => host.git.reviewFile(appSession, input),
+                      options: (input) => host.git.reviewOptions(appSession, input),
+                      turnFile: (entryId, path) => host.git.turnFile(appSession, entryId, path),
+                      turnSummary: async (entryId) => (await host.git.turnChangeSummaries(appSession, [entryId]))[0],
+                    }}
+                    refreshToken={chat.refreshToken}
+                    selectedEntryId={
+                      changeSelection?.sessionId === appSession.sessionId ? changeSelection.entryId : undefined
+                    }
+                    selectedPath={
+                      changeSelection?.sessionId === appSession.sessionId ? changeSelection.path : undefined
+                    }
+                    selectionRevision={
+                      changeSelection?.sessionId === appSession.sessionId ? changeSelection.revision : undefined
+                    }
+                  />
+                ),
+              },
+            ]
+          : []),
+        ...(sources.length > 0
+          ? [
+              {
+                id: 'sources' as const,
+                label: '来源',
+                badge: sources.length,
+                content: <SourcesPanel sources={sources} />,
+              },
+            ]
+          : []),
+        ...(activeMobileLinkedFile
+          ? [
+              {
+                id: 'file' as const,
+                label: activeMobileLinkedFile.path.split(/[\\/]/).at(-1) || '文件',
+                content: (
+                  <LinkedFilePanel tab={activeMobileLinkedFile} load={loadLinkedFile} bridge={bridge} local={false} />
+                ),
+              },
+            ]
+          : []),
+        ...(appSession && contextApi && contextState.fact.value
+          ? [
+              {
+                id: 'context' as const,
+                label: '上下文',
+                content: (
+                  <ContextWindowTool
+                    key={JSON.stringify([appSession.hostId, appSession.sessionId])}
+                    host={host}
+                    api={contextApi}
+                    session={appSession}
+                    agents={subagents}
+                    capturedAgents={contextState.subagents}
+                    visible={mobileWorkSheetOpen && mobileWorkSheetTab === 'context'}
+                    reducedMotion={appearance.snapshot?.settings.appearance?.reducedMotion === 'on'}
+                    sessionName={appSession.name}
+                  />
+                ),
+              },
+            ]
+          : []),
+      ]
+    : []
+
+  const mobileWorkBadge = (chat.planDocuments.length > 0 ? 1 : 0) + turnChanges.turns.length + sources.length
 
   if (!active) return null
 
@@ -2330,6 +2927,7 @@ function AppContent({
             }
             onRetryConnection={chat.retrySwitch ? () => void chat.retrySwitch?.() : () => void chat.refreshSnapshot()}
             drawerModel={mobileDrawerModel}
+            sessionsLoading={chat.sessionsLoading}
             activeServiceId={serviceUI?.serviceId ?? hostId ?? 'local'}
             activeSessionId={chat.sessions?.activeSessionId}
             activeSessionPath={chat.switchingToPath ?? chat.sessions?.activeSessionPath}
@@ -2339,16 +2937,70 @@ function AppContent({
             profileLoading={userProfile.showPlaceholder}
             appearanceMode={appearanceMode}
             onChangeAppearanceMode={(mode) => appearance.onOperation({ type: 'patch', patch: { mode } })}
+            pinnedPaths={chat.sessions?.pinnedPaths ?? []}
             onNewSession={() => {
-              if (!chatOpen) navigation.home()
+              if (!chatOpen || settingsOpen) navigation.home()
               void newSession()
             }}
+            onNewSessionInProject={(targetCwd) => {
+              if (!chatOpen || settingsOpen) navigation.home()
+              void newSession(targetCwd)
+            }}
             onSwitchSession={(serviceId, sessionPath) => {
-              if (!chatOpen) navigation.home()
+              if (!chatOpen || settingsOpen) navigation.home()
               if (serviceUI?.onSwitchServiceSession) void serviceUI.onSwitchServiceSession(serviceId, sessionPath)
               else void switchSession(sessionPath)
             }}
             onSearch={serviceUI ? serviceUI.onSearch : () => setSessionSearchOpen(true)}
+            onTogglePin={(targetPath) => void chat.togglePin(targetPath)}
+            onRenameSession={async (sessionPath, name) => {
+              await bridge.renameSession(sessionPath, name)
+              await chat.refreshMenu()
+            }}
+            onDeleteSession={async (sessionPath) => {
+              const result = await bridge.deleteSession(sessionPath)
+              await chat.applyMenuDeletion(result)
+            }}
+            onRenameProject={async (targetCwd, name) => {
+              await bridge.renameProject(targetCwd, name)
+              await chat.refreshMenu()
+            }}
+            loadUsageStats={bridge.getUsageStats}
+            workSheetBadge={mobileWorkBadge}
+            onOpenWorkSheet={() => {
+              const firstTab = mobileWorkSections[0]?.id ?? 'context'
+              if (!mobileWorkSections.some((item) => item.id === mobileWorkSheetTab)) {
+                setMobileWorkSheetTab(firstTab)
+              }
+              setMobileWorkSheetOpen(true)
+            }}
+            settingsOpen={settingsOpen}
+            settingsSection={mobileSettingsSection}
+            settingsSaving={instructionsSaving || memorySaving || storageMaintaining}
+            showBrowserSettings={showBrowserSettings}
+            onOpenSettings={openSettings}
+            onCloseSettings={navigation.closeSettings}
+            serviceSwitchSlot={
+              serviceUI && serviceUI.services.length > 1 ? (
+                <LocationSelector
+                  services={serviceUI.services}
+                  serviceId={serviceUI.serviceId}
+                  disabledReason={chat.workspaceDisabledReason}
+                  onSelect={serviceUI.onLocation}
+                  onError={chat.setError}
+                />
+              ) : undefined
+            }
+            settingsContent={
+              <section
+                id="settings-content"
+                aria-label="设置内容"
+                tabIndex={-1}
+                className="mobile-settings-page min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pt-3 pb-[max(2rem,env(safe-area-inset-bottom))] outline-none"
+              >
+                <div className="min-w-0 space-y-6 text-sm">{renderSettingsContent(mobileSettingsSection)}</div>
+              </section>
+            }
           >
             <div
               className="contents"
@@ -2361,7 +3013,33 @@ function AppContent({
             </div>
           </MobileChatShell>
 
+          <MobileWorkSheet
+            open={mobileWorkSheetOpen}
+            onOpenChange={setMobileWorkSheetOpen}
+            activeTab={mobileWorkSheetTab}
+            onTabChange={setMobileWorkSheetTab}
+            sections={mobileWorkSections}
+          />
+
           <PluginConsentDialog consent={pluginConsent} />
+
+          <Dialog
+            open={navigation.confirmation}
+            onOpenChange={(open) => {
+              if (!open) navigation.cancelLeave()
+            }}
+          >
+            <DialogContent className="w-[min(calc(100vw-32px),360px)] rounded-2xl p-5">
+              <DialogTitle>放弃未保存的更改？</DialogTitle>
+              <DialogDescription>离开后，当前未保存的修改将被丢弃。</DialogDescription>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={navigation.cancelLeave}>
+                  继续编辑
+                </Button>
+                <Button onClick={navigation.discardAndLeave}>放弃修改并离开</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* 扩展交互请求弹窗（如权限审批/确认框） */}
           {interaction && interaction.method !== 'questions' && (
@@ -2928,280 +3606,7 @@ function AppContent({
             onDismiss={navigation.closeSettings}
             onReturnFocus={returnFromSettings}
             onNavigate={openSettings}
-            renderContent={(section) => {
-              if (section === 'shortcuts') return <ShortcutSettings />
-              if (section === 'memory')
-                return (
-                  <MemorySettings
-                    key={hostId}
-                    host={host}
-                    connected={
-                      currentService
-                        ? currentService.status === 'connected'
-                        : chat.connection.status !== 'disconnected' && chat.connection.status !== 'connecting'
-                    }
-                    hostLabel={
-                      currentService
-                        ? serviceLabel(currentService)
-                        : hostLocal
-                          ? '此计算机'
-                          : (hostAddress ?? '当前服务')
-                    }
-                    currentProjectId={appSession?.project?.projectId}
-                    models={chat.models}
-                    onModels={() => openSettings('models')}
-                    onDirty={setMemoryDirty}
-                    onSaving={setMemorySaving}
-                    discardVersion={memoryDiscardVersion}
-                    renderSource={(message) => <HistoryMarkdown>{message.text}</HistoryMarkdown>}
-                    onOpenSourceSession={async (source) => {
-                      const sourceSession = await host.sessions.get(source.session)
-                      if (!sourceSession.sessionFile) throw new Error('来源会话当前无法打开')
-                      if (!serviceUI && !(await beforeDeactivate())) return
-                      if (await switchSession(sourceSession.sessionFile)) navigation.showActiveSession()
-                    }}
-                  />
-                )
-              if (section === 'computer')
-                return (
-                  <ComputerSettings
-                    hostId={hostId}
-                    onTry={() => {
-                      chat.setDraft((draft) =>
-                        draft.includes(computerMention)
-                          ? draft
-                          : `${computerMention} ${draft || '帮我在日历里找下周三下午半小时的空档。'}`,
-                      )
-                      navigation.home()
-                    }}
-                  />
-                )
-              if (section === 'browser')
-                return (
-                  <BrowserSettings
-                    platform={browserPlatform}
-                    onOpen={(url) => void browser.create(url)}
-                    initialSection={browserSettingsTarget === 'clear' ? 'general' : browserSettingsTarget}
-                    openClear={browserSettingsTarget === 'clear'}
-                  />
-                )
-              const contentProps: Omit<ComponentProps<typeof SettingsContent>, 'section'> = {
-                bridge,
-                cwd: chat.connection.cwd,
-                busy: chat.busy || chat.connection.status === 'connecting',
-                snapshot: settings.snapshot,
-                piVersion: chat.connection.piVersion,
-                error: settings.error,
-                onDirty: setInstructionsDirty,
-                onSaving: setInstructionsSaving,
-                onMaintaining: setStorageMaintaining,
-                onBeforeRestart: async () => {
-                  if (serviceUI) serviceUI.beforeRestart()
-                  else assertRestartAllowed()
-                  await appearance.flushAppearance()
-                },
-                accessSettings: (
-                  <AccessSettings
-                    value={settings.snapshot?.settings.defaultAccessMode}
-                    loading={!settings.snapshot}
-                    supported={Boolean(chat.connection.restrictedAccessSupported)}
-                    reason={chat.connection.restrictedAccessReason}
-                    busy={chat.busy}
-                    saving={settings.saving}
-                    onSave={(mode) => void settings.saveAccessMode(mode)}
-                  />
-                ),
-                onOperation: appearance.onOperation,
-                onEditor: (value) => void settings.saveEditor(value),
-                onPreview: appearance.previewAppearance,
-                onFlush: appearance.flushAppearance,
-                loadFonts: settings.getInstalledFonts,
-                onImport: () => void settings.importTheme(),
-                onExport: (theme) => void settings.exportTheme(theme),
-                onReload: () => void settings.reload(),
-                onOpenDirectory: () => void settings.openDirectory(),
-              }
-
-              if (section === 'host' && serviceUI) return serviceUI.remoteSettings
-              if (section === 'host')
-                return (
-                  <HostSettings
-                    hostId={hostId}
-                    address={hostAddress}
-                    local={hostLocal}
-                    onConnect={onHostConnection}
-                    connections={hostConnections}
-                    call={call}
-                  />
-                )
-              if (section === 'skills')
-                return (
-                  <SkillPage
-                    client={resources}
-                    cwd={cwd}
-                    commands={chat.commands}
-                    skillUsages={chat.chat.skillUsages}
-                    resourceSnapshot={chat.state?.resourceSnapshot}
-                    onChanged={async () => {
-                      await chat.refreshSnapshot()
-                    }}
-                    onUse={(command) => {
-                      chat.setSelectedSkills([...chat.selectedSkills, command])
-                      chat.setDraft(appendSkillInvocation(chat.draft))
-                      navigation.home()
-                    }}
-                    onCreate={() => invokeSystemSkill('skill-creator')}
-                  />
-                )
-              if (section === 'plugins')
-                return (
-                  <PluginPage
-                    client={plugins}
-                    plugins={pluginDescriptors}
-                    errors={registry.errors()}
-                    onChanged={async () => {
-                      await refreshPlugins()
-                      await chat.refreshSnapshot()
-                    }}
-                    onCreate={() => invokeSystemSkill('plugin-creator', '帮我创建一个插件')}
-                    onOpenSystem={
-                      appSession
-                        ? (id) => {
-                            navigation.home()
-                            setSystemRequest({
-                              id:
-                                id === '@pi-meme/git'
-                                  ? 'builtin:git'
-                                  : id === '@pi-meme/file-directory'
-                                    ? 'builtin:files'
-                                    : 'builtin:terminal',
-                              revision: Date.now(),
-                              target: pluginProps.target,
-                            })
-                          }
-                        : undefined
-                    }
-                    renderSettings={(id) => (
-                      <PluginSlot registry={registry} pluginId={id} slot="settings" props={pluginProps} />
-                    )}
-                  />
-                )
-              if (section === 'general')
-                return (
-                  <div className="space-y-6">
-                    <GeneralSettings
-                      accessSettings={contentProps.accessSettings}
-                      settings={settings.snapshot?.settings}
-                      onEditor={contentProps.onEditor}
-                      bridge={bridge}
-                      onBeforeRestart={contentProps.onBeforeRestart}
-                      onMaintaining={setInstructionsSaving}
-                    />
-                    {settings.snapshot?.errors.map((message) => (
-                      <p
-                        key={message}
-                        role="alert"
-                        className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive"
-                      >
-                        {message}
-                      </p>
-                    ))}
-                    {settings.error && (
-                      <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
-                        {settings.error}
-                      </p>
-                    )}
-                  </div>
-                )
-              if (section === 'about' || section === 'appearance' || section === 'instructions')
-                return (
-                  <>
-                    {section === 'appearance' && <WorkspaceViewSettings workspaceView={workspaceView} />}
-                    <SettingsContent
-                      section={section}
-                      {...contentProps}
-                      {...(section === 'appearance'
-                        ? {
-                            snapshot: appearance.snapshot,
-                            error: appearance.error,
-                            onOperation: appearance.onOperation,
-                            status: appearance.status,
-                            frozen: appearance.frozen,
-                            onRetry: () => void appearance.retryAppearance(),
-                            onAdoptLatest: appearance.adoptLatestAppearance,
-                            onPreview: appearance.previewAppearance,
-                            onFlush: appearance.flushAppearance,
-                            loadFonts: appearance.getInstalledFonts,
-                            onImport: () => void appearance.importTheme(),
-                            onExport: (theme) => void appearance.exportTheme(theme),
-                            onReload: () => void appearance.reload(),
-                            onOpenDirectory: () => void appearance.openDirectory(),
-                          }
-                        : {})}
-                    />
-                  </>
-                )
-              if (section === 'subagents')
-                return (
-                  <SubagentDefaultsSettings
-                    models={chat.models}
-                    value={settings.subagentDefaults}
-                    loading={!settings.snapshot}
-                    connected={!remoteOffline}
-                    pending={settings.subagentPending}
-                    status={settings.subagentStatus}
-                    failed={settings.subagentFailed}
-                    onSave={settings.saveSubagentDefaults}
-                    onModels={() => openSettings('models')}
-                  />
-                )
-              if (section === 'image-generation')
-                return (
-                  <ImageGenerationSettings
-                    api={host.imageGeneration}
-                    hostLabel={
-                      currentService
-                        ? serviceLabel(currentService)
-                        : hostLocal
-                          ? '此计算机'
-                          : (hostAddress ?? '当前设备')
-                    }
-                  />
-                )
-              if (section === 'models')
-                return <ModelConfigSettings {...{ busy: chat.modelPickerDisabled, bridge, models: chat.models }} />
-              if (section === 'mcp')
-                return (
-                  <McpSettings
-                    key={`${hostId}:${mcpLocation?.sessionKey ?? chat.connection.sessionKey}:${mcpLocation?.name ?? ''}`}
-                    bridge={bridge}
-                    sessionKey={
-                      mcpLocation?.sessionKey ??
-                      (chat.connection.workspaceKind === 'standalone' ? undefined : chat.connection.sessionKey)
-                    }
-                    projectLabel={!mcpLocation && chat.connection.workspaceKind !== 'standalone' ? project : undefined}
-                    initial={mcpLocation}
-                    renderProvider={(providerId, onConnected) => (
-                      <BuiltinProviders
-                        bridge={bridge}
-                        disabled={false}
-                        providerId={providerId}
-                        onConnected={onConnected}
-                      />
-                    )}
-                  />
-                )
-              if (section === 'account')
-                return (
-                  <AccountSettings
-                    profile={userProfile.profile}
-                    loading={userProfile.loading}
-                    updateProfile={userProfile.updateProfile}
-                  />
-                )
-              if (section === 'profile') return <ProfileSettings {...{ loadUsage: bridge.getUsageStats }} />
-              return null
-            }}
+            renderContent={renderSettingsContent}
           />
 
           <ShortcutHelpDialog
