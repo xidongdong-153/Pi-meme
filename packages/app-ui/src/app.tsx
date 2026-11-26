@@ -51,7 +51,16 @@ import { WorkspaceContent } from './layout/workspace-content'
 import { SideChatPanel } from './panels/side-chat-panel'
 import { SideChatSession } from './session/side-chat-session'
 import { ErrorNotice, SystemErrorStack, SystemErrorToast } from './layout/error-notice'
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ComponentProps,
+  type ReactNode,
+} from 'react'
 import { Composer } from '@pi-meme/chat/ui/composer/composer'
 import { MessageImageLoaderContext } from '@pi-meme/chat/ui/content/message-image'
 import { Sidebar } from '@pi-meme/workspace/ui/sidebar/sidebar'
@@ -59,6 +68,7 @@ import { SidebarMenus } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
 import { buildSidebarModel } from '@pi-meme/workspace/ui/sidebar/sidebar-model'
 import { SessionSearchDialog } from '@pi-meme/workspace/ui/sidebar/session-search-dialog'
 import { MobileChatShell } from './layout/mobile-chat-shell'
+import type { MobilePrimaryNav } from './layout/mobile-session-drawer'
 import { MobileWorkSheet, type MobileWorkSheetSection, type MobileWorkSheetTab } from './layout/mobile-work-sheet'
 import { useMobileWeb } from './layout/use-mobile-web'
 import { ModelPickerPopover } from '@pi-meme/models/ui/model-picker-popover'
@@ -2026,6 +2036,11 @@ function AppContent({
     const revision = Math.max(Date.now(), agentRequestRevision.current + 1)
     agentRequestRevision.current = revision
     setAgentRequest({ sessionKey: runtimeSessionKey, agentId, revision })
+    if (mobileWeb) {
+      setMobileWorkSheetTab('subagents')
+      setMobileWorkSheetOpen(true)
+      return
+    }
     setSystemRequest({ id: 'builtin:subagents', revision, target: pluginProps.target, intent: 'message' })
   }
   const historyPanels = historyPanelsAvailable(chat.chat, chat.historyDetailsDeferred, sources.length)
@@ -2548,6 +2563,7 @@ function AppContent({
     if (section === 'memory')
       return (
         <MemorySettings
+          mobile={mobileWeb}
           key={hostId}
           host={host}
           connected={
@@ -2772,7 +2788,9 @@ function AppContent({
         />
       )
     if (section === 'models')
-      return <ModelConfigSettings {...{ busy: chat.modelPickerDisabled, bridge, models: chat.models }} />
+      return (
+        <ModelConfigSettings {...{ mobile: mobileWeb, busy: chat.modelPickerDisabled, bridge, models: chat.models }} />
+      )
     if (section === 'mcp')
       return (
         <McpSettings
@@ -2829,6 +2847,7 @@ function AppContent({
                 badge: turnChanges.turns.length || undefined,
                 content: (
                   <GitPanel
+                    mobile
                     visible={mobileWorkSheetOpen && mobileWorkSheetTab === 'changes'}
                     key={JSON.stringify(appSession)}
                     cwd={appSession.cwd ?? cwd}
@@ -2849,6 +2868,28 @@ function AppContent({
                     }
                     selectionRevision={
                       changeSelection?.sessionId === appSession.sessionId ? changeSelection.revision : undefined
+                    }
+                  />
+                ),
+              },
+            ]
+          : []),
+        ...(subagents.length > 0
+          ? [
+              {
+                id: 'subagents' as const,
+                label: '子代理',
+                badge: subagents.length,
+                content: (
+                  <SubagentsPanel
+                    bridge={bridge}
+                    files={host.files}
+                    fileSession={appSession}
+                    sessionKey={runtimeSessionKey}
+                    openRequest={
+                      agentRequest && agentRequest.sessionKey === runtimeSessionKey
+                        ? { agentId: agentRequest.agentId, revision: agentRequest.revision }
+                        : undefined
                     }
                   />
                 ),
@@ -2900,9 +2941,371 @@ function AppContent({
       ]
     : []
 
-  const mobileWorkBadge = (chat.planDocuments.length > 0 ? 1 : 0) + turnChanges.turns.length + sources.length
+  const mobileWorkBadge =
+    (chat.planDocuments.length > 0 ? 1 : 0) + turnChanges.turns.length + sources.length + subagents.length
+  const schedulesUnread = scheduleState.tasks.some((task) => task.unreadCount > 0)
+  const navigateMobilePrimary = (nav: MobilePrimaryNav) => {
+    if (nav === 'chat') {
+      navigation.home()
+      return
+    }
+    if (nav === 'materials') {
+      setMaterialsVisited(true)
+      navigation.open({ kind: 'materials', section: 'all' })
+      return
+    }
+    if (nav === 'projects') {
+      navigation.open({ kind: 'projects' })
+      return
+    }
+    if (nav === 'schedules') {
+      navigation.open({ kind: 'schedules' })
+      return
+    }
+    if (nav === 'customization') {
+      navigation.open({ kind: 'customization' })
+    }
+  }
 
   if (!active) return null
+
+  const renderMobileShell = (options: {
+    activeNav: MobilePrimaryNav
+    subpageTitle?: string
+    subpageContent?: ReactNode
+    customDrawerPanel?: { title: string; content: ReactNode }
+  }) => (
+    <MobileChatShell
+      hasConversation={hasConversation}
+      isStandalone={chat.connection.workspaceKind === 'standalone' || !chat.connection.cwd}
+      projectName={project}
+      title={title}
+      connectionStatus={status}
+      connected={ready && !remoteOffline}
+      disconnectedBanner={
+        remoteOffline
+          ? '远程连接已断开，请恢复连接后继续'
+          : !ready && chat.connection.status === 'disconnected'
+            ? '连接已断开，请检查网络后重试'
+            : undefined
+      }
+      onRetryConnection={chat.retrySwitch ? () => void chat.retrySwitch?.() : () => void chat.refreshSnapshot()}
+      onForegroundResume={() => void chat.refreshSnapshot()}
+      drawerModel={mobileDrawerModel}
+      sessionsLoading={chat.sessionsLoading}
+      activeServiceId={serviceUI?.serviceId ?? hostId ?? 'local'}
+      activeSessionId={chat.sessions?.activeSessionId}
+      activeSessionPath={chat.switchingToPath ?? chat.sessions?.activeSessionPath}
+      activeProjectCwd={chat.connection.sourceProjectCwd ?? chat.connection.cwd}
+      disconnectedServiceIds={mobileDisconnectedServices}
+      profile={userProfile.profile}
+      profileLoading={userProfile.showPlaceholder}
+      appearanceMode={appearanceMode}
+      onChangeAppearanceMode={(mode) => appearance.onOperation({ type: 'patch', patch: { mode } })}
+      pinnedKeys={serviceUI?.pinnedKeys ?? chat.sessions?.pinnedPaths ?? []}
+      multiServiceActions={Boolean(serviceUI?.onToggleServicePin)}
+      onNewSession={() => {
+        if (!chatOpen || settingsOpen) navigation.home()
+        void newSession()
+      }}
+      onNewSessionInProject={(serviceId, targetCwd) => {
+        if (!chatOpen || settingsOpen) navigation.home()
+        if (serviceUI?.onNewServiceSessionInProject) void serviceUI.onNewServiceSessionInProject(serviceId, targetCwd)
+        else void newSession(targetCwd)
+      }}
+      onSwitchSession={(serviceId, sessionPath) => {
+        if (!chatOpen || settingsOpen) navigation.home()
+        if (serviceUI?.onSwitchServiceSession) void serviceUI.onSwitchServiceSession(serviceId, sessionPath)
+        else void switchSession(sessionPath)
+      }}
+      onSearch={serviceUI ? serviceUI.onSearch : () => setSessionSearchOpen(true)}
+      onTogglePin={(serviceId, targetPath) => {
+        if (serviceUI?.onToggleServicePin) void serviceUI.onToggleServicePin(serviceId, targetPath)
+        else void chat.togglePin(targetPath)
+      }}
+      onRenameSession={async (serviceId, sessionPath, name) => {
+        if (serviceUI?.onRenameServiceSession) {
+          await serviceUI.onRenameServiceSession(serviceId, sessionPath, name)
+        } else {
+          await bridge.renameSession(sessionPath, name)
+          await chat.refreshMenu()
+        }
+      }}
+      onDeleteSession={async (serviceId, sessionPath) => {
+        if (serviceUI?.onDeleteServiceSession) {
+          await serviceUI.onDeleteServiceSession(serviceId, sessionPath)
+        } else {
+          const result = await bridge.deleteSession(sessionPath)
+          await chat.applyMenuDeletion(result)
+        }
+      }}
+      onRenameProject={async (serviceId, targetCwd, name) => {
+        if (serviceUI?.onRenameServiceProject) {
+          await serviceUI.onRenameServiceProject(serviceId, targetCwd, name)
+        } else {
+          await bridge.renameProject(targetCwd, name)
+          await chat.refreshMenu()
+        }
+      }}
+      loadUsageStats={bridge.getUsageStats}
+      workSheetOpen={mobileWorkSheetOpen}
+      onCloseWorkSheet={() => setMobileWorkSheetOpen(false)}
+      workSheetBadge={mobileWorkBadge}
+      onOpenWorkSheet={() => {
+        const firstTab = mobileWorkSections[0]?.id ?? 'context'
+        if (!mobileWorkSections.some((item) => item.id === mobileWorkSheetTab)) {
+          setMobileWorkSheetTab(firstTab)
+        }
+        setMobileWorkSheetOpen(true)
+      }}
+      activeNav={options.activeNav}
+      schedulesUnread={schedulesUnread}
+      onNavigatePrimary={navigateMobilePrimary}
+      subpageTitle={options.subpageTitle}
+      subpageContent={options.subpageContent}
+      customDrawerPanel={options.customDrawerPanel}
+      settingsOpen={settingsOpen}
+      settingsSection={mobileSettingsSection}
+      settingsSaving={instructionsSaving || memorySaving || storageMaintaining}
+      showBrowserSettings={showBrowserSettings}
+      onOpenSettings={openSettings}
+      onCloseSettings={navigation.closeSettings}
+      serviceSwitchSlot={
+        serviceUI && serviceUI.services.length > 1 ? (
+          <LocationSelector
+            services={serviceUI.services}
+            serviceId={serviceUI.serviceId}
+            disabledReason={chat.workspaceDisabledReason}
+            onSelect={serviceUI.onLocation}
+            onError={chat.setError}
+          />
+        ) : undefined
+      }
+      settingsContent={
+        <section
+          id="settings-content"
+          aria-label="设置内容"
+          tabIndex={-1}
+          className="mobile-settings-page min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pt-3 pb-[max(2rem,env(safe-area-inset-bottom))] outline-none"
+        >
+          <div className="min-w-0 space-y-6 text-sm">{renderSettingsContent(mobileSettingsSection)}</div>
+        </section>
+      }
+    >
+      <div
+        className="contents"
+        onFocusCapture={() => {
+          setSideChatFocused(false)
+          registry.setComposerController(pluginComposer.adapter)
+        }}
+      >
+        {conversation}
+      </div>
+    </MobileChatShell>
+  )
+
+  const mobileShellBody =
+    !settingsOpen && route.kind === 'materials' ? (
+      <MaterialsPage
+        visible
+        sources={imageSources}
+        route={route}
+        onNavigate={(next) => navigation.open(next)}
+        onBack={navigation.back}
+        onOpenSession={async (id, ref) => {
+          if (serviceUI?.onImageSession) return serviceUI.onImageSession(id, ref)
+          const session = await host.sessions.get(ref)
+          if (!session.sessionFile) throw new Error('来源会话已不可用')
+          if (await switchSession(session.sessionFile)) navigation.home()
+        }}
+        onCreateImage={async (id, item) => {
+          const origin = imageDraftContext.current.view
+          if (serviceUI?.onCreateImage)
+            return serviceUI.onCreateImage(id, item, () => imageDraftContext.current.view === origin)
+          if (id !== imageSources[0]?.id) throw new Error('图片所属服务不可用')
+          if (!(await prepareImageDraft(item))) throw new Error('未能准备图像创作，请检查连接后重试')
+        }}
+        renderLayout={({ sidebar: materialsSidebar, content: materialsContent }) =>
+          renderMobileShell({
+            activeNav: 'materials',
+            subpageTitle: '资料空间',
+            subpageContent: materialsContent,
+            customDrawerPanel: { title: '资料空间', content: materialsSidebar },
+          })
+        }
+      />
+    ) : !settingsOpen && route.kind === 'schedules' ? (
+      <SchedulesPage
+        renderLayout={({ sidebar: schedulesSidebar, content: schedulesContent }) =>
+          renderMobileShell({
+            activeNav: 'schedules',
+            subpageTitle: '定时任务',
+            subpageContent: schedulesContent,
+            customDrawerPanel: { title: '定时任务', content: schedulesSidebar },
+          })
+        }
+        host={host}
+        state={scheduleState}
+        selectedId={route.taskId}
+        onSelect={(taskId) => navigation.replace({ kind: 'schedules', taskId })}
+        locationLabel={
+          currentService ? serviceLabel(currentService) : hostLocal ? '此计算机' : (hostAddress ?? '当前设备')
+        }
+        location={
+          <ScheduleLocationSelector
+            services={serviceUI?.services ?? []}
+            serviceId={serviceUI?.serviceId}
+            label={currentService ? serviceLabel(currentService) : hostLocal ? '此计算机' : (hostAddress ?? '当前设备')}
+            onSelect={(id) => serviceUI?.onSchedules(id)}
+          />
+        }
+        defaults={{
+          model: chat.state?.model ?? chat.models[0] ?? { provider: '', id: '' },
+          thinkingLevel: resolveModelThinkingLevel(chat.state?.model, chat.state?.thinkingLevel ?? 'medium'),
+          accessMode: settings.snapshot?.settings.defaultAccessMode ?? 'workspace-write',
+          agentPlugins: [...agentPlugins],
+          mode: 'default',
+        }}
+        plugins={pluginDescriptors
+          .filter((plugin) => plugin.enabled && plugin.capabilities?.agent)
+          .map((plugin) => ({ id: plugin.id, name: plugin.display?.name ?? plugin.id }))}
+        renderAccessSelector={(configuration, onChange) => (
+          <AgentAccessSelector
+            mobile
+            mode={configuration.accessMode}
+            taskMode={configuration.mode}
+            busy={false}
+            supported={Boolean(chat.connection.restrictedAccessSupported)}
+            onChange={(accessMode) => onChange({ ...configuration, accessMode })}
+          />
+        )}
+        renderModelPicker={(configuration, onChange) => (
+          <ModelPickerPopover
+            mobile
+            models={chat.models}
+            currentModel={
+              chat.models.find(
+                (model) => model.provider === configuration.model.provider && model.id === configuration.model.id,
+              ) ?? configuration.model
+            }
+            thinkingLevel={configuration.thinkingLevel}
+            disabled={false}
+            onSelectModel={(model) =>
+              onChange({
+                ...configuration,
+                model,
+                thinkingLevel: resolveModelThinkingLevel(model, configuration.thinkingLevel),
+              })
+            }
+            onSelectThinkingLevel={(thinkingLevel) =>
+              onChange({
+                ...configuration,
+                thinkingLevel: resolveModelThinkingLevel(configuration.model, thinkingLevel),
+              })
+            }
+          />
+        )}
+        onOpenSession={async (ref) => {
+          const session = await host.sessions.get(ref)
+          if (!session.sessionFile) throw new Error('聊天尚未保存，请等待本次运行开始后重试')
+          if (await switchSession(session.sessionFile)) navigation.home()
+        }}
+      />
+    ) : !settingsOpen && route.kind === 'customization' ? (
+      <CustomizationPage
+        plugins={pluginDescriptors}
+        nativeWindow={nativeWindow}
+        sidebarLayout={sidebarLayout}
+        onDismiss={navigation.home}
+        rail={() => null}
+        renderLayout={({ sidebar: customSidebar, content: customContent }) =>
+          renderMobileShell({
+            activeNav: 'customization',
+            subpageTitle: '插件与技能',
+            subpageContent: customContent,
+            customDrawerPanel: { title: '插件与技能', content: customSidebar },
+          })
+        }
+        renderContent={(section, selection) =>
+          section === 'plugins' ? (
+            <PluginPage
+              client={plugins}
+              plugins={pluginDescriptors}
+              errors={registry.errors()}
+              view="catalog"
+              selection={selection}
+              onSettings={() => openSettings('plugins')}
+              onChanged={async () => {
+                await refreshPlugins()
+                await chat.refreshSnapshot()
+              }}
+              onCreate={() => invokeSystemSkill('plugin-creator', '帮我创建一个插件')}
+              renderSettings={(id) => (
+                <PluginSlot registry={registry} pluginId={id} slot="settings" props={pluginProps} />
+              )}
+            />
+          ) : (
+            <SkillPage
+              client={resources}
+              cwd={cwd}
+              commands={chat.commands}
+              skillUsages={chat.chat.skillUsages}
+              resourceSnapshot={chat.state?.resourceSnapshot}
+              view="catalog"
+              onSettings={() => openSettings('skills')}
+              onChanged={chat.refreshSnapshot}
+              onUse={(command) => {
+                chat.setSelectedSkills([...chat.selectedSkills, command])
+                chat.setDraft(appendSkillInvocation(chat.draft))
+                chat.focusDraft()
+                navigation.home()
+              }}
+              onCreate={() => invokeSystemSkill('skill-creator')}
+            />
+          )
+        }
+      />
+    ) : !settingsOpen && route.kind === 'projects' ? (
+      renderMobileShell({
+        activeNav: 'projects',
+        subpageTitle: '项目',
+        subpageContent: (
+          <ProjectsPage
+            mobile
+            bridge={bridge}
+            sessions={chat.sessions}
+            nativeWindow={nativeWindow}
+            canOpenProject={localPlatform}
+            onDismiss={navigation.home}
+            onCreate={async (input) => {
+              await host.projects.register(input, { idempotencyKey: window.crypto.randomUUID() })
+            }}
+            onChanged={chat.refreshMenu}
+            onDeleted={chat.applyMenuDeletion}
+            onNewSession={async (targetCwd) => {
+              if (await newSession(targetCwd)) navigation.home()
+            }}
+            onSwitchSession={async (path) => {
+              if (await switchSession(path)) navigation.home()
+            }}
+            onTogglePin={async (targetCwd) => {
+              await chat.togglePin(targetCwd)
+            }}
+            onPrefetchSession={(path) => void bridge.prefetchSession(path).catch(() => {})}
+            notice={
+              <ErrorNotice
+                message={chat.error}
+                onDismiss={() => chat.setError('')}
+                onOpenSettings={() => openSettings('general')}
+              />
+            }
+            rail={null}
+          />
+        ),
+      })
+    ) : (
+      renderMobileShell({ activeNav: 'chat' })
+    )
 
   const mobileContent = mobileWeb ? (
     <PluginRenderers registry={registry} props={pluginProps}>
@@ -2911,107 +3314,33 @@ function AppContent({
           data-active-service={serviceUI?.serviceId ?? 'local'}
           className="theme-app flex h-dvh w-dvw flex-col overflow-hidden bg-background text-foreground select-none"
         >
-          <MobileChatShell
-            hasConversation={hasConversation}
-            isStandalone={chat.connection.workspaceKind === 'standalone' || !chat.connection.cwd}
-            projectName={project}
-            title={title}
-            connectionStatus={status}
-            connected={ready && !remoteOffline}
-            disconnectedBanner={
-              remoteOffline
-                ? '远程连接已断开，请恢复连接后继续'
-                : !ready && chat.connection.status === 'disconnected'
-                  ? '连接已断开，请检查网络后重试'
-                  : undefined
-            }
-            onRetryConnection={chat.retrySwitch ? () => void chat.retrySwitch?.() : () => void chat.refreshSnapshot()}
-            drawerModel={mobileDrawerModel}
-            sessionsLoading={chat.sessionsLoading}
-            activeServiceId={serviceUI?.serviceId ?? hostId ?? 'local'}
-            activeSessionId={chat.sessions?.activeSessionId}
-            activeSessionPath={chat.switchingToPath ?? chat.sessions?.activeSessionPath}
-            activeProjectCwd={chat.connection.sourceProjectCwd ?? chat.connection.cwd}
-            disconnectedServiceIds={mobileDisconnectedServices}
-            profile={userProfile.profile}
-            profileLoading={userProfile.showPlaceholder}
-            appearanceMode={appearanceMode}
-            onChangeAppearanceMode={(mode) => appearance.onOperation({ type: 'patch', patch: { mode } })}
-            pinnedPaths={chat.sessions?.pinnedPaths ?? []}
-            onNewSession={() => {
-              if (!chatOpen || settingsOpen) navigation.home()
-              void newSession()
-            }}
-            onNewSessionInProject={(targetCwd) => {
-              if (!chatOpen || settingsOpen) navigation.home()
-              void newSession(targetCwd)
-            }}
-            onSwitchSession={(serviceId, sessionPath) => {
-              if (!chatOpen || settingsOpen) navigation.home()
-              if (serviceUI?.onSwitchServiceSession) void serviceUI.onSwitchServiceSession(serviceId, sessionPath)
-              else void switchSession(sessionPath)
-            }}
-            onSearch={serviceUI ? serviceUI.onSearch : () => setSessionSearchOpen(true)}
-            onTogglePin={(targetPath) => void chat.togglePin(targetPath)}
-            onRenameSession={async (sessionPath, name) => {
-              await bridge.renameSession(sessionPath, name)
-              await chat.refreshMenu()
-            }}
-            onDeleteSession={async (sessionPath) => {
-              const result = await bridge.deleteSession(sessionPath)
-              await chat.applyMenuDeletion(result)
-            }}
-            onRenameProject={async (targetCwd, name) => {
-              await bridge.renameProject(targetCwd, name)
-              await chat.refreshMenu()
-            }}
-            loadUsageStats={bridge.getUsageStats}
-            workSheetBadge={mobileWorkBadge}
-            onOpenWorkSheet={() => {
-              const firstTab = mobileWorkSections[0]?.id ?? 'context'
-              if (!mobileWorkSections.some((item) => item.id === mobileWorkSheetTab)) {
-                setMobileWorkSheetTab(firstTab)
-              }
-              setMobileWorkSheetOpen(true)
-            }}
-            settingsOpen={settingsOpen}
-            settingsSection={mobileSettingsSection}
-            settingsSaving={instructionsSaving || memorySaving || storageMaintaining}
-            showBrowserSettings={showBrowserSettings}
-            onOpenSettings={openSettings}
-            onCloseSettings={navigation.closeSettings}
-            serviceSwitchSlot={
-              serviceUI && serviceUI.services.length > 1 ? (
-                <LocationSelector
-                  services={serviceUI.services}
-                  serviceId={serviceUI.serviceId}
-                  disabledReason={chat.workspaceDisabledReason}
-                  onSelect={serviceUI.onLocation}
-                  onError={chat.setError}
-                />
-              ) : undefined
-            }
-            settingsContent={
-              <section
-                id="settings-content"
-                aria-label="设置内容"
-                tabIndex={-1}
-                className="mobile-settings-page min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain px-4 pt-3 pb-[max(2rem,env(safe-area-inset-bottom))] outline-none"
-              >
-                <div className="min-w-0 space-y-6 text-sm">{renderSettingsContent(mobileSettingsSection)}</div>
-              </section>
-            }
-          >
+          {mobileShellBody}
+
+          {scheduleState.notice && (
             <div
-              className="contents"
-              onFocusCapture={() => {
-                setSideChatFocused(false)
-                registry.setComposerController(pluginComposer.adapter)
-              }}
+              role="status"
+              className="fixed inset-x-4 bottom-20 z-50 flex items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-sm shadow-xl"
             >
-              {conversation}
+              <button
+                type="button"
+                className="min-w-0 flex-1 truncate text-left"
+                onClick={() => {
+                  navigation.open({ kind: 'schedules', taskId: scheduleState.notice!.taskId })
+                  scheduleState.dismissNotice()
+                }}
+              >
+                {scheduleState.notice.text}
+              </button>
+              <button
+                type="button"
+                aria-label="关闭任务提醒"
+                className="shrink-0 text-xs text-muted-foreground active:text-foreground"
+                onClick={scheduleState.dismissNotice}
+              >
+                关闭
+              </button>
             </div>
-          </MobileChatShell>
+          )}
 
           <MobileWorkSheet
             open={mobileWorkSheetOpen}

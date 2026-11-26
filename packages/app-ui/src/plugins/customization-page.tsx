@@ -16,6 +16,7 @@ export function CustomizationPage({
   sidebarLayout,
   onDismiss,
   renderContent,
+  renderLayout,
 }: {
   plugins: UiPluginDescriptor[]
   nativeWindow: boolean
@@ -26,6 +27,7 @@ export function CustomizationPage({
     section: 'plugins' | 'skills',
     selection: { id?: string; onChange: (id?: string) => void },
   ) => ReactNode
+  renderLayout?: (parts: { sidebar: ReactNode; content: ReactNode }) => ReactNode
 }) {
   const [section, setSection] = useState<'plugins' | 'skills'>('plugins')
   const [selectedPlugin, setSelectedPlugin] = useState<string>()
@@ -94,6 +96,17 @@ export function CustomizationPage({
       </section>
     </div>
   )
+  const content = (
+    <div
+      id="customization-content"
+      className="theme-workspace min-w-0 flex-1 overflow-y-auto bg-background px-4 py-5 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-8 sm:py-8 lg:px-12 lg:py-12"
+    >
+      <div className="mx-auto max-w-6xl">
+        {renderContent(section, { id: selectedPlugin, onChange: setSelectedPlugin })}
+      </div>
+    </div>
+  )
+  if (renderLayout) return <>{renderLayout({ sidebar, content })}</>
   return (
     <SidebarWorkspace
       label="插件与技能页面"
@@ -103,14 +116,7 @@ export function CustomizationPage({
       rail={rail}
       sidebar={sidebar}
     >
-      <div
-        id="customization-content"
-        className="theme-workspace min-w-0 flex-1 overflow-y-auto bg-background px-6 py-8 sm:px-8 lg:px-12 lg:py-12"
-      >
-        <div className="mx-auto max-w-6xl">
-          {renderContent(section, { id: selectedPlugin, onChange: setSelectedPlugin })}
-        </div>
-      </div>
+      {content}
     </SidebarWorkspace>
   )
 }

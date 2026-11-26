@@ -36,6 +36,7 @@ const jobLabels: Record<MemoryJob['state'], string> = {
 const runningJob = (job: MemoryJob) => ['waiting', 'extracting', 'consolidating', 'budget-paused'].includes(job.state)
 
 export function MemorySettings({
+  mobile = false,
   host,
   connected,
   hostLabel,
@@ -48,6 +49,7 @@ export function MemorySettings({
   onOpenSourceSession,
   renderSource,
 }: {
+  mobile?: boolean
   host: HostApi
   connected: boolean
   hostLabel: string
@@ -720,20 +722,30 @@ export function MemorySettings({
                       </Button>
                     </div>
                   )}
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      disabled={!memory.writable || !editor.input.title.trim() || !editor.input.content.trim()}
-                      onClick={() => void saveEntry()}
-                    >
-                      {memory.busy === 'entry' && (
-                        <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" />
-                      )}
-                      保存
-                    </Button>
-                    <Button variant="outline" size="sm" disabled={saving} onClick={() => leave(resetDraft)}>
-                      取消
-                    </Button>
+                  <div
+                    className={cn(
+                      'flex gap-2',
+                      mobile &&
+                        dirty &&
+                        'sticky bottom-0 z-20 -mx-4 items-center justify-between border-t border-border/70 bg-background/95 px-4 py-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] backdrop-blur-xs',
+                    )}
+                  >
+                    {mobile && dirty && <span className="text-xs text-muted-foreground">有未保存更改</span>}
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        disabled={!memory.writable || !editor.input.title.trim() || !editor.input.content.trim()}
+                        onClick={() => void saveEntry()}
+                      >
+                        {memory.busy === 'entry' && (
+                          <LoaderCircle className="size-3.5 animate-spin motion-reduce:animate-none" />
+                        )}
+                        保存
+                      </Button>
+                      <Button variant="outline" size="sm" disabled={saving} onClick={() => leave(resetDraft)}>
+                        取消
+                      </Button>
+                    </div>
                   </div>
                 </div>
               ) : (

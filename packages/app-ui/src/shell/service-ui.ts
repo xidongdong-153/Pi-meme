@@ -34,7 +34,13 @@ export type ServiceUI = {
   onCreateImage?: (serviceId: string, item?: GalleryImage, isCurrent?: () => boolean) => Promise<void>
   sidebar: ReactNode
   sidebarModel?: ReturnType<typeof buildSidebarModel>
+  pinnedKeys?: string[]
   onSwitchServiceSession?: (serviceId: string, sessionPath: string) => Promise<boolean>
+  onNewServiceSessionInProject?: (serviceId: string, cwd: string) => Promise<boolean>
+  onToggleServicePin?: (serviceId: string, path: string) => Promise<void>
+  onRenameServiceSession?: (serviceId: string, sessionPath: string, name: string) => Promise<void>
+  onDeleteServiceSession?: (serviceId: string, sessionPath: string) => Promise<void>
+  onRenameServiceProject?: (serviceId: string, cwd: string, name: string) => Promise<void>
   remoteSettings: ReactNode
   onController: (id: string, controller: ServiceController) => void
   onLocation: (serviceId: string, input: SelectWorkspace) => Promise<boolean>

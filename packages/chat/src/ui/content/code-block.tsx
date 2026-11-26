@@ -1,8 +1,9 @@
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import * as React from 'react'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Maximize2 } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@pi-meme/ui/components/ui/collapsible'
+import { Dialog, DialogContent, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { FileIcon } from '@pi-meme/ui/components/file-icon'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { normalizeCodeLanguage, useHighlighter } from '@pi-meme/ui/lib/use-highlighter'
@@ -62,6 +63,7 @@ export interface CodeBlockProps extends React.HTMLAttributes<HTMLDivElement> {
 export function CodeBlock({ code, language = 'text', className, ...props }: CodeBlockProps) {
   const [open, setOpen] = React.useState(true)
   const [copied, setCopied] = React.useState(false)
+  const [fullscreen, setFullscreen] = React.useState(false)
   const normalizedLanguage = normalizeCodeLanguage(language)
   const [languageLabel, extension] = Object.hasOwn(codeLanguages, normalizedLanguage)
     ? codeLanguages[normalizedLanguage]
@@ -118,15 +120,28 @@ export function CodeBlock({ code, language = 'text', className, ...props }: Code
               </Button>
             </CollapsibleTrigger>
           </TooltipHint>
-          <Button
-            variant="ghost"
-            size="xs"
-            className="h-7 shrink-0 border-0 bg-transparent px-1 font-sans text-xs font-normal text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
-            onClick={handleCopy}
-            aria-label={copied ? '已复制' : '复制代码'}
-          >
-            {copied ? '已复制' : '复制'}
-          </Button>
+          <div className="flex shrink-0 items-center gap-1">
+            <TooltipHint content="全屏查看">
+              <Button
+                variant="ghost"
+                size="xs"
+                className="pi-fullscreen-trigger h-7 shrink-0 border-0 bg-transparent px-1 font-sans text-xs font-normal text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
+                onClick={() => setFullscreen(true)}
+                aria-label="全屏查看代码"
+              >
+                <Maximize2 className="size-3.5" />
+              </Button>
+            </TooltipHint>
+            <Button
+              variant="ghost"
+              size="xs"
+              className="h-7 shrink-0 border-0 bg-transparent px-1 font-sans text-xs font-normal text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
+              onClick={handleCopy}
+              aria-label={copied ? '已复制' : '复制代码'}
+            >
+              {copied ? '已复制' : '复制'}
+            </Button>
+          </div>
         </div>
         <div
           data-state={open ? 'open' : 'closed'}
@@ -145,6 +160,38 @@ export function CodeBlock({ code, language = 'text', className, ...props }: Code
             )}
           </CollapsibleContent>
         </div>
+        {fullscreen && (
+          <Dialog open onOpenChange={setFullscreen}>
+            <DialogContent
+              aria-describedby={undefined}
+              className="flex h-[90dvh] max-h-none w-[calc(100vw-16px)] max-w-5xl flex-col gap-0 overflow-hidden rounded-2xl p-0"
+              closeButtonProps={{
+                'aria-label': '关闭全屏代码',
+                className:
+                  'right-3 top-2.5 inline-flex size-9 items-center justify-center rounded-xl text-muted-foreground opacity-100 active:bg-secondary active:text-foreground',
+              }}
+            >
+              <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 pl-4 pr-14 py-2.5">
+                <DialogTitle className="flex min-w-0 items-center gap-2 text-sm font-medium">
+                  {extension && <FileIcon path={`code.${extension}`} />}
+                  <span className="truncate">{languageLabel}</span>
+                </DialogTitle>
+                <Button variant="outline" size="sm" className="h-8 rounded-full px-3 text-xs" onClick={handleCopy}>
+                  {copied ? '已复制' : '复制代码'}
+                </Button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto p-4 font-mono text-sm leading-[1.75] select-text">
+                {html ? (
+                  <div className="pi-code-block-content" dangerouslySetInnerHTML={{ __html: html }} />
+                ) : (
+                  <pre className="pi-code-block-content text-foreground font-mono">
+                    <code>{code}</code>
+                  </pre>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
     </Collapsible>
   )

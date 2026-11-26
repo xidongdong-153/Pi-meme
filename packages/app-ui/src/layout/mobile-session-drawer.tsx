@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   ChevronDown,
   ChevronRight,
+  Circle,
+  Clock,
   Ellipsis,
   Folder,
   Gauge,
   Home,
   Info,
+  LibraryBig,
   Loader2,
   Monitor,
   Moon,
@@ -14,6 +17,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Plug,
   Search,
   Settings,
   SquarePen,
@@ -55,6 +59,7 @@ import { SettingsDirectory, type SettingsSection } from '../settings/settings-pa
 import type { UserProfile } from '../settings/user-profile'
 
 export type MobileDrawerModel = ReturnType<typeof buildSidebarModel>
+export type MobilePrimaryNav = 'chat' | 'materials' | 'projects' | 'schedules' | 'customization'
 
 const APPEARANCE_MODES: readonly { mode: AppearanceMode; label: string; icon: typeof Monitor }[] = [
   { mode: 'system', label: '系统', icon: Monitor },
@@ -75,9 +80,9 @@ function summarizeUsage(snapshot: UsageStatsSnapshot) {
 }
 
 type DrawerDialogState =
-  | { kind: 'rename-session'; session: PiSessionSummary }
-  | { kind: 'rename-project'; project: PiProjectGroup }
-  | { kind: 'delete-session'; session: PiSessionSummary }
+  | { kind: 'rename-session'; serviceId: string; session: PiSessionSummary }
+  | { kind: 'rename-project'; serviceId: string; project: PiProjectGroup }
+  | { kind: 'delete-session'; serviceId: string; session: PiSessionSummary }
   | { kind: 'session-details'; session: PiSessionSummary; projectName?: string }
 
 export function MobileSessionDrawer({
@@ -96,7 +101,8 @@ export function MobileSessionDrawer({
   profileLoading,
   appearanceMode,
   onChangeAppearanceMode,
-  pinnedPaths = [],
+  pinnedKeys = [],
+  multiServiceActions = false,
   onNewSession,
   onNewSessionInProject,
   onSwitchSession,
@@ -106,6 +112,10 @@ export function MobileSessionDrawer({
   onDeleteSession,
   onRenameProject,
   loadUsageStats,
+  activeNav = 'chat',
+  schedulesUnread = false,
+  onNavigatePrimary,
+  customDrawerPanel,
   settingsOpen = false,
   settingsSection = 'general',
   settingsSaving = false,
@@ -128,16 +138,21 @@ export function MobileSessionDrawer({
   profileLoading: boolean
   appearanceMode: AppearanceMode
   onChangeAppearanceMode?: (mode: AppearanceMode) => void
-  pinnedPaths?: readonly string[]
+  pinnedKeys?: readonly string[]
+  multiServiceActions?: boolean
   onNewSession: () => void
-  onNewSessionInProject?: (cwd: string) => void
+  onNewSessionInProject?: (serviceId: string, cwd: string) => void
   onSwitchSession: (serviceId: string, sessionPath: string) => void
   onSearch?: () => void
-  onTogglePin?: (path: string) => void
-  onRenameSession?: (sessionPath: string, name: string) => Promise<void>
-  onDeleteSession?: (sessionPath: string) => Promise<void>
-  onRenameProject?: (cwd: string, name: string) => Promise<void>
+  onTogglePin?: (serviceId: string, path: string) => void
+  onRenameSession?: (serviceId: string, sessionPath: string, name: string) => Promise<void>
+  onDeleteSession?: (serviceId: string, sessionPath: string) => Promise<void>
+  onRenameProject?: (serviceId: string, cwd: string, name: string) => Promise<void>
   loadUsageStats?: () => Promise<UsageStatsSnapshot>
+  activeNav?: MobilePrimaryNav
+  schedulesUnread?: boolean
+  onNavigatePrimary?: (nav: MobilePrimaryNav) => void
+  customDrawerPanel?: { title: string; content: ReactNode }
   settingsOpen?: boolean
   settingsSection?: SettingsSection
   settingsSaving?: boolean
@@ -160,7 +175,9 @@ export function MobileSessionDrawer({
   const [dialogBusy, setDialogBusy] = useState(false)
   const [dialogError, setDialogError] = useState('')
 
-  const pinnedSet = useMemo(() => new Set(pinnedPaths), [pinnedPaths])
+  const pinnedSet = useMemo(() => new Set(pinnedKeys), [pinnedKeys])
+  const isPinned = (serviceId: string, targetPath: string) =>
+    pinnedSet.has(`${serviceId}:${targetPath}`) || (serviceId === activeServiceId && pinnedSet.has(targetPath))
 
   // 自动展开当前会话所属项目
   const activeProjectKey = useMemo(() => {
@@ -218,21 +235,21 @@ export function MobileSessionDrawer({
     onOpenSettings?.(section)
   }
 
-  const openRenameSession = (session: PiSessionSummary) => {
+  const openRenameSession = (serviceId: string, session: PiSessionSummary) => {
     setDialogInput(formatSessionTitle(session))
     setDialogError('')
-    setDialog({ kind: 'rename-session', session })
+    setDialog({ kind: 'rename-session', serviceId, session })
   }
 
-  const openRenameProject = (project: PiProjectGroup) => {
+  const openRenameProject = (serviceId: string, project: PiProjectGroup) => {
     setDialogInput(project.name)
     setDialogError('')
-    setDialog({ kind: 'rename-project', project })
+    setDialog({ kind: 'rename-project', serviceId, project })
   }
 
-  const openDeleteSession = (session: PiSessionSummary) => {
+  const openDeleteSession = (serviceId: string, session: PiSessionSummary) => {
     setDialogError('')
-    setDialog({ kind: 'delete-session', session })
+    setDialog({ kind: 'delete-session', serviceId, session })
   }
 
   const submitDialog = async () => {
@@ -243,13 +260,13 @@ export function MobileSessionDrawer({
       if (dialog.kind === 'rename-session') {
         const next = dialogInput.replace(/[\r\n]+/g, ' ').trim()
         if (!next) throw new Error('名称不能为空')
-        await onRenameSession?.(dialog.session.path, next)
+        await onRenameSession?.(dialog.serviceId, dialog.session.path, next)
       } else if (dialog.kind === 'rename-project') {
         const next = dialogInput.replace(/[\r\n]+/g, ' ').trim()
         if (!next) throw new Error('项目名称不能为空')
-        await onRenameProject?.(dialog.project.cwd, next)
+        await onRenameProject?.(dialog.serviceId, dialog.project.cwd, next)
       } else if (dialog.kind === 'delete-session') {
-        await onDeleteSession?.(dialog.session.path)
+        await onDeleteSession?.(dialog.serviceId, dialog.session.path)
       }
       setDialog(null)
     } catch (cause) {
@@ -287,9 +304,9 @@ export function MobileSessionDrawer({
     const needsInput = Boolean((session.inputUnread ?? session.needsInput) && !offline)
     const running = Boolean(session.running && !session.isPaused && !session.needsInput && !offline)
     const title = formatSessionTitle(session)
-    const isCurrentService = serviceId === activeServiceId
-    const pinned = pinnedSet.has(session.path)
-    const showMenu = isCurrentService && !offline && Boolean(onTogglePin || onRenameSession || onDeleteSession)
+    const canOperate = (multiServiceActions || serviceId === activeServiceId) && !offline
+    const pinned = isPinned(serviceId, session.path)
+    const showMenu = canOperate && Boolean(onTogglePin || onRenameSession || onDeleteSession)
 
     return (
       <div
@@ -333,7 +350,7 @@ export function MobileSessionDrawer({
             <DropdownMenuContent side="bottom" align="end" sideOffset={4} className="w-44 rounded-xl p-1">
               {onTogglePin && (
                 <DropdownMenuItem
-                  onSelect={() => onTogglePin(session.path)}
+                  onSelect={() => onTogglePin(serviceId, session.path)}
                   className="min-h-[40px] gap-2.5 rounded-lg text-sm"
                 >
                   {pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
@@ -342,7 +359,7 @@ export function MobileSessionDrawer({
               )}
               {onRenameSession && (
                 <DropdownMenuItem
-                  onSelect={() => openRenameSession(session)}
+                  onSelect={() => openRenameSession(serviceId, session)}
                   className="min-h-[40px] gap-2.5 rounded-lg text-sm"
                 >
                   <Pencil className="size-4" />
@@ -360,7 +377,7 @@ export function MobileSessionDrawer({
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onSelect={() => openDeleteSession(session)}
+                    onSelect={() => openDeleteSession(serviceId, session)}
                     className="min-h-[40px] gap-2.5 rounded-lg text-sm text-destructive focus:text-destructive"
                   >
                     <Trash2 className="size-4" />
@@ -382,8 +399,8 @@ export function MobileSessionDrawer({
     const sessions = expandedAll ? project.sessions : project.sessions.slice(0, 6)
     const offline = Boolean(disconnectedServiceIds?.has(serviceId))
     const hasPending = !offline && project.sessions.some((item) => item.inputUnread ?? item.needsInput)
-    const isCurrentService = serviceId === activeServiceId
-    const pinned = pinnedSet.has(project.cwd)
+    const canOperate = (multiServiceActions || serviceId === activeServiceId) && !offline
+    const pinned = isPinned(serviceId, project.cwd)
 
     return (
       <div key={key} className="space-y-0.5">
@@ -415,7 +432,7 @@ export function MobileSessionDrawer({
             ) : null}
           </button>
 
-          {isCurrentService && !offline && (
+          {canOperate && (
             <div className="flex shrink-0 items-center">
               {onNewSessionInProject && (
                 <button
@@ -423,7 +440,7 @@ export function MobileSessionDrawer({
                   aria-label={`在 ${project.name} 中新聊天`}
                   onClick={() => {
                     onClose()
-                    onNewSessionInProject(project.cwd)
+                    onNewSessionInProject(serviceId, project.cwd)
                   }}
                   className="inline-flex size-9 items-center justify-center rounded-xl text-muted-foreground/75 transition-colors active:bg-secondary active:text-foreground"
                 >
@@ -444,7 +461,7 @@ export function MobileSessionDrawer({
                   <DropdownMenuContent side="bottom" align="end" sideOffset={4} className="w-44 rounded-xl p-1">
                     {onTogglePin && (
                       <DropdownMenuItem
-                        onSelect={() => onTogglePin(project.cwd)}
+                        onSelect={() => onTogglePin(serviceId, project.cwd)}
                         className="min-h-[40px] gap-2.5 rounded-lg text-sm"
                       >
                         {pinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
@@ -453,7 +470,7 @@ export function MobileSessionDrawer({
                     )}
                     {onRenameProject && (
                       <DropdownMenuItem
-                        onSelect={() => openRenameProject(project)}
+                        onSelect={() => openRenameProject(serviceId, project)}
                         className="min-h-[40px] gap-2.5 rounded-lg text-sm"
                       >
                         <Pencil className="size-4" />
@@ -516,6 +533,33 @@ export function MobileSessionDrawer({
 
   const usageSummary = usageSnapshot ? summarizeUsage(usageSnapshot) : null
 
+  const railNavEntries: readonly {
+    id: MobilePrimaryNav
+    label: string
+    icon: ReactNode
+    unread?: boolean
+  }[] = [
+    { id: 'chat', label: '首页', icon: <Home className="size-[18px]" /> },
+    { id: 'materials', label: '资料空间', icon: <LibraryBig className="size-[18px]" /> },
+    { id: 'projects', label: '项目', icon: <Folder className="size-[18px]" /> },
+    {
+      id: 'schedules',
+      label: schedulesUnread ? '定时任务，有未读结果' : '定时任务',
+      icon: <Clock className="size-[18px]" />,
+      unread: schedulesUnread,
+    },
+    {
+      id: 'customization',
+      label: '插件与技能',
+      icon: (
+        <span className="relative size-[18px]" aria-hidden="true">
+          <Circle className="size-[18px]" />
+          <Plug className="absolute inset-[3.5px] size-[11px] -rotate-45" />
+        </span>
+      ),
+    },
+  ]
+
   return (
     <>
       <div
@@ -555,25 +599,40 @@ export function MobileSessionDrawer({
                 <PanelLeft className="size-[18px]" />
               </button>
 
-              <button
-                type="button"
-                aria-label="首页"
-                aria-current={!settingsOpen ? 'page' : undefined}
-                onClick={() => {
-                  if (settingsOpen) {
-                    onGoHome?.()
-                    onClose()
-                  }
-                }}
-                className={cn(
-                  'inline-flex size-9 items-center justify-center rounded-full transition-colors active:scale-95',
-                  !settingsOpen
-                    ? 'bg-secondary text-foreground shadow-2xs'
-                    : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
-                )}
-              >
-                <Home className="size-[18px]" />
-              </button>
+              {railNavEntries.map((entry) => {
+                const active = !settingsOpen && activeNav === entry.id
+                return (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    aria-label={entry.label}
+                    aria-current={active ? 'page' : undefined}
+                    onClick={() => {
+                      if (entry.id === 'chat') {
+                        if (settingsOpen) onGoHome?.()
+                        else if (activeNav !== 'chat') onNavigatePrimary?.('chat')
+                      } else {
+                        onNavigatePrimary?.(entry.id)
+                        if (entry.id === 'projects') onClose()
+                      }
+                    }}
+                    className={cn(
+                      'relative inline-flex size-9 items-center justify-center rounded-full transition-colors active:scale-95',
+                      active
+                        ? 'bg-secondary text-foreground shadow-2xs'
+                        : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
+                    )}
+                  >
+                    {entry.icon}
+                    {entry.unread && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute right-1.5 top-1.5 size-2 rounded-full bg-blue-500 ring-2 ring-background"
+                      />
+                    )}
+                  </button>
+                )
+              })}
             </div>
 
             {/* 底部固定区：用量浮层 + 个人头像菜单 */}
@@ -791,6 +850,34 @@ export function MobileSessionDrawer({
                     onOpenSettings(section)
                   }}
                 />
+              </>
+            ) : customDrawerPanel ? (
+              <>
+                <div className="flex shrink-0 items-center justify-between px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
+                  <h2 className="pl-1 text-base font-semibold tracking-tight text-foreground">
+                    {customDrawerPanel.title}
+                  </h2>
+                  <button
+                    ref={closeButtonRef}
+                    type="button"
+                    aria-label="关闭侧边栏"
+                    onClick={onClose}
+                    className="inline-flex size-9 items-center justify-center rounded-xl text-muted-foreground transition-colors active:bg-secondary active:text-foreground"
+                  >
+                    <X className="size-[18px]" />
+                  </button>
+                </div>
+                <div
+                  className="flex min-h-0 flex-1 flex-col overflow-hidden pb-[env(safe-area-inset-bottom)]"
+                  onClick={(event) => {
+                    const target = event.target instanceof Element ? event.target : null
+                    if (target?.closest('button, a') && !target.closest('[data-keep-drawer-open]')) {
+                      onClose()
+                    }
+                  }}
+                >
+                  {customDrawerPanel.content}
+                </div>
               </>
             ) : (
               <>

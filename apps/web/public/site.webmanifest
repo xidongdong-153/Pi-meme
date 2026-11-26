@@ -1,7 +1,10 @@
 {
+  "id": "/",
   "name": "Pi meme",
   "short_name": "Pi meme",
   "description": "Pi Coding Agent 客户端",
+  "start_url": "/",
+  "scope": "/",
   "icons": [
     {
       "src": "/favicon-16x16.png",
@@ -16,10 +19,12 @@
     {
       "src": "/apple-touch-icon.png",
       "sizes": "180x180",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ],
   "theme_color": "#141716",
   "background_color": "#141716",
-  "display": "standalone"
+  "display": "standalone",
+  "orientation": "any"
 }

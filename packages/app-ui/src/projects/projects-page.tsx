@@ -40,6 +40,7 @@ function updatedTime(value: string) {
 }
 
 export function ProjectsPage({
+  mobile = false,
   bridge,
   sessions,
   nativeWindow,
@@ -55,6 +56,7 @@ export function ProjectsPage({
   onTogglePin,
   onPrefetchSession,
 }: {
+  mobile?: boolean
   bridge: SidebarMenuBridge & Pick<DesktopBridge, 'getProjects' | 'pickProjectDirectory' | 'onSessionsChanged'>
   sessions: PiSessionsSnapshot | null
   nativeWindow: boolean
@@ -127,6 +129,134 @@ export function ProjectsPage({
     await Promise.all([refresh(), onChanged()])
   }
 
+  const body = (
+    <SidebarMenus
+      bridge={bridge}
+      canOpenProject={canOpenProject}
+      pinnedPaths={sessions?.pinnedPaths ?? []}
+      onNewSession={(cwd) => void onNewSession(cwd)}
+      onTogglePin={(cwd) => void onTogglePin(cwd)}
+      onChanged={changed}
+      onDeleted={async (result) => {
+        await onDeleted(result)
+        await refresh()
+      }}
+    >
+      <div
+        className={cn(
+          'theme-workspace min-h-0 min-w-0 flex-1 overflow-y-auto bg-background',
+          mobile ? 'px-4 py-4 pb-[max(2rem,env(safe-area-inset-bottom))]' : 'px-5 py-7 sm:px-8 lg:px-12 lg:py-9',
+        )}
+      >
+        <div
+          className={cn('flex flex-wrap items-center justify-between gap-3', mobile ? 'mb-4' : 'mb-6 gap-4 sm:mb-8')}
+        >
+          {!mobile && <h1 className="text-2xl font-semibold tracking-tight">项目</h1>}
+          <div className={cn('no-drag flex min-w-0 items-center gap-2.5', mobile && 'w-full')}>
+            <div className={cn('relative', mobile ? 'min-w-0 flex-1' : 'w-44 sm:w-60')}>
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground"
+              />
+              <Input
+                aria-label="搜索项目"
+                placeholder="搜索项目"
+                autoFocus={false}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                className={cn('h-9 rounded-full bg-transparent pl-9', mobile && 'h-10 text-base')}
+              />
+            </div>
+            {(!mobile || canOpenProject) && (
+              <Button onClick={() => setCreating(true)} className={cn('rounded-full px-4', mobile ? 'h-10' : 'h-9')}>
+                <Plus className="size-4" />
+                创建
+              </Button>
+            )}
+          </div>
+        </div>
+        {notice}
+        <RevealContent ready={Boolean(error)} className="mb-4">
+          <div role="alert" className="flex items-center gap-3 text-sm text-destructive">
+            <CrossfadeText className="min-w-0 flex-1 break-all">{error}</CrossfadeText>
+            <Button variant="ghost" size="sm" disabled={loading} onClick={() => void refresh()}>
+              重试
+            </Button>
+          </div>
+        </RevealContent>
+        <div className="flex items-center gap-3 border-b border-border/60 px-3 pb-3 text-xs text-muted-foreground">
+          <span className="min-w-0 flex-1">名称</span>
+          <button
+            type="button"
+            onClick={() => setDescending((value) => !value)}
+            aria-label={descending ? '按更新时间从早到晚排序' : '按更新时间从晚到早排序'}
+            className="flex w-20 shrink-0 items-center gap-1.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-28"
+          >
+            已更新{descending ? <ArrowDown className="size-3.5" /> : <ArrowUp className="size-3.5" />}
+          </button>
+          <span className={cn('shrink-0', mobile ? 'w-16' : 'w-24 sm:w-28')} aria-hidden="true" />
+        </div>
+        <div aria-label="项目列表" aria-busy={loading}>
+          {visible.map((project) => (
+            <ProjectRow
+              key={project.cwd}
+              project={project}
+              pinned={pinned.has(project.cwd)}
+              onNewSession={onNewSession}
+              onSwitchSession={onSwitchSession}
+              onTogglePin={onTogglePin}
+              onPrefetchSession={onPrefetchSession}
+              onError={setError}
+            />
+          ))}
+        </div>
+        {!visible.length && (
+          <div
+            role="status"
+            className={cn(
+              'flex flex-col items-center gap-3 py-20 text-sm text-muted-foreground',
+              loading && 'ui-loading-delayed',
+            )}
+          >
+            {loading ? (
+              <Loader2 className="size-6 animate-spin" />
+            ) : (
+              <Folder className="size-8 text-muted-foreground/60" />
+            )}
+            <p>
+              <CrossfadeText>
+                {loading ? '正在读取项目…' : search ? '没有匹配的项目' : error ? '项目列表暂时不可用' : '还没有项目'}
+              </CrossfadeText>
+            </p>
+            {!loading && !search && !error && (!mobile || canOpenProject) && (
+              <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
+                创建项目
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
+      {creating && (
+        <ProjectDialog
+          pickDirectory={bridge.pickProjectDirectory}
+          onDismiss={() => setCreating(false)}
+          onCreate={async (input) => {
+            await onCreate(input)
+            void changed().catch((cause) => setError(`项目已创建，刷新失败：${String(cause)}`))
+          }}
+        />
+      )}
+    </SidebarMenus>
+  )
+
+  if (mobile) {
+    return (
+      <section aria-label="项目页面" className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+        {body}
+      </section>
+    )
+  }
+
   return (
     <section
       aria-label="项目页面"
@@ -137,121 +267,7 @@ export function ProjectsPage({
       </PageHeader>
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {rail}
-        <div className="content-frame bg-background">
-          <SidebarMenus
-            bridge={bridge}
-            canOpenProject={canOpenProject}
-            pinnedPaths={sessions?.pinnedPaths ?? []}
-            onNewSession={(cwd) => void onNewSession(cwd)}
-            onTogglePin={(cwd) => void onTogglePin(cwd)}
-            onChanged={changed}
-            onDeleted={async (result) => {
-              await onDeleted(result)
-              await refresh()
-            }}
-          >
-            <div className="theme-workspace min-h-0 min-w-0 flex-1 overflow-y-auto bg-background px-5 py-7 sm:px-8 lg:px-12 lg:py-9">
-              <div className="mb-6 flex flex-wrap items-center justify-between gap-4 sm:mb-8">
-                <h1 className="text-2xl font-semibold tracking-tight">项目</h1>
-                <div className="no-drag flex min-w-0 items-center gap-3">
-                  <div className="relative w-44 sm:w-60">
-                    <Search
-                      aria-hidden="true"
-                      className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground"
-                    />
-                    <Input
-                      aria-label="搜索项目"
-                      placeholder="搜索项目"
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      className="h-9 rounded-full bg-transparent pl-9"
-                    />
-                  </div>
-                  <Button onClick={() => setCreating(true)} className="h-9 rounded-full px-4">
-                    <Plus className="size-4" />
-                    创建
-                  </Button>
-                </div>
-              </div>
-              {notice}
-              <RevealContent ready={Boolean(error)} className="mb-4">
-                <div role="alert" className="flex items-center gap-3 text-sm text-destructive">
-                  <CrossfadeText className="min-w-0 flex-1 break-all">{error}</CrossfadeText>
-                  <Button variant="ghost" size="sm" disabled={loading} onClick={() => void refresh()}>
-                    重试
-                  </Button>
-                </div>
-              </RevealContent>
-              <div className="flex items-center gap-3 border-b border-border/60 px-3 pb-3 text-xs text-muted-foreground">
-                <span className="min-w-0 flex-1">名称</span>
-                <button
-                  type="button"
-                  onClick={() => setDescending((value) => !value)}
-                  aria-label={descending ? '按更新时间从早到晚排序' : '按更新时间从晚到早排序'}
-                  className="flex w-24 shrink-0 items-center gap-1.5 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-28"
-                >
-                  已更新{descending ? <ArrowDown className="size-3.5" /> : <ArrowUp className="size-3.5" />}
-                </button>
-                <span className="w-24 shrink-0 sm:w-28" aria-hidden="true" />
-              </div>
-              <div aria-label="项目列表" aria-busy={loading}>
-                {visible.map((project) => (
-                  <ProjectRow
-                    key={project.cwd}
-                    project={project}
-                    pinned={pinned.has(project.cwd)}
-                    onNewSession={onNewSession}
-                    onSwitchSession={onSwitchSession}
-                    onTogglePin={onTogglePin}
-                    onPrefetchSession={onPrefetchSession}
-                    onError={setError}
-                  />
-                ))}
-              </div>
-              {!visible.length && (
-                <div
-                  role="status"
-                  className={cn(
-                    'flex flex-col items-center gap-3 py-20 text-sm text-muted-foreground',
-                    loading && 'ui-loading-delayed',
-                  )}
-                >
-                  {loading ? (
-                    <Loader2 className="size-6 animate-spin" />
-                  ) : (
-                    <Folder className="size-8 text-muted-foreground/60" />
-                  )}
-                  <p>
-                    <CrossfadeText>
-                      {loading
-                        ? '正在读取项目…'
-                        : search
-                          ? '没有匹配的项目'
-                          : error
-                            ? '项目列表暂时不可用'
-                            : '还没有项目'}
-                    </CrossfadeText>
-                  </p>
-                  {!loading && !search && !error && (
-                    <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
-                      创建项目
-                    </Button>
-                  )}
-                </div>
-              )}
-            </div>
-            {creating && (
-              <ProjectDialog
-                pickDirectory={bridge.pickProjectDirectory}
-                onDismiss={() => setCreating(false)}
-                onCreate={async (input) => {
-                  await onCreate(input)
-                  void changed().catch((cause) => setError(`项目已创建，刷新失败：${String(cause)}`))
-                }}
-              />
-            )}
-          </SidebarMenus>
-        </div>
+        <div className="content-frame bg-background">{body}</div>
       </div>
     </section>
   )

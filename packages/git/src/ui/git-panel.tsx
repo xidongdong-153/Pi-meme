@@ -45,6 +45,7 @@ export type GitPanelOpenRequest = {
 }
 
 export function GitPanel({
+  mobile = false,
   visible = true,
   cwd,
   projectKey = cwd,
@@ -58,6 +59,7 @@ export function GitPanel({
   openRequest,
   onOpenFile,
 }: {
+  mobile?: boolean
   visible?: boolean
   cwd: string
   projectKey?: string
@@ -269,8 +271,21 @@ export function GitPanel({
       }))
     : (currentSnapshot?.files ?? [])
   const allExpanded = files.length > 0 && files.every((file) => openPaths.has(file.path))
-  const split = reading.layout === 'split' || (reading.layout === 'auto' && width >= 760)
+  const split = mobile ? false : reading.layout === 'split' || (reading.layout === 'auto' && width >= 760)
   const total = agentScope ? changes : currentSnapshot
+  const jumpToFile = (path: string) => {
+    setOpenPaths((current) => {
+      const next = new Set(current)
+      next.add(path)
+      return next
+    })
+    requestAnimationFrame(() => {
+      const row = Array.from(panel.current?.querySelectorAll<HTMLElement>('[data-review-path]') ?? []).find(
+        (element) => element.dataset.reviewPath === path,
+      )
+      row?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+    })
+  }
   const toggle = (path: string) =>
     setOpenPaths((current) => {
       const next = new Set(current)
@@ -282,6 +297,7 @@ export function GitPanel({
   return (
     <div ref={panel} className="@container flex h-full min-h-0 min-w-0 flex-col">
       <GitReviewToolbar
+        mobile={mobile}
         scope={scope}
         onScope={(scope) => select({ ...preferences, scope })}
         insertions={total?.insertions ?? 0}
@@ -307,9 +323,45 @@ export function GitPanel({
         )}
       </GitReviewToolbar>
       <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2 text-[11px] text-muted-foreground">
-        <span>
-          {files.length} 个文件{agentScope && changes?.undone ? ' · 已撤销' : ''}
-        </span>
+        {mobile && files.length > 1 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="快速跳转变更文件"
+                className="inline-flex h-7 items-center gap-1 rounded-full bg-secondary/70 px-2.5 text-xs font-medium text-foreground active:bg-secondary"
+              >
+                <span>
+                  {files.length} 个文件{agentScope && changes?.undone ? ' · 已撤销' : ''}
+                </span>
+                <ChevronDown className="size-3 text-muted-foreground" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="start"
+              side="bottom"
+              className="max-h-64 w-[min(calc(100vw-32px),320px)] overflow-y-auto rounded-xl p-1"
+            >
+              {files.map((file) => (
+                <DropdownMenuItem
+                  key={file.path}
+                  onSelect={() => jumpToFile(file.path)}
+                  className="min-h-[38px] gap-2 rounded-lg text-xs"
+                >
+                  <FileIcon path={file.path} className="size-3.5 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate font-mono">{file.path}</span>
+                  <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
+                    +{file.insertions} -{file.deletions}
+                  </span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <span>
+            {files.length} 个文件{agentScope && changes?.undone ? ' · 已撤销' : ''}
+          </span>
+        )}
         <span className="truncate">
           {scope === 'branch'
             ? '从共同祖先到当前分支'

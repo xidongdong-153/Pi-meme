@@ -632,3 +632,24 @@ body {
 [data-mobile-web] .mobile-settings-page textarea {
   font-size: 16px;
 }
+
+/* 移动端代码/表格全屏入口常驻可见，避免无 Hover 不可发现 */
+[data-mobile-web] .pi-fullscreen-trigger {
+  opacity: 0.85;
+}
+
+/* 移动端运行中交互卡片（计划审批 / Agent 提问 / 排队消息）限制高度，避免软键盘弹起后挤出输入框 */
+[data-mobile-web] [data-testid='composer-area'] .user-input-panel,
+[data-mobile-web] [data-testid='composer-area'] [aria-label='确认计划'],
+[data-mobile-web] [data-testid='composer-area'] [aria-label='排队消息'] {
+  max-height: 42dvh;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+/* 极窄屏（<= 375px）输入区模型触发防挤压 */
+@media (max-width: 375px) {
+  [data-mobile-web] .composer-model {
+    max-width: 48vw;
+  }
+}

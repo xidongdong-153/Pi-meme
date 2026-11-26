@@ -64,6 +64,7 @@ export function ReviewTool({
 }
 
 export function GitReviewToolbar({
+  mobile = false,
   scope,
   onScope,
   insertions,
@@ -76,6 +77,7 @@ export function GitReviewToolbar({
   onReading,
   children,
 }: {
+  mobile?: boolean
   scope: ReviewScope
   onScope: (scope: ReviewScope) => void
   insertions: number
@@ -138,25 +140,27 @@ export function GitReviewToolbar({
         >
           <WrapText />
         </ReviewTool>
-        <DropdownMenu>
-          <TooltipHint content="差异布局">
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" className="size-7 rounded-full" aria-label="差异布局">
-                <Columns2 className="size-3.5" />
-              </Button>
-            </DropdownMenuTrigger>
-          </TooltipHint>
-          <DropdownMenuContent align="end" side="bottom">
-            <DropdownMenuRadioGroup
-              value={reading.layout}
-              onValueChange={(layout) => onReading({ ...reading, layout: layout as ReadingPreferences['layout'] })}
-            >
-              <DropdownMenuRadioItem value="auto">自动布局</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="unified">单栏</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="split">双栏</DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {!mobile && (
+          <DropdownMenu>
+            <TooltipHint content="差异布局">
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" className="size-7 rounded-full" aria-label="差异布局">
+                  <Columns2 className="size-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipHint>
+            <DropdownMenuContent align="end" side="bottom">
+              <DropdownMenuRadioGroup
+                value={reading.layout}
+                onValueChange={(layout) => onReading({ ...reading, layout: layout as ReadingPreferences['layout'] })}
+              >
+                <DropdownMenuRadioItem value="auto">自动布局</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="unified">单栏</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="split">双栏</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
         <DropdownMenu>
           <TooltipHint content="更多阅读操作">
             <DropdownMenuTrigger asChild>

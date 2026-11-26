@@ -1,7 +1,9 @@
 import { validateVisualizationRef } from '@pi-meme/contracts/visualize'
 import { VisualizationRenderer } from '@pi-meme/ui/components/visualization-renderer'
 import * as React from 'react'
+import { Maximize2 } from 'lucide-react'
 import type { ExtraProps } from 'react-markdown'
+import { Dialog, DialogContent, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { CodeBlock } from './code-block'
 import { MermaidBlock } from './mermaid-block'
@@ -113,6 +115,45 @@ const alertLabels: Record<string, string> = {
   caution: 'Caution',
 }
 
+function MarkdownTable({ children }: React.ComponentPropsWithoutRef<'table'>) {
+  const [fullscreen, setFullscreen] = React.useState(false)
+  return (
+    <div className="group/table relative">
+      <button
+        type="button"
+        aria-label="全屏查看表格"
+        onClick={() => setFullscreen(true)}
+        className="pi-fullscreen-trigger absolute right-1 top-1 z-10 inline-flex size-7 items-center justify-center rounded-lg bg-background/85 text-muted-foreground opacity-0 shadow-2xs backdrop-blur-xs transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/table:opacity-100"
+      >
+        <Maximize2 className="size-3.5" />
+      </button>
+      <div className="pi-table-wrapper">
+        <table className="pi-table">{children}</table>
+      </div>
+      {fullscreen && (
+        <Dialog open onOpenChange={setFullscreen}>
+          <DialogContent
+            aria-describedby={undefined}
+            className="flex h-[88dvh] max-h-none w-[calc(100vw-16px)] max-w-5xl flex-col gap-0 overflow-hidden rounded-2xl p-0"
+            closeButtonProps={{
+              'aria-label': '关闭全屏表格',
+              className:
+                'right-3 top-2.5 inline-flex size-9 items-center justify-center rounded-xl text-muted-foreground opacity-100 active:bg-secondary active:text-foreground',
+            }}
+          >
+            <div className="flex shrink-0 items-center border-b border-border/60 pl-4 pr-14 py-3">
+              <DialogTitle className="text-sm font-medium">表格视图</DialogTitle>
+            </div>
+            <div className="pi-markdown min-h-0 flex-1 overflow-auto p-4">
+              <table className="pi-table">{children}</table>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
+  )
+}
+
 export function useMarkdownComponents() {
   return React.useMemo(
     () => ({
@@ -125,13 +166,7 @@ export function useMarkdownComponents() {
         )
       },
 
-      table({ children }: React.ComponentPropsWithoutRef<'table'>) {
-        return (
-          <div className="pi-table-wrapper">
-            <table className="pi-table">{children}</table>
-          </div>
-        )
-      },
+      table: MarkdownTable,
       thead({ children }: React.ComponentPropsWithoutRef<'thead'>) {
         return <thead className="pi-thead">{children}</thead>
       },

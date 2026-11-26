@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from 'react'
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { Folder, Layers, PanelLeft, Pencil, Pin, PinOff, SquarePen } from 'lucide-react'
 import type { AppearanceMode } from '@pi-meme/contracts/settings'
 import type { UsageStatsSnapshot } from '@pi-meme/contracts/usage'
@@ -9,8 +9,14 @@ import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/
 import { cn } from '@pi-meme/ui/lib/utils'
 import { getSettingsSection, type SettingsSection } from '../settings/settings-page'
 import type { UserProfile } from '../settings/user-profile'
-import { MobileSessionDrawer, type MobileDrawerModel } from './mobile-session-drawer'
-import { useSyncThemeColor, useVisualViewportHeight } from './use-mobile-web'
+import { MobileSessionDrawer, type MobileDrawerModel, type MobilePrimaryNav } from './mobile-session-drawer'
+import {
+  useMobileBackNavigation,
+  useMobileDrawerSwipe,
+  useMobileForegroundSync,
+  useSyncThemeColor,
+  useVisualViewportHeight,
+} from './use-mobile-web'
 
 export function MobileChatShell({
   hasConversation,
@@ -21,6 +27,7 @@ export function MobileChatShell({
   connected,
   disconnectedBanner,
   onRetryConnection,
+  onForegroundResume,
   drawerModel,
   sessionsLoading = false,
   activeServiceId,
@@ -32,7 +39,8 @@ export function MobileChatShell({
   profileLoading,
   appearanceMode,
   onChangeAppearanceMode,
-  pinnedPaths = [],
+  pinnedKeys = [],
+  multiServiceActions = false,
   onNewSession,
   onNewSessionInProject,
   onSwitchSession,
@@ -42,8 +50,16 @@ export function MobileChatShell({
   onDeleteSession,
   onRenameProject,
   loadUsageStats,
+  workSheetOpen = false,
+  onCloseWorkSheet,
   workSheetBadge = 0,
   onOpenWorkSheet,
+  activeNav = 'chat',
+  schedulesUnread = false,
+  onNavigatePrimary,
+  subpageTitle,
+  subpageContent,
+  customDrawerPanel,
   settingsOpen = false,
   settingsSection = 'general',
   settingsSaving = false,
@@ -62,6 +78,7 @@ export function MobileChatShell({
   connected: boolean
   disconnectedBanner?: string
   onRetryConnection?: () => void
+  onForegroundResume?: () => void
   drawerModel: MobileDrawerModel
   sessionsLoading?: boolean
   activeServiceId: string
@@ -73,18 +90,27 @@ export function MobileChatShell({
   profileLoading: boolean
   appearanceMode: AppearanceMode
   onChangeAppearanceMode?: (mode: AppearanceMode) => void
-  pinnedPaths?: readonly string[]
+  pinnedKeys?: readonly string[]
+  multiServiceActions?: boolean
   onNewSession: () => void
-  onNewSessionInProject?: (cwd: string) => void
+  onNewSessionInProject?: (serviceId: string, cwd: string) => void
   onSwitchSession: (serviceId: string, sessionPath: string) => void
   onSearch?: () => void
-  onTogglePin?: (path: string) => void
-  onRenameSession?: (sessionPath: string, name: string) => Promise<void>
-  onDeleteSession?: (sessionPath: string) => Promise<void>
-  onRenameProject?: (cwd: string, name: string) => Promise<void>
+  onTogglePin?: (serviceId: string, path: string) => void
+  onRenameSession?: (serviceId: string, sessionPath: string, name: string) => Promise<void>
+  onDeleteSession?: (serviceId: string, sessionPath: string) => Promise<void>
+  onRenameProject?: (serviceId: string, cwd: string, name: string) => Promise<void>
   loadUsageStats?: () => Promise<UsageStatsSnapshot>
+  workSheetOpen?: boolean
+  onCloseWorkSheet?: () => void
   workSheetBadge?: number
   onOpenWorkSheet?: () => void
+  activeNav?: MobilePrimaryNav
+  schedulesUnread?: boolean
+  onNavigatePrimary?: (nav: MobilePrimaryNav) => void
+  subpageTitle?: string
+  subpageContent?: ReactNode
+  customDrawerPanel?: { title: string; content: ReactNode }
   settingsOpen?: boolean
   settingsSection?: SettingsSection
   settingsSaving?: boolean
@@ -104,13 +130,35 @@ export function MobileChatShell({
   const [renameError, setRenameError] = useState('')
   const viewportHeight = useVisualViewportHeight(true)
   useSyncThemeColor(true, appearanceMode)
+  useMobileForegroundSync(true, onForegroundResume)
+  useMobileDrawerSwipe({
+    enabled: !workSheetOpen && !renamingCurrent,
+    open: drawerOpen,
+    onOpen: () => setDrawerOpen(true),
+    onClose: () => setDrawerOpen(false),
+  })
+
+  const backLayers = useMemo(
+    () => [
+      { active: Boolean(workSheetOpen), onBack: () => onCloseWorkSheet?.() },
+      { active: drawerOpen, onBack: () => setDrawerOpen(false) },
+      { active: settingsOpen, onBack: () => onCloseSettings?.() },
+      { active: !settingsOpen && activeNav !== 'chat', onBack: () => onNavigatePrimary?.('chat') },
+    ],
+    [workSheetOpen, onCloseWorkSheet, drawerOpen, settingsOpen, onCloseSettings, activeNav, onNavigatePrimary],
+  )
+  useMobileBackNavigation(true, backLayers)
 
   const hasUnreadAttention = drawerModel.sessions.some(
     (entry) =>
       !disconnectedServiceIds?.has(entry.serviceId) && Boolean(entry.session.inputUnread ?? entry.session.needsInput),
   )
-  const isCurrentPinned = Boolean(activeSessionPath && pinnedPaths.includes(activeSessionPath))
+  const isCurrentPinned = Boolean(
+    activeSessionPath &&
+    (pinnedKeys.includes(`${activeServiceId}:${activeSessionPath}`) || pinnedKeys.includes(activeSessionPath)),
+  )
   const currentSettingsMeta = settingsOpen ? getSettingsSection(settingsSection) : null
+  const isSubpage = !settingsOpen && activeNav !== 'chat'
 
   const shellStyle: CSSProperties | undefined = viewportHeight ? { height: `${viewportHeight}px` } : undefined
 
@@ -124,7 +172,7 @@ export function MobileChatShell({
     setRenameBusy(true)
     setRenameError('')
     try {
-      await onRenameSession(activeSessionPath, next)
+      await onRenameSession(activeServiceId, activeSessionPath, next)
       setRenamingCurrent(false)
     } catch (cause) {
       setRenameError(cause instanceof Error ? cause.message : String(cause))
@@ -149,30 +197,32 @@ export function MobileChatShell({
         <div className="flex min-w-0 items-center gap-1.5">
           <button
             type="button"
-            aria-label={settingsOpen ? '打开设置目录' : '打开侧边栏'}
+            aria-label={settingsOpen ? '打开设置目录' : isSubpage ? '打开页面导航' : '打开侧边栏'}
             aria-expanded={drawerOpen}
             onClick={() => setDrawerOpen(true)}
             className="relative inline-flex size-10 shrink-0 items-center justify-center rounded-xl text-foreground/85 transition-colors active:bg-secondary"
           >
             <PanelLeft className="size-5" />
-            {!settingsOpen && hasUnreadAttention && (
+            {!settingsOpen && (hasUnreadAttention || schedulesUnread) && (
               <span
-                aria-label="有等待回复的会话"
+                aria-label="有未读提醒"
                 className="absolute right-2 top-2 size-2 rounded-full bg-primary ring-2 ring-background"
               />
             )}
           </button>
 
-          {/* 设置页：顶栏标题左对齐紧邻 PanelLeft */}
-          {settingsOpen && currentSettingsMeta && (
+          {/* 设置页或 P2 一级子页：顶栏标题左对齐紧邻 PanelLeft */}
+          {settingsOpen && currentSettingsMeta ? (
             <h1 className="truncate text-base font-semibold tracking-tight text-foreground">
               {currentSettingsMeta.label}
             </h1>
-          )}
+          ) : isSubpage && subpageTitle ? (
+            <h1 className="truncate text-base font-semibold tracking-tight text-foreground">{subpageTitle}</h1>
+          ) : null}
         </div>
 
         {/* 聊天态中央区域 */}
-        {!settingsOpen && (
+        {!settingsOpen && !isSubpage && (
           <div className="flex min-w-0 flex-1 items-center justify-center">
             {hasConversation ? (
               <Popover open={infoOpen} onOpenChange={setInfoOpen}>
@@ -221,7 +271,7 @@ export function MobileChatShell({
                           type="button"
                           onClick={() => {
                             setInfoOpen(false)
-                            onTogglePin(activeSessionPath)
+                            onTogglePin(activeServiceId, activeSessionPath)
                           }}
                           className="flex min-h-[40px] w-full items-center gap-2.5 rounded-xl px-2.5 text-left text-sm text-foreground/90 transition-colors active:bg-secondary"
                         >
@@ -265,6 +315,14 @@ export function MobileChatShell({
             className="inline-flex h-10 shrink-0 items-center justify-center rounded-xl px-3 text-sm font-medium text-muted-foreground transition-colors active:bg-secondary active:text-foreground disabled:opacity-45"
           >
             完成
+          </button>
+        ) : isSubpage ? (
+          <button
+            type="button"
+            onClick={() => onNavigatePrimary?.('chat')}
+            className="inline-flex h-10 shrink-0 items-center justify-center rounded-xl px-3 text-sm font-medium text-muted-foreground transition-colors active:bg-secondary active:text-foreground"
+          >
+            返回聊天
           </button>
         ) : hasConversation ? (
           <div className="flex shrink-0 items-center gap-0.5">
@@ -319,7 +377,7 @@ export function MobileChatShell({
         </div>
       )}
 
-      {/* 主画布：全页设置视图 或 主会话工作区 */}
+      {/* 主画布：全页设置 / P2 一级子页 / 主会话工作区 */}
       <div
         className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
         onScrollCapture={(event) => {
@@ -329,7 +387,7 @@ export function MobileChatShell({
           }
         }}
       >
-        {settingsOpen ? settingsContent : children}
+        {settingsOpen ? settingsContent : isSubpage ? subpageContent : children}
       </div>
 
       {/* 双栏复合侧边抽屉 */}
@@ -349,7 +407,8 @@ export function MobileChatShell({
         profileLoading={profileLoading}
         appearanceMode={appearanceMode}
         onChangeAppearanceMode={onChangeAppearanceMode}
-        pinnedPaths={pinnedPaths}
+        pinnedKeys={pinnedKeys}
+        multiServiceActions={multiServiceActions}
         onNewSession={onNewSession}
         onNewSessionInProject={onNewSessionInProject}
         onSwitchSession={onSwitchSession}
@@ -359,6 +418,10 @@ export function MobileChatShell({
         onDeleteSession={onDeleteSession}
         onRenameProject={onRenameProject}
         loadUsageStats={loadUsageStats}
+        activeNav={activeNav}
+        schedulesUnread={schedulesUnread}
+        onNavigatePrimary={onNavigatePrimary}
+        customDrawerPanel={customDrawerPanel}
         settingsOpen={settingsOpen}
         settingsSection={settingsSection}
         settingsSaving={settingsSaving}

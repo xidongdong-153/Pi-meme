@@ -65,7 +65,14 @@ export function SettingsPage({
   return (
     <div className="space-y-6">
       {section === 'instructions' ? (
-        <InstructionSettings bridge={bridge} cwd={cwd} busy={busy} onDirty={onDirty} onSaving={onSaving} />
+        <InstructionSettings
+          mobile={mobile}
+          bridge={bridge}
+          cwd={cwd}
+          busy={busy}
+          onDirty={onDirty}
+          onSaving={onSaving}
+        />
       ) : section === 'general' ? (
         <GeneralSettings
           mobile={mobile}

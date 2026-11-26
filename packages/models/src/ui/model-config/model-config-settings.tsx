@@ -31,10 +31,12 @@ const shortApiLabels: Record<ModelApi, string> = {
 }
 
 export function ModelConfigSettings({
+  mobile = false,
   busy,
   bridge,
   models,
 }: {
+  mobile?: boolean
   busy: boolean
   bridge: ModelsBridge
   models: PiModel[]
@@ -277,7 +279,14 @@ export function ModelConfigSettings({
         </SettingsCard>
 
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div role="tablist" aria-label="模型服务商类型" className="inline-flex gap-1 rounded-lg bg-secondary/50 p-1">
+          <div
+            role="tablist"
+            aria-label="模型服务商类型"
+            className={cn(
+              'gap-1 rounded-lg bg-secondary/50 p-1',
+              mobile ? 'grid w-full grid-cols-2 rounded-full' : 'inline-flex',
+            )}
+          >
             {(
               [
                 { id: 'builtin', label: '内置提供商', count: undefined },
@@ -294,7 +303,8 @@ export function ModelConfigSettings({
                 tabIndex={providerTab === id ? 0 : -1}
                 data-tab={id}
                 className={cn(
-                  'whitespace-nowrap rounded-md px-3 py-1.5 text-xs text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                  'whitespace-nowrap px-3 text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                  mobile ? 'h-9 rounded-full text-sm' : 'rounded-md py-1.5 text-xs',
                   providerTab === id && 'bg-card font-medium text-foreground shadow-xs',
                 )}
                 onClick={() => setProviderTab(id)}
@@ -436,7 +446,12 @@ export function ModelConfigSettings({
                         )}
                       </div>
                     </div>
-                    <div className="flex shrink-0 flex-nowrap items-center gap-1.5">
+                    <div
+                      className={cn(
+                        'flex shrink-0 flex-nowrap items-center gap-1.5',
+                        mobile && 'w-full justify-end pt-1',
+                      )}
+                    >
                       <Button
                         className={cn(settingsControlClassName, 'whitespace-nowrap')}
                         size="sm"
@@ -448,26 +463,32 @@ export function ModelConfigSettings({
                       </Button>
                       <TooltipHint content="以 JSON 编辑">
                         <Button
-                          className="size-8 shrink-0 rounded-lg text-muted-foreground hover:text-foreground"
+                          className={cn(
+                            'shrink-0 rounded-lg text-muted-foreground hover:text-foreground',
+                            mobile ? 'size-9 rounded-full' : 'size-8',
+                          )}
                           size="icon"
                           variant="ghost"
                           aria-label={`以 JSON 编辑 ${provider.name}`}
                           disabled={saving || !editable}
                           onClick={() => setEditing({ target: provider, mode: 'json' })}
                         >
-                          <Code2 className="size-3.5" />
+                          <Code2 className="size-4" />
                         </Button>
                       </TooltipHint>
                       <TooltipHint content="删除服务商">
                         <Button
-                          className="size-8 shrink-0 rounded-lg text-muted-foreground hover:text-destructive"
+                          className={cn(
+                            'shrink-0 rounded-lg text-muted-foreground hover:text-destructive',
+                            mobile ? 'size-9 rounded-full' : 'size-8',
+                          )}
                           size="icon"
                           variant="ghost"
                           aria-label={`删除 ${provider.name}`}
                           disabled={busy || saving}
                           onClick={() => setDeleting(provider)}
                         >
-                          <Trash2 className="size-3.5" />
+                          <Trash2 className="size-4" />
                         </Button>
                       </TooltipHint>
                     </div>

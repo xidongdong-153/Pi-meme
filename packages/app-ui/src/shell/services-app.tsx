@@ -216,6 +216,11 @@ export function ServicesApp({
       })),
     [services, registry],
   )
+  const pinnedKeys = services.flatMap((service) =>
+    (controllers.current.get(service.id)?.sessions?.pinnedPaths ?? service.sessions?.pinnedPaths ?? []).map(
+      (path) => `${service.id}:${path}`,
+    ),
+  )
   const remoteSettings = <RemoteSettings services={services} registry={registry} onRemove={remove} />
   return (
     <AppearanceProvider bridge={registry.local.bridge}>
@@ -278,8 +283,32 @@ export function ServicesApp({
               },
               sidebar,
               sidebarModel: model,
+              pinnedKeys,
               onSwitchServiceSession: (id, sessionPath) =>
                 activate(id, (controller) => controller.switchSession(sessionPath)),
+              onNewServiceSessionInProject: (id, targetCwd) =>
+                activate(id, async (controller) => {
+                  const ok = await controller.newSessionInProject(targetCwd)
+                  if (ok) controller.openChat?.()
+                  return ok
+                }),
+              onToggleServicePin: async (id, path) => {
+                const controller = controllers.current.get(id)
+                if (controller) await controller.togglePin(path)
+                else await registry.get(id).bridge.togglePin(path)
+              },
+              onRenameServiceSession: async (id, sessionPath, name) => {
+                await registry.get(id).bridge.renameSession(sessionPath, name)
+                await controllers.current.get(id)?.refreshMenu()
+              },
+              onDeleteServiceSession: async (id, sessionPath) => {
+                const result = await registry.get(id).bridge.deleteSession(sessionPath)
+                await controllers.current.get(id)?.applyMenuDeletion(result)
+              },
+              onRenameServiceProject: async (id, targetCwd, name) => {
+                await registry.get(id).bridge.renameProject(targetCwd, name)
+                await controllers.current.get(id)?.refreshMenu()
+              },
               remoteSettings,
               onController: captureController,
               onLocation: changeLocation,
