@@ -2675,7 +2675,13 @@ export class HostCollaborationBridge {
               : revision,
         }
       : undefined
-    const state: PlanState = { sessionId, revision, document, sourceEntryId: checkpoint?.sourceEntryId }
+    const state: PlanState = {
+      sessionId,
+      revision,
+      document,
+      sourceEntryId: checkpoint?.sourceEntryId,
+      rootToolCallId: checkpoint?.rootToolCallId,
+    }
     const isTemp = this.isTemporarySession(sessionId)
     const priorPlans = this.plans
     const file = !isTemp && document ? path.join(this.plansDirectory, sessionId, `${document.id}.md`) : undefined
@@ -2695,11 +2701,12 @@ export class HostCollaborationBridge {
       else this.planStates.delete(sessionId)
       throw cause
     } finally {
+      // 同步失败时也唤醒后续保存，让它在写入前重试同步当前候选。
+      this.planCommits.get(sessionId)?.resolve()
+      this.planCommits.delete(sessionId)
       if (temporary) await rm(temporary, { force: true })
     }
     this.pendingPlans.delete(sessionId)
-    this.planCommits.get(sessionId)?.resolve()
-    this.planCommits.delete(sessionId)
     this.emit(record, { type: 'plan_state_changed', state, reason: committed ? 'saved' : 'restored' })
     return state
   }
@@ -2796,8 +2803,7 @@ export class HostCollaborationBridge {
         replaced = true
       }
       assertCurrent()
-      if (existing) this.plans[this.plans.indexOf(existing)] = document
-      else this.plans.push(document)
+      this.plans = [...this.plans.filter((plan) => plan.sessionId !== sessionId), document]
       metadataChanged = true
       record.summary.sessionId = sessionId
       const saveIndex = this.planIndexWrites.then(async () => {
@@ -2811,8 +2817,7 @@ export class HostCollaborationBridge {
       assertCurrent()
     } catch (cause) {
       if (metadataChanged) {
-        if (existing) this.plans[this.plans.indexOf(document)] = existing
-        else this.plans = this.plans.filter((plan) => plan !== document)
+        this.plans = [...this.plans.filter((plan) => plan.sessionId !== sessionId), ...(existing ? [existing] : [])]
         const saveIndex = this.planIndexWrites.then(async () => {
           const persistentPlans = this.plans.filter((p) => !this.isTemporarySession(p.sessionId))
           const persistentStates = [...this.planStates.values()].filter((s) => !this.isTemporarySession(s.sessionId))

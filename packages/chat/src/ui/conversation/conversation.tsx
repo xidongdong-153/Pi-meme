@@ -245,47 +245,41 @@ export const Conversation = React.memo(
         )
           plans.set(message.toolCallId, value)
       }
+      for (const checkpoint of chat.planCheckpoints ?? [])
+        if (checkpoint.rootToolCallId) plans.set(checkpoint.rootToolCallId, checkpoint.document)
       return plans
-    }, [chat.messages])
+    }, [chat.messages, chat.planCheckpoints])
     const effectivePlanState = planState === undefined ? chat.planState : planState
     const currentPlan =
       effectivePlanState?.document ??
       (!effectivePlanState && planState !== null ? chat.planDocuments?.at(-1) : undefined)
-    const sourceMessage = effectivePlanState?.sourceEntryId
-      ? chat.messages.find(
-          (message) => message.sourceEntry?.id === effectivePlanState.sourceEntryId && message.role === 'toolResult',
+    const sourceToolId = React.useMemo(() => {
+      if (effectivePlanState?.rootToolCallId) return effectivePlanState.rootToolCallId
+      if (effectivePlanState) {
+        if (!effectivePlanState.sourceEntryId) return
+        // 旧版当前状态只记录顶层工具结果的原生条目 ID。
+        const message = chat.messages.find(
+          (item) => item.sourceEntry?.id === effectivePlanState.sourceEntryId && item.role === 'toolResult',
         )
-      : undefined
-    const sourceToolId =
-      sourceMessage?.role === 'toolResult'
-        ? sourceMessage.toolCallId
-        : !effectivePlanState
-          ? [...plansByTool].findLast(
-              ([, document]) =>
-                currentPlan && document.id === currentPlan.id && document.revision === currentPlan.revision,
-            )?.[0]
-          : undefined
+        return message?.role === 'toolResult' ? message.toolCallId : undefined
+      }
+      if (currentPlan)
+        return [...plansByTool].findLast(
+          ([, document]) => document.id === currentPlan.id && document.revision === currentPlan.revision,
+        )?.[0]
+    }, [effectivePlanState, currentPlan, chat.messages, plansByTool])
     const planReply = React.useCallback(
       (turn: Extract<TurnChunk, { type: 'assistant_turn' }>): React.ReactNode => {
-        const callIds = new Set(
-          turn.sourceMessages?.flatMap((message) =>
-            message.role === 'assistant'
-              ? message.content.flatMap((part) => (part.type === 'toolCall' ? [part.id] : []))
-              : [],
-          ),
-        )
-        function findPlan(items: readonly { id: string; children?: readonly { id: string }[] }[]): React.ReactNode {
-          for (const item of [...items].reverse()) {
-            if (plansByTool.has(item.id))
-              return item.id === sourceToolId && currentPlan ? renderPlan?.(currentPlan) : <React.Fragment />
-            if (item.children) {
-              const nested = findPlan(item.children)
-              if (nested) return nested
-            }
+        let hasEarlierPlan = false
+        for (const message of turn.sourceMessages ?? []) {
+          if (message.role !== 'assistant') continue
+          for (const part of message.content) {
+            if (part.type !== 'toolCall') continue
+            if (part.id === sourceToolId && currentPlan) return renderPlan?.(currentPlan)
+            if (plansByTool.has(part.id)) hasEarlierPlan = true
           }
-          return undefined
         }
-        return findPlan(turn.activities.filter((item) => callIds.has(item.id)))
+        return hasEarlierPlan && !turn.isLive ? <React.Fragment /> : undefined
       },
       [plansByTool, sourceToolId, currentPlan, renderPlan],
     )
@@ -587,7 +581,7 @@ export const Conversation = React.memo(
                       agents={chat.agents}
                       caller={agent}
                       onActivityToggle={handleActivityToggle}
-                      renderReply={!agentOnly && !turn.isLive && renderPlan ? planReply : undefined}
+                      renderReply={!agentOnly && renderPlan ? planReply : undefined}
                       changes={
                         finalReplyKeys.has(turn.key) && turn.userEntryId !== undefined
                           ? changesByEntry.get(turn.userEntryId)

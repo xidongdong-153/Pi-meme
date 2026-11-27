@@ -232,7 +232,8 @@ export async function loadCollaborationPartitions(
         Number.isSafeInteger(state.revision) &&
         state.revision >= 0 &&
         (!state.document || (isPlanDocument(state.document) && state.document.sessionId === state.sessionId)) &&
-        (!state.sourceEntryId || typeof state.sourceEntryId === 'string'),
+        (!state.sourceEntryId || typeof state.sourceEntryId === 'string') &&
+        (state.rootToolCallId === undefined || typeof state.rootToolCallId === 'string'),
     )
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause

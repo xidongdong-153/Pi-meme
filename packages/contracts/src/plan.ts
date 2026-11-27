@@ -1,4 +1,12 @@
-import type { PiImage, PiModel, ServiceTier, SessionThinkingLevel } from './pi'
+import {
+  piNestedInteractionEntryType,
+  readPiNestedInteractionEntry,
+  type PiImage,
+  type PiSessionEntry,
+  type PiModel,
+  type ServiceTier,
+  type SessionThinkingLevel,
+} from './pi'
 import type { SkillReference } from './skills'
 
 export type TaskMode = 'default' | 'plan'
@@ -59,13 +67,14 @@ export type PlanDocument = {
   updatedAt: string
 }
 export type PlanRef = { id: string; revision: number }
-export type PlanCheckpoint = { document: PlanDocument; sourceEntryId: string }
-export type PlanState = {
-  sessionId: string
-  revision: number
-  document?: PlanDocument
-  sourceEntryId?: string
+export type PlanCheckpoint = {
+  document: PlanDocument
+  /** 保存结果在原生分支中的条目。 */
+  sourceEntryId: string
+  /** 发起保存的最外层工具调用，用于在对话中定位卡片。 */
+  rootToolCallId?: string
 }
+export type PlanState = Partial<PlanCheckpoint> & { sessionId: string; revision: number }
 export type PlanAction = { intent: 'execute' | 'revise'; reference: PlanRef }
 export type PlanEvent =
   | { type: 'plan_saved'; document: PlanDocument }
@@ -95,27 +104,42 @@ export function isPlanDocument(value: unknown): value is PlanDocument {
   )
 }
 
+export function readPlanCheckpoint(entry: PiSessionEntry): PlanCheckpoint | undefined {
+  if (entry.type === 'message') {
+    const message = entry.message
+    if (
+      message.role === 'toolResult' &&
+      message.toolName === 'save_plan' &&
+      !message.isError &&
+      isPlanDocument(message.details)
+    )
+      return { document: message.details, sourceEntryId: entry.id, rootToolCallId: message.toolCallId }
+  }
+  if (entry.type === 'custom' && entry.customType === piNestedInteractionEntryType) {
+    const nested = readPiNestedInteractionEntry(entry.data)
+    if (
+      nested?.interaction.name === 'save_plan' &&
+      nested.interaction.status === 'success' &&
+      isPlanDocument(nested.interaction.result.details)
+    )
+      return {
+        document: nested.interaction.result.details,
+        sourceEntryId: entry.id,
+        rootToolCallId: nested.rootToolCallId,
+      }
+  }
+}
+
 /** 从原始条目恢复方案；模型上下文压缩不影响这些保存检查点。 */
-export function projectBranchPlans(
-  entries: readonly { id: string; parentId: string | null; type: string; message?: unknown }[],
-  leafId: string | null,
-): PlanCheckpoint[] {
+export function projectBranchPlans(entries: readonly PiSessionEntry[], leafId: string | null): PlanCheckpoint[] {
   const byId = new Map(entries.map((entry) => [entry.id, entry]))
   const seen = new Set<string>()
   const checkpoints: PlanCheckpoint[] = []
   let entry = leafId ? byId.get(leafId) : undefined
   while (entry && !seen.has(entry.id)) {
     seen.add(entry.id)
-    const message = entry.message as
-      { role?: string; toolName?: string; isError?: boolean; details?: unknown } | undefined
-    if (
-      entry.type === 'message' &&
-      message?.role === 'toolResult' &&
-      message.toolName === 'save_plan' &&
-      !message.isError &&
-      isPlanDocument(message.details)
-    )
-      checkpoints.push({ document: message.details, sourceEntryId: entry.id })
+    const checkpoint = readPlanCheckpoint(entry)
+    if (checkpoint) checkpoints.push(checkpoint)
     entry = entry.parentId ? byId.get(entry.parentId) : undefined
   }
   return checkpoints.reverse()

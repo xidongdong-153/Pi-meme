@@ -1485,6 +1485,7 @@ export function useAppSession(
             ? { ...checkpoint.document, id: planState.document?.id ?? checkpoint.document.id }
             : undefined,
           sourceEntryId: checkpoint?.sourceEntryId,
+          rootToolCallId: checkpoint?.rootToolCallId,
         }
       : undefined
   }

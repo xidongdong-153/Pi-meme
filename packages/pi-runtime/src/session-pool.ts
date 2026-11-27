@@ -1525,6 +1525,7 @@ export class PiSessionPool implements PiRuntime {
             historyDetails: history?.historyDetails,
             historyAvailability: history?.historyAvailability,
             totalMessages: history?.totalMessages,
+            planCheckpoints: history?.planCheckpoints,
             sessionEntries: history?.sessionEntries ?? record.sessionEntries,
             branchAttachments: history?.branchAttachments ?? record.branchAttachments,
             models,

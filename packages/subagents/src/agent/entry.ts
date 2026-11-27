@@ -174,8 +174,10 @@ export function create(context: CollaborationExtensionContext): InlineExtension[
         pi.registerTool({
           name: 'save_plan',
           label: '保存计划',
+          // 同批顶层保存必须逐个落盘，后一版会等待前一版的原生结果。
+          executionMode: 'sequential',
           description:
-            'Plan-mode root agent only. Save a Markdown plan without executing it. Rejected while any child work is active or queued, or the root has unread child results. Review results and account for failures, interruptions, and unresolved limitations first. All planning turns update the current session’s single Host-managed document. Continue adjusting its existing content. Claim it is saved only after success.',
+            'Plan-mode root agent only. Save a Markdown plan without executing it. Rejected while any child work is active or queued, or the root has unread child results. Review results and account for failures, interruptions, and unresolved limitations first. All planning turns update the current session’s single Host-managed document. Continue adjusting its existing content. The tool submits the document. The Host confirms the saved revision from the session record.',
           parameters: Type.Object(
             {
               title: text('Nonblank plan title.'),
@@ -188,7 +190,7 @@ export function create(context: CollaborationExtensionContext): InlineExtension[
           execute: async (_id, input, signal) => {
             const document = await context.savePlan(input, signal)
             return {
-              content: [{ type: 'text', text: `计划已保存：${document.title}` }],
+              content: [{ type: 'text', text: `计划已提交：${document.title}` }],
               details: document,
             }
           },

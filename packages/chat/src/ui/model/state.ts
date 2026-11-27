@@ -246,7 +246,11 @@ export function applyEvent(
           event.state.document && event.state.sourceEntryId
             ? [
                 ...(state.planCheckpoints ?? []).filter((item) => item.sourceEntryId !== event.state.sourceEntryId),
-                { document: event.state.document, sourceEntryId: event.state.sourceEntryId },
+                {
+                  document: event.state.document,
+                  sourceEntryId: event.state.sourceEntryId,
+                  rootToolCallId: event.state.rootToolCallId,
+                },
               ]
             : state.planCheckpoints,
       }

@@ -59,6 +59,7 @@ import {
   normalizePlanMessage,
   planContextMessage,
   projectBranchPlans,
+  readPlanCheckpoint,
   type PlanCheckpoint,
   type PlanState,
   type PlanDocument,
@@ -1000,10 +1001,16 @@ export class SdkSession {
       })
     const publishedEntries = new Set(session.sessionManager.getEntries().map((entry) => entry.id))
     const customEntries = new WeakMap<object, string>()
+    const syncCommittedPlan = (entry: SessionEntry) => {
+      if (readPlanCheckpoint(entry))
+        void this.syncPlan()?.catch((cause: unknown) => this.report(`无法确认已提交的计划：${String(cause)}`))
+    }
     const commitMessage = (entryId: string) => {
       if (!current() || publishedEntries.has(entryId)) return
       const manager = session.sessionManager
       const entry = manager.getEntry(entryId)
+      // SDK 在 message_end 回调之后追加顶层工具结果。
+      if (entry?.type === 'message') syncCommittedPlan(entry)
       if (entry?.type === 'message' && entry.message.role === 'user') {
         const requestId = this.promptRequests.get(entry.message)
         if (requestId) {
@@ -1018,8 +1025,6 @@ export class SdkSession {
       ).find((item) => item.sourceEntry?.id === entryId)
       if (!message) return
       publishedEntries.add(entryId)
-      if (message.role === 'toolResult' && message.toolName === 'save_plan' && !message.isError)
-        void this.syncPlan()?.catch((cause: unknown) => this.report(`无法同步已保存计划：${String(cause)}`))
       const sessionFile = manager.getSessionFile()
       if (sessionFile) this.notify.event({ generation, event: { type: 'session_saved', sessionFile } })
       const committed: PiEvent = { type: 'message_end', message }
@@ -1057,6 +1062,8 @@ export class SdkSession {
           event: { type: 'skill_usage_update', usages: this.getSkillUsages(session) },
         })
       if (event.type === 'entry_appended') {
+        // 嵌套保存可在外层脚本返回前确认，后续保存才能继续取得新修订。
+        if (event.entry.type === 'custom') syncCommittedPlan(event.entry)
         const sessionFile = session.sessionManager.getSessionFile()
         if (sessionFile)
           queueMicrotask(() => {

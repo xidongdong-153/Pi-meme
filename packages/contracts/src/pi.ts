@@ -51,6 +51,7 @@ export const piNestedInteractionToolNames = [
   'send_message',
   'followup_task',
   'interrupt_agent',
+  'save_plan',
   'save_visualization',
 ] as const
 export type PiNestedInteractionEntry = { rootToolCallId: string; interaction: PiNestedInteraction }

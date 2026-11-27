@@ -1,18 +1,21 @@
 import type { PiMessage, PiSessionEntries } from './pi'
 import type { SessionMessagePage, SessionWindow } from './sessions'
 import type { ChatBranchAttachment } from './chat-attachments'
+import type { PlanCheckpoint } from './plan'
 
 export function projectSessionDetails<
   T extends {
     messages: PiMessage[]
     sessionEntries?: PiSessionEntries
     branchAttachments?: ChatBranchAttachment[]
+    planCheckpoints?: PlanCheckpoint[]
     historyDetails?: 'complete' | 'deferred'
     historyAvailability?: { tree: boolean; sources: boolean }
   },
 >(value: T, window?: SessionWindow): T {
   if (window?.details !== 'deferred') return value
   const selected = new Set(value.messages.flatMap((message) => (message.sourceEntry ? [message.sourceEntry.id] : [])))
+  for (const checkpoint of value.planCheckpoints ?? []) selected.add(checkpoint.sourceEntryId)
   const source = value.sessionEntries
   const byId = new Map(source?.entries.map((entry) => [entry.id, entry]))
   const branch: NonNullable<typeof source>['entries'] = []

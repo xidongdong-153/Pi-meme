@@ -3,6 +3,7 @@ import { mkdir, open, readFile, realpath, rename, rm, stat, writeFile } from 'no
 import path from 'node:path'
 import type { SessionEntry } from '@earendil-works/pi-coding-agent'
 import type { PiBranchEntry, PiMessage } from '@pi-meme/contracts/pi'
+import { projectBranchPlans } from '@pi-meme/contracts/plan'
 import type { SessionHistoryData, SessionWindow } from '@pi-meme/contracts/sessions'
 import { projectSessionWindow, projectSessionDetails } from '@pi-meme/contracts/session-window'
 import { loadPiSdk, getPiVersion } from './sdk/load'
@@ -276,6 +277,7 @@ async function appendIndex(file: string, previous: Index, expected: string): Pro
     leafId: parent,
     summary: {
       ...previous.summary,
+      planCheckpoints: [...(previous.summary.planCheckpoints ?? []), ...projectBranchPlans(entries, parent)],
       stats,
       totalMessages: previous.rows.length + added.length,
       historyAvailability: {
@@ -304,7 +306,7 @@ async function readIndex(file: string, background = false): Promise<Index | unde
   const target = indexFile(file)
   if (!target) return
   const expected = await signature(file)
-  const version = `8:${getPiVersion()}`
+  const version = `9:${getPiVersion()}`
   const retained = cache.get(file)
   if (retained?.signature === expected && retained.version === version) {
     remember(file, retained)
@@ -436,23 +438,6 @@ export async function readIndexedBranchUserEntries(original: string, full: () =>
   }
 }
 
-function windowEntries(index: Index, messages: PiMessage[]) {
-  const selected = new Set(messages.flatMap((message) => (message.sourceEntry ? [message.sourceEntry.id] : [])))
-  const byId = new Map(index.entries.map((entry) => [entry.id, entry]))
-  const branch: PiBranchEntry[] = []
-  const seen = new Set<string>()
-  let entry = index.leafId ? byId.get(index.leafId) : undefined
-  while (entry && !seen.has(entry.id)) {
-    seen.add(entry.id)
-    if (selected.has(entry.id) || entry.type === 'model_change' || entry.id === index.leafId) branch.push(entry)
-    entry = entry.parentId ? byId.get(entry.parentId) : undefined
-  }
-  const entries = branch
-    .reverse()
-    .map((entry, position, values) => ({ ...entry, parentId: position ? values[position - 1].id : null }))
-  return { entries, leafId: entries.at(-1)?.id ?? null }
-}
-
 export async function readIndexedSessionHistory(
   original: string,
   window: SessionWindow,
@@ -506,15 +491,17 @@ export async function readIndexedSessionHistory(
         historyDetails: 'complete',
         totalMessages: index.rows.length,
       }
-    return {
-      ...index.summary,
-      stats: index.summary.stats ? { ...index.summary.stats, sessionFile: original } : undefined,
-      messages,
-      messagePage: selection.messagePage,
-      historyRevision: revision,
-      historyDetails: 'deferred',
-      sessionEntries: windowEntries(index, messages),
-    }
+    return projectSessionDetails(
+      {
+        ...index.summary,
+        stats: index.summary.stats ? { ...index.summary.stats, sessionFile: original } : undefined,
+        messages,
+        messagePage: selection.messagePage,
+        historyRevision: revision,
+        sessionEntries: { entries: index.entries, leafId: index.leafId },
+      },
+      window,
+    )
   } catch (cause) {
     if (
       !(cause instanceof SyntaxError) &&
