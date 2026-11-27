@@ -54,15 +54,18 @@ void startHostServer({
   .then((server) => {
     parent.postMessage({ type: 'ready', url: server.url, hostId: server.host.hostId })
     async function desktopOperation(operation: DesktopHostOperation | undefined, input: unknown) {
-      if (!shortcuts || !server.host.piMigration) throw new Error('本机服务不支持从 Pi 迁移')
       switch (operation) {
         case 'shortcuts:read':
+          if (!shortcuts) throw new Error('本机服务不支持读取快捷键配置')
           return shortcuts.read()
         case 'shortcuts:save':
+          if (!shortcuts) throw new Error('本机服务不支持保存快捷键配置')
           return shortcuts.save(input)
         case 'migration:scan':
+          if (!server.host.piMigration) throw new Error('本机服务不支持从 Pi 迁移')
           return server.host.piMigration.scan()
         case 'migration:apply':
+          if (!server.host.piMigration) throw new Error('本机服务不支持从 Pi 迁移')
           return server.host.piMigration.apply(input)
         default:
           throw new Error('未知本机操作')

@@ -85,11 +85,39 @@ export function piModelHeaders(value: JsonRecord): {
 }
 
 const mcpFields = ['type', 'command', 'cwd', 'url', 'description', 'enabled', 'timeout', 'exposure', 'toolExposure']
-const mcpPrivateFields = ['args', 'headers', 'env', 'auth']
+const mcpPrivateFields = ['headers', 'env', 'auth']
+const sensitiveArgFlag =
+  /^(?:-k|--?(?:api[-_]?key|access[-_]?token|auth[-_]?token|refresh[-_]?token|auth|authorization|bearer|client[-_]?secret|key|passwd|password|secret|token))$/i
+const sensitiveArgInline =
+  /^(?:-k|(?:-{1,2}|[\w-]*[-_])?(?:api[-_]?key|access[-_]?token|auth[-_]?token|refresh[-_]?token|auth|authorization|bearer|client[-_]?secret|key|passwd|password|secret|token))=/i
+const sensitiveArgValue =
+  /(?:^|=)(?:sk-[\w-]{12,}|pk-[\w-]{12,}|gh[pousr]_\w{12,}|github_pat_\w{12,}|xox[baprs]-[A-Za-z0-9-]{10,}|AIza[\w-]{20,}|AKIA[0-9A-Z]{16})|:\/\/[^/\s:@]+:[^/\s@]+@/
+
+function argsLookSensitive(args: unknown) {
+  if (!Array.isArray(args)) return true
+  let previousWasFlag = false
+  for (const item of args) {
+    if (typeof item !== 'string') return true
+    const trimmed = item.trim()
+    if (previousWasFlag && trimmed && !trimmed.startsWith('-')) return true
+    if (sensitiveArgInline.test(trimmed) || sensitiveArgValue.test(trimmed)) return true
+    previousWasFlag = sensitiveArgFlag.test(trimmed)
+  }
+  return false
+}
 
 export function splitPiMcp(value: JsonRecord) {
   const config = pick(value, mcpFields)
   const credentials = pick(value, mcpPrivateFields)
+  if (Object.hasOwn(value, 'args')) {
+    if (Array.isArray(value.args) && !value.args.length) {
+      // Omit empty args so equivalent stdio configs compare cleanly.
+    } else if (argsLookSensitive(value.args)) {
+      credentials.args = value.args
+    } else {
+      config.args = value.args
+    }
+  }
   if (config.enabled === undefined) config.enabled = true
   if (typeof config.url === 'string') {
     const url = new URL(config.url)
@@ -118,7 +146,6 @@ export function splitPiMcp(value: JsonRecord) {
   }
   config.type ??= typeof config.url === 'string' ? 'http' : 'stdio'
   if (config.type === 'streamable-http') config.type = 'http'
-  if (Array.isArray(credentials.args) && !credentials.args.length) delete credentials.args
   for (const key of ['headers', 'env']) {
     const fields = record(credentials[key])
     if (fields && !Object.keys(fields).length) delete credentials[key]
@@ -132,7 +159,7 @@ export function mergePiMcp(config: JsonRecord, credentials: JsonRecord) {
 }
 
 export function piMcpLocation(config: JsonRecord) {
-  return [config.type, config.url ?? [config.command, config.cwd], config.oauth]
+  return [config.type, config.url ?? [config.command, config.cwd, config.args], config.oauth]
 }
 
 const keyActions = new Map<string, [ShortcutId, string]>([

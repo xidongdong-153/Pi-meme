@@ -80,6 +80,10 @@ export class McpConfigStore {
     }
   }
 
+  validatePiServer(name: string, config: Record<string, unknown>) {
+    return serverError(name, config)
+  }
+
   async readMigrationServers() {
     const { data, revision, error } = await this.read()
     if (error) throw new Error(error)

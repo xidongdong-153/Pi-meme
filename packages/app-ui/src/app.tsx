@@ -586,6 +586,7 @@ function AppContent({
   const agentPlugins = agentPluginSelection.ids
   const [instructionsDirty, setInstructionsDirty] = useState(false)
   const [instructionsSaving, setInstructionsSaving] = useState(false)
+  const [migrationSubpage, setMigrationSubpage] = useState(false)
   const [memoryDirty, setMemoryDirty] = useState(false)
   const [memorySaving, setMemorySaving] = useState(false)
   const [memoryDiscardVersion, setMemoryDiscardVersion] = useState(0)
@@ -2724,7 +2725,7 @@ function AppContent({
         />
       )
     if (section === 'general') {
-      const renderGeneral = (migration?: import('react').ReactNode) => (
+      const renderGeneral = (migration?: ReactNode) => (
         <div className="space-y-6">
           <GeneralSettings
             migration={migration}
@@ -2756,6 +2757,8 @@ function AppContent({
             hostId={hostId}
             onApplying={setInstructionsSaving}
             onShortcutsChanged={shortcuts.reload}
+            onNavigateSettings={openSettings}
+            onSubpageChange={setMigrationSubpage}
           >
             {renderGeneral}
           </PiMigrationSettings>
@@ -3960,6 +3963,7 @@ function AppContent({
             open={settingsOpen}
             sectionId={navigation.settings.section}
             saving={instructionsSaving || memorySaving || storageMaintaining}
+            hideSectionTitle={navigation.settings.section === 'general' && migrationSubpage}
             onDismiss={navigation.closeSettings}
             onReturnFocus={returnFromSettings}
             onNavigate={openSettings}

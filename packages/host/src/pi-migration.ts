@@ -3,7 +3,7 @@ import { realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { loadPiSdk } from '@pi-meme/pi-runtime/sdk/load'
 import { desktopBuiltinProviderIds } from '@pi-meme/pi-runtime/sdk/model-runtime'
-import { modelHeaderEntries, validateApi, type ModelConfigStore } from '@pi-meme/models/server/config-store'
+import { endpoint, modelHeaderEntries, validateApi, type ModelConfigStore } from '@pi-meme/models/server/config-store'
 import type { McpConfigStore } from '@pi-meme/mcp/server/config-store'
 import type { SettingsStore } from '@pi-meme/settings/server/store'
 import type { InstructionsStore } from '@pi-meme/settings/server/instructions'
@@ -246,14 +246,16 @@ export class PiMigration {
         if (!selected.has(id) || !execute) {
           const message =
             item.status === 'same'
-              ? (item.note ?? '内容相同')
+              ? '内容相同'
               : item.status === 'blocked'
                 ? (item.note ?? '无法导入')
-                : item.status === 'conflict'
-                  ? '保留现有配置'
-                  : category === 'credential'
-                    ? '未选择导入凭据'
-                    : '未选择导入'
+                : item.requires && byId.get(item.requires)?.status === 'blocked'
+                  ? '对应的服务配置无法导入'
+                  : item.status === 'conflict'
+                    ? '保留现有配置'
+                    : category === 'credential'
+                      ? '未选择导入凭据'
+                      : '未选择导入'
           result.items.push({ ...identity, status: 'skipped', message })
           continue
         }
@@ -343,7 +345,13 @@ export class PiMigration {
       ['append-system', ['APPEND_SYSTEM.md']],
     ] as const) {
       for (const filename of names) {
-        const info = { id: `instruction:${kind}`, category: 'instruction', name: filename, source: filename } as const
+        const info = {
+          id: `instruction:${kind}`,
+          category: 'instruction',
+          name: filename,
+          source: filename,
+          ...(filename === 'AGENTS.override.md' ? { note: '将导入为 Pi meme 的 AGENTS.md' } : {}),
+        } as const
         try {
           const value = await readConfigFile(sourceRoot, filename)
           if (value === undefined) continue
@@ -400,8 +408,8 @@ export class PiMigration {
             if (entry) throw new Error('技能缺少 description')
             continue
           }
-          const name =
-            typeof frontmatter.name === 'string' && frontmatter.name ? frontmatter.name : path.basename(relative)
+          const fallbackName = entry ? path.basename(relative) : path.basename(file.name, '.md')
+          const name = typeof frontmatter.name === 'string' && frontmatter.name ? frontmatter.name : fallbackName
           if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || name.length > 64)
             throw new Error('技能名称无法在 Pi meme 中使用')
           info = { ...info, id: `skill:${name}`, name }
@@ -527,30 +535,57 @@ export class PiMigration {
       return
     }
     const { mcp } = this.services
-    for (const [name, raw] of Object.entries(servers ?? {})) {
+    const sourceEntries = Object.entries(servers ?? {})
+    const sourceNamespaces = new Map<string, number>()
+    for (const [name] of sourceEntries) {
+      const normalized = name.replace(/-/g, '_')
+      sourceNamespaces.set(normalized, (sourceNamespaces.get(normalized) ?? 0) + 1)
+    }
+    for (const [name, raw] of sourceEntries) {
       const id = `mcp:${name}`
       const info = { id, category: 'mcp', name, source: 'mcp.json', note: '导入后需在 MCP 设置中授权' } as const
       try {
         const parsed = record(raw)
         if (!parsed || !migrationId(name) || !/^[\w-]+$/.test(name)) throw new Error('MCP 服务名称或配置无效')
+        if ((sourceNamespaces.get(name.replace(/-/g, '_')) ?? 0) > 1)
+          throw new Error('来源中有多个服务名称的工具命名空间冲突')
         const { config, credentials } = splitPiMcp(parsed)
         if (typeof config.url !== 'string' && typeof config.command !== 'string')
           throw new Error('MCP 服务缺少 URL 或命令')
+        const configError = mcp.validatePiServer(name, mergePiMcp(config, credentials))
+        if (configError) throw new Error(configError)
         const hasCredentials = Object.keys(credentials).length > 0
+        const hasSensitiveArgs = Object.hasOwn(credentials, 'args')
         const read = async () => {
           const { revision, servers: target } = await mcp.readMigrationServers()
+          if (
+            [...target.keys()].some((other) => other !== name && other.replace(/-/g, '_') === name.replace(/-/g, '_'))
+          )
+            throw new Error('服务名称与其他服务的工具命名空间冲突')
           const existing = target.get(name)
           if (existing && !existing.config) throw new Error('现有 MCP 连接配置不可读取')
           const old = existing?.config && splitPiMcp(existing.config)
           return { revision, old, existing }
         }
         await plan.add(
-          { ...info, note: hasCredentials ? '连接参数与凭据可单独选择，导入后需授权' : info.note },
+          {
+            ...info,
+            note: hasSensitiveArgs
+              ? '含敏感启动参数或凭据，可单独选择；导入后需在 MCP 设置中授权'
+              : hasCredentials
+                ? '凭据可单独选择；导入后需在 MCP 设置中授权'
+                : info.note,
+          },
           config,
           configPreview(config),
           async () => {
             const current = await read()
             const { old, existing } = current
+            if (old && !same(old.config, config)) {
+              if (Object.keys(old.credentials).length && !same(piMcpLocation(old.config), piMcpLocation(config)))
+                throw new Error('目标地址或命令已有凭据，请先在 MCP 设置中处理原凭据')
+              if (!this.services.sealBackup) throw new Error('无法创建加密备份，已保留现有配置')
+            }
             return {
               ...current,
               value: old?.config,
@@ -566,11 +601,11 @@ export class PiMigration {
             await mcp.importPiServer(name, mergePiMcp(config, keep), revision)
           },
         )
-        if (!hasCredentials) continue
+        if (!hasCredentials || plan.entries.get(id)?.item.status === 'blocked') continue
         const credentialInfo = {
           id: `credential:mcp:${name}`,
           category: 'credential',
-          name: `${name} 连接参数与凭据`,
+          name: hasSensitiveArgs ? `${name} 敏感参数与凭据` : `${name} 连接凭据`,
           source: 'mcp.json',
           requires: id,
         } as const
@@ -653,12 +688,41 @@ export class PiMigration {
           )
             throw new Error('自定义服务商需要 API 地址、协议和模型列表')
           const incoming = config
+          const incomingEntries = new Map(modelHeaderEntries(incoming))
+          const incomingLocations = new Map(
+            modelHeaderEntries(incoming).map(([scope, item]) => [scope, item.baseUrl ?? incoming.baseUrl]),
+          )
+          for (const [, location] of incomingLocations) {
+            if (location !== undefined && endpoint(location).origin !== endpoint(incoming.baseUrl ?? location).origin)
+              throw new Error('模型地址必须与服务商同源')
+          }
           await plan.add(
             configInfo,
             incoming,
             configPreview(incoming),
             async () => {
               const current = await read()
+              if (current.config && !same(current.config, incoming)) {
+                const parsedSecrets = record(current.credentials ? JSON.parse(current.credentials) : undefined)
+                const secretEnv = record(parsedSecrets?.env)
+                const hasSecrets = Boolean(
+                  parsedSecrets?.credential || (secretEnv && Object.keys(secretEnv).length) || current.raw?.apiKey,
+                )
+                const oldEntries = modelHeaderEntries(current.raw ?? {})
+                const hasHeaders = oldEntries.some(([, item]) => item.headers !== undefined)
+                const previousLocations = new Map(
+                  oldEntries.map(([scope, item]) => [scope, item.baseUrl ?? current.raw?.baseUrl]),
+                )
+                for (const [scope, location] of incomingLocations) {
+                  if ((hasSecrets || hasHeaders) && (previousLocations.get(scope) ?? current.raw?.baseUrl) !== location)
+                    throw new Error('此服务商已有凭据。请先在模型设置处理原凭据，再更改服务地址')
+                }
+                for (const [scope, item] of oldEntries) {
+                  if (item.headers !== undefined && !incomingEntries.has(scope))
+                    throw new Error('此变更会移除已有请求头，请在模型设置中处理')
+                }
+                if (current.raw && !this.services.sealBackup) throw new Error('无法创建加密备份，已保留现有配置')
+              }
               return {
                 ...current,
                 value: current.config,
@@ -691,19 +755,18 @@ export class PiMigration {
         source: rawAuth === undefined ? 'models.json' : 'auth.json',
         requires: definition === undefined ? undefined : id,
       } as const
+      const hasCustomEndpoint = (raw: JsonRecord | undefined) =>
+        raw?.baseUrl !== undefined ||
+        modelHeaderEntries(raw ?? {})
+          .slice(1)
+          .some(([, model]) => model.baseUrl !== undefined)
       const assertDestination = (target: Awaited<ReturnType<typeof read>>) => {
         if (definition !== undefined && (!config || !same(target.config, config)))
           throw new Error('对应的模型配置已变化，请重新扫描')
-        if (
-          definition === undefined &&
-          (!builtins.has(provider) ||
-            target.raw?.baseUrl !== undefined ||
-            modelHeaderEntries(target.raw ?? {})
-              .slice(1)
-              .some(([, model]) => model.baseUrl !== undefined))
-        )
+        if (definition === undefined && (!builtins.has(provider) || hasCustomEndpoint(target.raw)))
           throw new Error('目标服务地址与凭据来源无法匹配')
       }
+      const providerBlocked = definition !== undefined && plan.entries.get(id)?.item.status === 'blocked'
       if (saved?.type === 'oauth')
         plan.block(
           { ...keyInfo, id: `credential:oauth:${provider}`, name: `${provider} OAuth` },
@@ -714,7 +777,8 @@ export class PiMigration {
           const before = await read()
           if (record(before.credentials ? JSON.parse(before.credentials) : undefined)?.credential || before.raw?.apiKey)
             plan.block(keyInfo, '已保存凭据，导入会保留原值')
-          else if (definition === undefined && (!builtins.has(provider) || before.raw?.baseUrl !== undefined))
+          else if (providerBlocked) plan.block(keyInfo, '对应的模型配置无法导入')
+          else if (definition === undefined && (!builtins.has(provider) || hasCustomEndpoint(before.raw)))
             plan.block(keyInfo, '目标服务地址与凭据来源无法匹配')
           else
             await plan.add(
@@ -756,6 +820,7 @@ export class PiMigration {
           modelHeaderEntries(raw ?? {}).some(([scope, entry]) => scopes.has(scope) && entry.headers !== undefined)
         if (values.length) {
           if (hasHeaders((await read()).raw)) plan.block(headersInfo, '已保存请求头，导入会保留原值')
+          else if (providerBlocked) plan.block(headersInfo, '对应的模型配置无法导入')
           else
             await plan.add(
               { ...headersInfo, note: omitted ? '环境变量或外部命令引用需要在模型设置中补齐' : undefined },

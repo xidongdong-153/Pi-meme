@@ -27,7 +27,8 @@ import { cancelWindowPreparation, closePreparedWindow, prepareWindowMaintenance 
 const isolatedTest = ['memory', 'file'].includes(process.env.PI_MEME_TEST_CREDENTIALS ?? '')
 if (isolatedTest) {
   if (!process.env.PI_MEME_DATA_ROOT) throw new Error('Desktop 验收必须指定临时 PI_MEME_DATA_ROOT')
-  const cache = path.join(process.env.PI_MEME_DATA_ROOT, 'desktop-cache')
+  const resolvedRoot = path.resolve(process.env.PI_MEME_DATA_ROOT)
+  const cache = path.join(path.dirname(resolvedRoot), `${path.basename(resolvedRoot)}-desktop-cache`)
   mkdirSync(cache, { recursive: true })
   app.setPath('userData', cache)
 } else if (!app.isPackaged || !app.commandLine.hasSwitch('user-data-dir')) {

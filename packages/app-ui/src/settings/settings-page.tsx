@@ -266,9 +266,11 @@ function SettingsNavigation({ sectionId, saving, onNavigate }: SettingsNavigatio
 
 function SettingsPanel({
   sectionId,
+  hideSectionTitle = false,
   renderContent,
 }: {
   sectionId: SettingsSection
+  hideSectionTitle?: boolean
   renderContent: (section: SettingsSection) => ReactNode
 }) {
   const section = getSettingsSection(sectionId)
@@ -280,9 +282,11 @@ function SettingsPanel({
       className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-[clamp(1rem,3.8cqw,3rem)] py-[clamp(1.25rem,3.5dvh,2.5rem)] pb-[max(clamp(1.25rem,3.5dvh,2.5rem),env(safe-area-inset-bottom))] outline-none [scrollbar-gutter:stable]"
     >
       <div className="mx-auto max-w-[44rem] space-y-7">
-        <h2 id="settings-section-title" className="pr-10 text-xl font-semibold tracking-tight sm:text-2xl">
-          {section.label}
-        </h2>
+        {!hideSectionTitle && (
+          <h2 id="settings-section-title" className="pr-10 text-xl font-semibold tracking-tight sm:text-2xl">
+            {section.label}
+          </h2>
+        )}
         <div className="min-w-0 space-y-6 text-xs">{renderContent(sectionId)}</div>
       </div>
     </section>
@@ -293,12 +297,14 @@ export function SettingsDialog({
   open,
   sectionId,
   saving,
+  hideSectionTitle = false,
   onNavigate,
   onDismiss,
   onReturnFocus,
   renderContent,
 }: SettingsNavigationProps & {
   open: boolean
+  hideSectionTitle?: boolean
   onDismiss: () => void
   onReturnFocus: () => void
   renderContent: (section: SettingsSection) => ReactNode
@@ -334,7 +340,12 @@ export function SettingsDialog({
       >
         <div className="flex size-full min-h-0 min-w-0 flex-col @min-[660px]/settings:flex-row">
           <SettingsNavigation sectionId={sectionId} saving={saving} onNavigate={onNavigate} />
-          <SettingsPanel key={sectionId} sectionId={sectionId} renderContent={renderContent} />
+          <SettingsPanel
+            key={sectionId}
+            sectionId={sectionId}
+            hideSectionTitle={hideSectionTitle}
+            renderContent={renderContent}
+          />
         </div>
       </DialogContent>
     </Dialog>

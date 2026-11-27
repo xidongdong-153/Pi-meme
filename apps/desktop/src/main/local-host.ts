@@ -117,7 +117,8 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
           resolve({
             url: value.url,
             child,
-            request: (operation, input) => request('desktop:request', { operation, input }, 180_000),
+            request: (operation, input) =>
+              request('desktop:request', { operation, input }, operation.startsWith('shortcuts:') ? 10_000 : 180_000),
             prepareMaintenance: () => request('maintenance:prepare', {}, 10_000),
             stopForMaintenance: () => stop(60000, false),
             dispose() {
