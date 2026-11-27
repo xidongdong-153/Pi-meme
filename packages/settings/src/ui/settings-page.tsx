@@ -107,9 +107,9 @@ export function SettingsPage({
           />
           <SettingsGroup title="Pi 运行时">
             <SettingsCard>
-              <dl className="settings-row flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs">
+              <dl className="settings-row flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs sm:px-5">
                 <dt className="font-medium">内置版本</dt>
-                <dd>
+                <dd className="font-mono text-muted-foreground select-text">
                   <CrossfadeText>{hostConnected && piVersion ? `v${piVersion}` : '尚未连接'}</CrossfadeText>
                 </dd>
               </dl>
