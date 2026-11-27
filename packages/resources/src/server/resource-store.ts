@@ -630,6 +630,9 @@ export class ResourceStore {
     if (captured.revision !== item.revision) throw new SystemReadError('stale-cursor', '资源在读取期间变化，请重新读取')
     return { item, ...captured, relative: location.relative }
   }
+  readSkillFiles(id: string, revision: string) {
+    return this.serialize(async () => (await this.readSource(id, revision)).files)
+  }
   listFiles(id: string, revision: string, query: ReadQuery = {}, cwd?: string) {
     return this.serialize(async () => {
       readString(revision, '资源修订', 256)
@@ -707,7 +710,7 @@ export class ResourceStore {
       throw new Error(`技能校验失败：${found.diagnostics.map((item) => item.message).join('；') || '没有有效技能'}`)
     return found.skills[0].name
   }
-  import(input: ResourceImportInput, cwd?: string) {
+  import(input: ResourceImportInput, cwd?: string, captured?: { files: ResourceFile[]; sourcePath: string }) {
     return this.serialize(async () => {
       const state = await this.initialize()
       if (input.kind !== undefined && input.kind !== 'skill') throw new Error('资源导入类型无效')
@@ -724,7 +727,7 @@ export class ResourceStore {
       const replaceTarget = replaceItem
         ? (replaceRecord?.directory ?? (await this.looseSource(replaceItem)))
         : undefined
-      let { files, sourcePath } = await this.importFiles(input)
+      let { files, sourcePath } = captured ?? (await this.importFiles(input))
       if (sourcePath.startsWith('upload:') || sourcePath.endsWith('.zip')) {
         const first = files[0]?.path.split('/')[0]
         if (first && files.every((file) => file.path.startsWith(`${first}/`)))
@@ -783,7 +786,10 @@ export class ResourceStore {
       if (
         !input.replace &&
         (await exists(target)) &&
-        (!current || sourcePath.startsWith('upload:') || (current.sourcePath !== sourcePath && sourcePath !== target))
+        (captured ||
+          !current ||
+          sourcePath.startsWith('upload:') ||
+          (current.sourcePath !== sourcePath && sourcePath !== target))
       )
         throw new Error('同级资源名称重复，请更换名称或更新原导入来源')
       const record: ImportRecord = {

@@ -28,6 +28,7 @@ import type {
   CreateAgentSessionRuntimeFactory,
   InlineExtension,
   ExtensionAPI,
+  PromptTemplate,
   RpcSessionState,
   SessionEntry,
 } from '@earendil-works/pi-coding-agent'
@@ -185,6 +186,7 @@ export type RuntimePolicy = {
   uiEnabled?: boolean
   resourcePaths?: { skills: string[]; prompts: string[] }
   resourceSnapshot?: ResourceSnapshot
+  promptTemplates?: PromptTemplate[]
   agentSources?: import('@pi-meme/plugin-sdk/agent').AgentPluginEntry[]
   externalTools?: import('./restricted-agent').ExternalToolPolicy
   pluginFailures?: Map<string, string>
@@ -806,6 +808,10 @@ export class SdkSession {
           noExtensions: true,
           noPromptTemplates: this.policy.requireRestrictedPolicy,
           additionalPromptTemplatePaths: this.policy.resourcePaths?.prompts ?? [],
+          promptsOverride: ({ prompts, diagnostics }) => ({
+            prompts: [...(this.policy.promptTemplates ?? []), ...prompts],
+            diagnostics,
+          }),
           additionalExtensionPaths: [],
           noSkills: true,
           noContextFiles: true,

@@ -23,6 +23,7 @@ import type { RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 import type { PluginRuntimeRequest } from '@pi-meme/contracts/plugin-call'
 import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
+import type { PromptTemplate } from '@earendil-works/pi-coding-agent'
 
 export type WorkerAdmission = { goalRun?: GoalRun; taskProgressEnabled: boolean }
 
@@ -63,6 +64,7 @@ export type WorkerOptions = {
   agentEntries: AgentPluginEntry[]
   plugin?: (request: PluginRuntimeRequest, signal: AbortSignal) => Promise<unknown>
   resourceSnapshot?: ResourceSnapshot
+  promptTemplates?: PromptTemplate[]
   workerPath?: string
   release?: () => void | Promise<void>
 }
@@ -129,6 +131,7 @@ export function createWorkerSession(
           settings: { ...options.settings, showComposerHint: composerHintEnabled ?? options.settings.showComposerHint },
           agentEntries: options.agentEntries,
           resourceSnapshot: options.resourceSnapshot,
+          promptTemplates: options.promptTemplates,
           credentials: [
             ...options.credentials.entries('model-provider:'),
             ...(mcpCredentials

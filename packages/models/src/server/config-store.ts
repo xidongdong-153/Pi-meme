@@ -174,14 +174,14 @@ const editableFields = [
   'compat',
   'thinkingLevelMap',
 ] as const
-function legacyLiteral(value: unknown) {
+export function legacyLiteral(value: unknown) {
   if (typeof value !== 'string' || value.startsWith('!')) return undefined
   const expression = /\$(\$|!|\{[A-Za-z_]\w*\}|[A-Za-z_]\w*)/g
   if ([...value.matchAll(expression)].some((match) => match[1] !== '$' && match[1] !== '!')) return undefined
   return value.replace(expression, '$1')
 }
 
-function modelHeaderEntries(provider: JsonObject): Array<[string, JsonObject]> {
+export function modelHeaderEntries(provider: JsonObject): Array<[string, JsonObject]> {
   const entries: Array<[string, JsonObject]> = [['provider', provider]]
   for (const model of Array.isArray(provider.models) ? provider.models : [])
     if (model && typeof model === 'object' && typeof model.id === 'string') entries.push([`model:${model.id}`, model])
@@ -377,6 +377,93 @@ export class ModelConfigStore {
       providers,
     }
   }
+  async readMigrationProviders() {
+    const { data, revision } = await this.read()
+    return { providers: object(data.providers, 'providers'), revision }
+  }
+
+  async importPiProvider(id: string, revision: string, definition: JsonObject) {
+    return this.mutate(revision, async (data) => {
+      const providers = object(data.providers, 'providers')
+      const old = Object.hasOwn(providers, id) ? object(providers[id], '现有服务商') : undefined
+      const next = structuredClone(definition)
+      if (next.baseUrl !== undefined) endpoint(next.baseUrl)
+      if (next.api !== undefined) validateApi(next.api)
+      const nextEntries = new Map(modelHeaderEntries(next))
+      const oldEntries = modelHeaderEntries(old ?? {})
+      const secrets = readSecrets(this.credentialsStore, id)
+      const hasSecrets = secrets.credential || Object.keys(secrets.env ?? {}).length || old?.apiKey
+      const hasHeaders = oldEntries.some(([, item]) => item.headers !== undefined)
+      const locations = (provider: JsonObject) =>
+        new Map(modelHeaderEntries(provider).map(([scope, item]) => [scope, item.baseUrl ?? provider.baseUrl]))
+      const previousLocations = locations(old ?? {})
+      const nextLocations = locations(next)
+      for (const [scope, location] of nextLocations) {
+        if (location !== undefined && endpoint(location).origin !== endpoint(next.baseUrl ?? location).origin)
+          throw new Error('模型地址必须与服务商同源')
+        if ((hasSecrets || hasHeaders) && (previousLocations.get(scope) ?? old?.baseUrl) !== location)
+          throw new Error('此服务商已有凭据。请先在模型设置处理原凭据，再更改服务地址')
+      }
+      for (const [scope, item] of oldEntries) {
+        if (item.headers === undefined) continue
+        const target = nextEntries.get(scope)
+        if (!target) throw new Error('此变更会移除已有请求头，请在模型设置中处理')
+        target.headers = item.headers
+      }
+      if (old?.apiKey !== undefined) next.apiKey = old.apiKey
+      Object.defineProperty(providers, id, { value: next, enumerable: true, configurable: true, writable: true })
+    })
+  }
+
+  async importPiApiKey(id: string, revision: string, apiKey: string) {
+    if (this.writing) throw new Error('模型配置正在保存，请稍后重试')
+    this.writing = true
+    try {
+      const current = await this.read()
+      if (current.revision !== revision) throw new Error('模型配置已变化，请重新扫描')
+      const credential = credentialKey(id)
+      const value = readSecrets(this.credentialsStore, id)
+      if (value.credential) return false
+      rejectAmbientCredential(apiKey, 'API Key')
+      this.credentialsStore.set(credential, JSON.stringify({ ...value, credential: { type: 'api_key', key: apiKey } }))
+      await this.credentialsStore.flush?.()
+      return true
+    } finally {
+      this.writing = false
+    }
+  }
+
+  async importPiHeaders(id: string, revision: string, headers: Array<[string, Record<string, string>]>) {
+    const key = credentialKey(id)
+    let previous: string | undefined
+    let next: ModelSecrets
+    return this.mutate(
+      revision,
+      async (data) => {
+        const provider = object(object(data.providers, 'providers')[id], '服务商')
+        const entries = new Map(modelHeaderEntries(provider))
+        previous = this.credentialsStore.get(key)
+        next = readSecrets(this.credentialsStore, id)
+        const env = { ...next.env }
+        for (const [scope, values] of headers) {
+          const entry = entries.get(scope)
+          if (!entry) throw new Error('目标模型配置已变化，请重新扫描')
+          if (entry.headers !== undefined) throw new Error('目标已有请求头，请在模型设置中编辑')
+          entry.headers = secureHeaders(values, undefined, id, scope, env, {})
+        }
+        next.env = env
+      },
+      () => {
+        if (this.credentialsStore.get(key) !== previous) throw new Error('目标凭据已变化，请重新扫描')
+        this.credentialsStore.set(key, JSON.stringify(next))
+        return () => {
+          if (previous === undefined) this.credentialsStore.delete(key)
+          else this.credentialsStore.set(key, previous)
+        }
+      },
+    )
+  }
+
   async credentials(id?: string) {
     const { data } = await this.read()
     const raw = id ? object(data.providers, 'providers')[id] : undefined

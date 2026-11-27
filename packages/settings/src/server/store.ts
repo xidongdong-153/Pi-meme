@@ -711,6 +711,13 @@ export class SettingsStore {
     return this.snapshot()
   }
 
+  refreshImportedThemes() {
+    return this.enqueue(async () => {
+      const snapshot = await this.reloadThemes()
+      this.appearanceObserver?.(snapshot.appearanceRevision)
+    })
+  }
+
   setPluginThemes(themes: Theme[]) {
     return this.enqueue(async () => {
       this.pluginThemes = structuredClone(themes)

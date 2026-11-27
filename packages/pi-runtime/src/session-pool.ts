@@ -12,7 +12,7 @@ import {
 } from '@pi-meme/contracts/plan'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { ToolExecutionSettings } from '@pi-meme/contracts/settings'
-import type { InlineExtension } from '@earendil-works/pi-coding-agent'
+import type { InlineExtension, PromptTemplate } from '@earendil-works/pi-coding-agent'
 import { mkdtemp, realpath, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -156,6 +156,7 @@ type RuntimeSession = {
   error?: string
   extensionError?: DesktopError
   state: PiState
+  queueModes?: Partial<Pick<PiState, 'steeringMode' | 'followUpMode'>>
   running: boolean
   pendingPrompt: boolean
   settled: boolean
@@ -760,11 +761,25 @@ export class PiSessionPool implements PiRuntime {
   private resourceDiscovery = true
   private getResources?: (cwd: string) => Promise<ResourceSnapshot>
   private getResourceRevision?: () => number
-  configureResources(getResources: (cwd: string) => Promise<ResourceSnapshot>, getRevision?: () => number) {
+  private getPromptTemplates?: () => Promise<PromptTemplate[]>
+  configureResources(
+    getResources: (cwd: string) => Promise<ResourceSnapshot>,
+    getRevision?: () => number,
+    getPromptTemplates?: () => Promise<PromptTemplate[]>,
+  ) {
     this.getResources = getResources
     this.getResourceRevision = getRevision
+    this.getPromptTemplates = getPromptTemplates
     this.commands.clear()
     this.commandReads.clear()
+  }
+  async refreshImportedConfiguration() {
+    this.epoch++
+    this.localModels = null
+    this.localAvailableModels = null
+    this.commands.clear()
+    this.commandReads.clear()
+    await this.retireSessions(() => true)
   }
   configureResourceDiscovery(enabled: boolean) {
     this.resourceDiscovery = enabled
@@ -1692,6 +1707,10 @@ export class PiSessionPool implements PiRuntime {
         }
       }
       if (!stillCurrent()) return
+      if (target.dormant) {
+        state.steeringMode = target.queueModes?.steeringMode ?? preferences.steeringMode ?? state.steeringMode
+        state.followUpMode = target.queueModes?.followUpMode ?? preferences.followUpMode ?? state.followUpMode
+      }
       state.thinkingLevel = thinkingLevel
       state.model = model ?? requestedModel
       state.modelSelectionRequired = Boolean(missingModel && !model)
@@ -1786,8 +1805,11 @@ export class PiSessionPool implements PiRuntime {
       await record.session.reconnectModels(this.restoreConfiguration(record))
       record.sessionStartEvent = undefined
       if (record.name && !record.sessionFile) await record.session.setSessionName(record.name)
-      if (record.state.steeringMode) await record.session.setSteeringMode(record.state.steeringMode)
-      if (record.state.followUpMode) await record.session.setFollowUpMode(record.state.followUpMode)
+      const preferences = await readLocalPreferences(record.cwd, this.runtimePaths.agentDir)
+      const steeringMode = record.queueModes?.steeringMode ?? preferences.steeringMode ?? record.state.steeringMode
+      const followUpMode = record.queueModes?.followUpMode ?? preferences.followUpMode ?? record.state.followUpMode
+      if (steeringMode !== preferences.steeringMode) await record.session.setSteeringMode(steeringMode)
+      if (followUpMode !== preferences.followUpMode) await record.session.setFollowUpMode(followUpMode)
       const snapshot = await record.session.snapshot()
       this.rememberSnapshot(record, snapshot)
       if (record.sessionFile && !record.temporary) await this.accessStore.set(record.sessionFile, record.accessMode)
@@ -2460,11 +2482,13 @@ export class PiSessionPool implements PiRuntime {
   async setSteeringMode(sessionKey: string, mode: 'all' | 'one-at-a-time') {
     const record = this.target(sessionKey)
     record.state = record.dormant ? { ...record.state, steeringMode: mode } : await record.session.setSteeringMode(mode)
+    record.queueModes = { ...record.queueModes, steeringMode: mode }
     return record.state
   }
   async setFollowUpMode(sessionKey: string, mode: 'all' | 'one-at-a-time') {
     const record = this.target(sessionKey)
     record.state = record.dormant ? { ...record.state, followUpMode: mode } : await record.session.setFollowUpMode(mode)
+    record.queueModes = { ...record.queueModes, followUpMode: mode }
     return record.state
   }
   async getCommands() {
@@ -2480,8 +2504,17 @@ export class PiSessionPool implements PiRuntime {
       const read = {
         revision: revision ?? -1,
         promise: (async () => {
-          const snapshot = this.resourceDiscovery ? await this.getResources?.(record.cwd) : undefined
-          return snapshot ? readLocalSkills(snapshot) : []
+          const [snapshot, templates] = await Promise.all([
+            this.resourceDiscovery ? this.getResources?.(record.cwd) : undefined,
+            this.getPromptTemplates?.(),
+          ])
+          const prompts = (templates ?? []).map(({ name, description, sourceInfo }): PiSlashCommand => ({
+            name,
+            description,
+            source: 'prompt',
+            sourceInfo,
+          }))
+          return [...(snapshot ? readLocalSkills(snapshot) : []), ...prompts]
         })(),
       }
       this.commandReads.set(key, read)

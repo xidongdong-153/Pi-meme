@@ -6,6 +6,8 @@ import { startHostServer } from '@pi-meme/host/server'
 import { createAppUpdateService } from '@pi-meme/host/app-update'
 import { errorCode } from '@pi-meme/host/host-status'
 import { hostPort } from '@pi-meme/contracts/host-runtime'
+import { createShortcutPreferencesStore } from './shortcut-preferences'
+import type { DesktopHostOperation } from './local-host'
 
 declare const __PI_MEME_VERSION__: string
 
@@ -29,6 +31,8 @@ if (testCertificate) {
   setDefaultCACertificates([...getCACertificates('default'), readFileSync(certificatePath, 'utf8')])
 }
 const packaged = !process.argv.includes('--development')
+const userData = process.env.PI_MEME_DESKTOP_PREFERENCES
+const shortcuts = userData && path.isAbsolute(userData) ? createShortcutPreferencesStore(userData) : undefined
 void startHostServer({
   appUpdate: createAppUpdateService({
     kind: 'desktop',
@@ -41,6 +45,7 @@ void startHostServer({
   port: hostPort(process.env.PI_MEME_PORT),
   owner: 'desktop',
   localAutoLogin: true,
+  piMigrationShortcuts: shortcuts,
   staticDirectory: path.join(__dirname, '../renderer/main_window'),
   frontendUrl: process.env.PI_MEME_FRONTEND_URL,
   workerPath: path.join(__dirname, 'session-worker.js'),
@@ -48,8 +53,46 @@ void startHostServer({
 })
   .then((server) => {
     parent.postMessage({ type: 'ready', url: server.url, hostId: server.host.hostId })
+    async function desktopOperation(operation: DesktopHostOperation | undefined, input: unknown) {
+      if (!shortcuts || !server.host.piMigration) throw new Error('本机服务不支持从 Pi 迁移')
+      switch (operation) {
+        case 'shortcuts:read':
+          return shortcuts.read()
+        case 'shortcuts:save':
+          return shortcuts.save(input)
+        case 'migration:scan':
+          return server.host.piMigration.scan()
+        case 'migration:apply':
+          return server.host.piMigration.apply(input)
+        default:
+          throw new Error('未知本机操作')
+      }
+    }
     parent.on('message', ({ data }) => {
-      const value = data as { type?: string; id?: string; hostId?: string }
+      if (!data || typeof data !== 'object') return
+      const value = data as {
+        type?: string
+        id?: string
+        hostId?: string
+        operation?: DesktopHostOperation
+        input?: unknown
+      }
+      if (value.type === 'desktop:request' && typeof value.id === 'string') {
+        const operation =
+          value.hostId === server.host.hostId
+            ? desktopOperation(value.operation, value.input)
+            : Promise.reject(new Error('操作目标服务身份不匹配'))
+        void operation.then(
+          (result) => parent.postMessage({ type: 'desktop:result', id: value.id, result }),
+          (cause: unknown) =>
+            parent.postMessage({
+              type: 'desktop:result',
+              id: value.id,
+              error: cause instanceof Error ? cause.message : '本机操作失败',
+            }),
+        )
+        return
+      }
       if (value.type === 'maintenance:prepare') {
         try {
           if (value.hostId !== server.host.hostId) throw new Error('维护目标服务身份不匹配')

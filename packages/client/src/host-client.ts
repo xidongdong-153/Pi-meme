@@ -1721,6 +1721,7 @@ export class HostClient {
       desktopUpdates: platform?.desktopUpdates,
       getStorageInfo: () => rpc('host:storage-info', [], null),
       storage: platform?.storage,
+      piMigration: platform?.piMigration,
       getUsageStats: () => rpc('settings:usage-stats'),
       getSettings: () => settingsRpc('settings:get'),
       reloadSettings: () => settingsRpc('settings:reload'),

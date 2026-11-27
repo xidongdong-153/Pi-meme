@@ -10,11 +10,13 @@ export function GeneralSettings({
   accessSettings,
   settings,
   onEditor,
+  migration,
   ...storage
 }: {
   mobile?: boolean
   accessSettings: ReactNode
   settings?: DesktopSettings
+  migration?: ReactNode
   onEditor: (value: GeneralSessionSettings) => void
 } & ComponentProps<typeof StorageSettings>) {
   return (
@@ -120,6 +122,7 @@ export function GeneralSettings({
         <SettingsCard>{accessSettings}</SettingsCard>
       </SettingsGroup>
       <StorageSettings mobile={mobile} {...storage} />
+      {migration}
     </div>
   )
 }

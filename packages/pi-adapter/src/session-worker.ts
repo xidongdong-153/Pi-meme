@@ -16,7 +16,7 @@ import { parentPort, workerData } from 'node:worker_threads'
 import { randomUUID } from 'node:crypto'
 import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contracts/collaboration'
 import type { PlanDocument, PlanState, SavePlanInput } from '@pi-meme/contracts/plan'
-import type { InlineExtension, ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-agent'
+import type { InlineExtension, ExtensionAPI, PromptTemplate, ToolDefinition } from '@earendil-works/pi-coding-agent'
 import type { DesktopSettings } from '@pi-meme/contracts/settings'
 import { canUseExternalAgentTools, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
@@ -76,6 +76,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     capabilities: DesktopSettings
     initialGeneration?: number
     resourceSnapshot?: ResourceSnapshot
+    promptTemplates?: PromptTemplate[]
   }
   if (!parentPort) throw new Error('会话入口只能由 Worker 启动')
   const port = parentPort
@@ -128,6 +129,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     initialGeneration: data.initialGeneration,
     requireRestrictedPolicy: true,
     resourceSnapshot: data.resourceSnapshot,
+    promptTemplates: data.promptTemplates,
     agentSources: data.agentEntries,
     externalTools: new Map(),
     pluginFailures: new Map(),

@@ -2,12 +2,12 @@ import { registerComputerUse } from '../computer-use/controller'
 import { app, dialog, ipcMain, shell, type BrowserWindow } from 'electron'
 import { readFile, writeFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
-import type { HostConnection, HostConnectionError, SavedHostConnection } from '@pi-meme/contracts/host'
+import type { HostConnection, HostConnectionError, PlatformAdapter, SavedHostConnection } from '@pi-meme/contracts/host'
+import type { DesktopPiMigration, PiMigrationApply } from '@pi-meme/contracts/pi-migration'
 import { isTrustedPlatformSource } from './platform-source'
 import type { DesktopStorageAdapter } from '@pi-meme/contracts/storage'
 import type { AppUpdateService } from '@pi-meme/host/app-update'
 import { getProjectApps, openProjectInApp } from '../project-apps'
-import { readShortcutPreferences, writeShortcutPreferences } from '../shortcut-preferences'
 import { executeWindowCommand, updateTitleBar } from '../window/desktop-window'
 import { replyWindowPreparation } from '../window/prepare-window'
 
@@ -23,8 +23,8 @@ export function registerPlatformIpc(
     error: () => HostConnectionError | null
   },
   desktopUpdates: Pick<AppUpdateService, 'getInfo' | 'check'>,
-  storage?: DesktopStorageAdapter,
-  userDataDir?: string,
+  storage: DesktopStorageAdapter | undefined,
+  preferences: { migration: DesktopPiMigration; shortcuts: NonNullable<PlatformAdapter['shortcuts']> },
 ) {
   const handle = (channel: string, action: (...args: unknown[]) => unknown) =>
     ipcMain.handle(channel, (event, ...args: unknown[]) => {
@@ -92,11 +92,17 @@ export function registerPlatformIpc(
   handle('platform:window-command', (command) => executeWindowCommand(getWindow()!, command))
   handle('platform:saved-connections', savedConnections.list)
   handle('platform:connection-error', savedConnections.error)
-  handle('platform:shortcuts-read', async () => {
-    return readShortcutPreferences(userDataDir ?? app.getPath('userData'))
+  handle('platform:shortcuts-read', preferences.shortcuts.read)
+  handle('platform:shortcuts-save', (value) =>
+    preferences.shortcuts.save(value as Parameters<typeof preferences.shortcuts.save>[0]),
+  )
+  handle('platform:pi-migration-scan', (hostId) => {
+    if (typeof hostId !== 'string') throw new Error('迁移目标服务无效')
+    return preferences.migration.scan(hostId)
   })
-  handle('platform:shortcuts-save', async (value) => {
-    return writeShortcutPreferences(userDataDir ?? app.getPath('userData'), value)
+  handle('platform:pi-migration-apply', (hostId, input) => {
+    if (typeof hostId !== 'string') throw new Error('迁移目标服务无效')
+    return preferences.migration.apply(hostId, input as PiMigrationApply)
   })
   handle('platform:remove-connection', async (url) => {
     if (typeof url !== 'string') throw new Error('服务地址无效')
@@ -172,6 +178,8 @@ export function registerPlatformIpc(
       'export-theme',
       'shortcuts-read',
       'shortcuts-save',
+      'pi-migration-scan',
+      'pi-migration-apply',
       'desktop-update-info',
       'desktop-update-check',
       'storage-info',

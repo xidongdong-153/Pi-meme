@@ -87,7 +87,7 @@ export class InstructionsStore {
     this.agentDir = path.join(this.root, storageLayoutRelativePaths.agentDirectory)
   }
 
-  private async hostFile(kind: InstructionKind) {
+  async hostFile(kind: InstructionKind) {
     const resolvedRoot = await realpath(this.root)
     const configDir = path.join(this.root, 'config')
     const configStat = await lstat(configDir).catch(() => undefined)
@@ -148,7 +148,7 @@ export class InstructionsStore {
         throw new Error('指令文件已被其他操作修改，请重新读取后再保存；当前草稿仍保留')
       await rename(temporary, current.path)
     } finally {
-      await rm(temporary, { force: true })
+      await rm(temporary, { force: true }).catch(() => {})
     }
   }
 }

@@ -140,6 +140,10 @@ export class FileCredentialStore implements SecureCredentialStorage {
     void this.writes.catch(() => {})
   }
 
+  sealBackup(value: unknown) {
+    return seal({ backup: JSON.stringify(value) }, this.key)
+  }
+
   flush() {
     return this.writes
   }

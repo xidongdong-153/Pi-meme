@@ -80,6 +80,70 @@ export class McpConfigStore {
     }
   }
 
+  async readMigrationServers() {
+    const { data, revision, error } = await this.read()
+    if (error) throw new Error(error)
+    return {
+      revision,
+      servers: new Map<string, { stored: unknown; config?: Record<string, unknown> }>(
+        Object.entries(serversIn(data)).map(([name, stored]) => {
+          if (!object(stored)) return [name, { stored, config: undefined }] as const
+          try {
+            return [name, { stored, config: loadGlobalMcpConfig(name, stored, this.credentials) }] as const
+          } catch {
+            return [name, { stored, config: undefined }] as const
+          }
+        }),
+      ),
+    }
+  }
+
+  async importPiServer(name: string, config: Record<string, unknown>, revision: string) {
+    if (this.writing) throw new Error('MCP 配置正在保存，请等待完成')
+    this.writing = true
+    let newRef: string | undefined
+    let published = false
+    try {
+      const current = await this.read()
+      if (current.error) throw new Error(current.error)
+      if (revision !== current.revision) throw new Error('MCP 配置已变化，请重新扫描')
+      const error = serverError(name, config)
+      if (error) throw new Error(error)
+      const servers = { ...serversIn(current.data) }
+      if (Object.keys(servers).some((other) => other !== name && other.replace(/-/g, '_') === name.replace(/-/g, '_')))
+        throw new Error('服务名称与其他服务的工具命名空间冲突')
+      if (object(config.auth)) await this.assertProviderOrigin(config.auth.provider as string, config.url as string)
+      const authorizations = object(current.data.desktopAuthorizedServers)
+        ? { ...current.data.desktopAuthorizedServers }
+        : {}
+      delete authorizations[name]
+      const prepared = sealMcpConfig(name, config, this.credentials)
+      const oldRef = mcpConfigRef(servers[name])
+      newRef = prepared.credentialRef
+      Object.defineProperty(servers, name, { value: prepared, enumerable: true, configurable: true, writable: true })
+      await this.publish(revision, { ...current.data, mcpServers: servers, desktopAuthorizedServers: authorizations })
+      published = true
+      if (oldRef?.startsWith(mcpConfigCredentialPrefix)) {
+        try {
+          this.credentials.delete(oldRef)
+          await this.credentials.flush?.()
+        } catch {
+          // The new config and its credential were committed together. An old orphan is harmless.
+        }
+      }
+    } finally {
+      if (!published && newRef) {
+        try {
+          this.credentials.delete(newRef)
+          await this.credentials.flush?.()
+        } catch {
+          // A failed credential store has already restored its last committed snapshot.
+        }
+      }
+      this.writing = false
+    }
+  }
+
   /** Run with the Host data directory locked, before loading sessions or publishing the HTTP API. */
   async migratePrivateConfig() {
     const { revision, data, error } = await this.read()

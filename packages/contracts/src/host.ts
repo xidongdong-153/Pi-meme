@@ -92,6 +92,7 @@ export interface PlatformAdapter {
     onCancel: (listener: (request: PlatformPrepareRequest) => void) => () => void
   }
   storage?: DesktopStorageAdapter
+  piMigration?: import('./pi-migration').DesktopPiMigration
   titleBar?: {
     update: (value: { background: string; foreground: string }) => Promise<void>
     execute: (command: DesktopWindowCommand) => Promise<void>

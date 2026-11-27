@@ -40,6 +40,8 @@ import { storeImageUpload } from './image-uploads'
 import { systemPlugins } from '@pi-meme/plugin-sdk/system-plugins'
 import { TerminalService } from './terminal-service'
 import { createBuiltinModules } from './builtin-modules'
+import { PiMigration, type PiMigrationShortcuts } from './pi-migration'
+import { readPiPrompts } from './pi-migration-files'
 import { assertExternalPluginId } from '@pi-meme/plugin-sdk/reserved'
 import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
@@ -117,6 +119,7 @@ export type HostOptions = {
   credentials?: SecureCredentialStorage & { flush?: () => Promise<void> }
   testCredentials?: boolean
   readLegacyCredentials?: () => Promise<Array<[string, string]>>
+  piMigrationShortcuts?: PiMigrationShortcuts
 }
 type Action = (...args: unknown[]) => unknown
 const sessionWrites = new Set([
@@ -836,6 +839,7 @@ export async function createHost(options: HostOptions = {}) {
           settings: settings.settings,
           agentEntries: lease.agentEntries,
           resourceSnapshot: snapshot,
+          promptTemplates: await readPiPrompts(root),
           workerPath: options.workerPath ?? fileURLToPath(new URL('./session-worker.ts', import.meta.url)),
           memory: async (request, signal) => {
             signal?.throwIfAborted()
@@ -2131,6 +2135,7 @@ export async function createHost(options: HostOptions = {}) {
     pi.configureResources(
       (cwd) => resources.snapshotForExecution(cwd),
       () => commandRevision,
+      () => readPiPrompts(root),
     )
     pi.configureResourceDiscovery(true)
     const parseId = (value: unknown) => {
@@ -2821,6 +2826,28 @@ export async function createHost(options: HostOptions = {}) {
     }
     let disposal: Promise<void> | undefined
     const inflight = new Set<Promise<unknown>>()
+    const migration = options.piMigrationShortcuts
+      ? new PiMigration({
+          root,
+          instructions,
+          resources,
+          models,
+          mcp,
+          settings,
+          shortcuts: options.piMigrationShortcuts,
+          sealBackup: credentials instanceof FileCredentialStore ? (value) => credentials.sealBackup(value) : undefined,
+        })
+      : undefined
+    async function runMigration<T>(operation: () => Promise<T>) {
+      if (closing) throw new Error('服务正在退出，迁移未执行')
+      const pending = operation()
+      inflight.add(pending)
+      try {
+        return await pending
+      } finally {
+        inflight.delete(pending)
+      }
+    }
     const goalStates = new Map(goals.list().map((goal) => [goal.goalId, goal.status]))
     const unsubscribeGoals = goals.subscribe((ref, goal, goalId) => {
       const previousStatus = goalStates.get(goalId)
@@ -2854,6 +2881,36 @@ export async function createHost(options: HostOptions = {}) {
       instanceId,
       root,
       cleanupReport,
+      piMigration: migration && {
+        scan: () => runMigration(() => migration.scan()),
+        apply: (input: unknown) =>
+          runMigration(async () => {
+            pi.assertCheckoutIdle(() => true)
+            collaboration.assertCheckoutIdle(() => true)
+            return pi.idle(async () => {
+              const result = await migration.apply(input)
+              const categories = new Set(
+                result.items.filter(({ status }) => status === 'imported').map(({ category }) => category),
+              )
+              const operations: Promise<unknown>[] = []
+              if (categories.has('theme')) operations.push(settings.refreshImportedThemes())
+              if (categories.has('model') || categories.has('credential'))
+                operations.push(modelService.refreshCatalog())
+              const updateRuntime = [...categories].some((category) => category !== 'theme' && category !== 'shortcut')
+              if (updateRuntime)
+                operations.push(
+                  pi.refreshImportedConfiguration(),
+                  collaboration.retireCheckout(() => true),
+                )
+              if ((await Promise.allSettled(operations)).some(({ status }) => status === 'rejected')) {
+                result.refreshError = '配置已写入。部分设置未能即时刷新，请重新打开应用。'
+              }
+              if (updateRuntime) publishResourcesChanged()
+              if (categories.size) systemChanged()
+              return result
+            }, true)
+          }),
+      },
       prepareMaintenance() {
         if (closing || inflight.size || checkoutGates.size || temporarySessions.size)
           throw new Error('服务仍有操作正在执行或有打开的临时会话，请先关闭临时会话后再维护存储')

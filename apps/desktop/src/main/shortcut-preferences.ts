@@ -1,5 +1,10 @@
 import path from 'node:path'
-import { SHORTCUT_IDS, type ShortcutId, type ShortcutPreferences } from '@pi-meme/contracts/keyboard-shortcuts'
+import {
+  SHORTCUT_IDS,
+  type ShortcutId,
+  type ShortcutPlatform,
+  type ShortcutPreferences,
+} from '@pi-meme/contracts/keyboard-shortcuts'
 import { readJson, writeJson } from '@pi-meme/host/storage/files'
 
 export function validateShortcutPreferences(value: unknown): asserts value is ShortcutPreferences {
@@ -35,4 +40,27 @@ export async function writeShortcutPreferences(userDataDir: string, value: unkno
   const file = path.join(userDataDir, 'keyboard-shortcuts.json')
   await writeJson(file, value)
   return value
+}
+
+export function createShortcutPreferencesStore(userDataDir: string) {
+  const platform: ShortcutPlatform =
+    process.platform === 'darwin' || process.platform === 'win32' ? process.platform : 'linux'
+  let pending: Promise<unknown> = Promise.resolve()
+  async function read() {
+    await pending
+    return readShortcutPreferences(userDataDir)
+  }
+  function save(value: unknown, expected?: ShortcutPreferences) {
+    const work = pending.then(async () => {
+      if (expected) {
+        const current = await readShortcutPreferences(userDataDir)
+        if (SHORTCUT_IDS.some((id) => current.overrides[id] !== expected.overrides[id]))
+          throw new Error('快捷键已变化，请重新扫描')
+      }
+      return writeShortcutPreferences(userDataDir, value)
+    })
+    pending = work.catch(() => {})
+    return work
+  }
+  return { platform, read, save }
 }

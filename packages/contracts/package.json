@@ -13,6 +13,7 @@
     "./chat-attachments": "./src/chat-attachments.ts",
     "./ipc": "./src/ipc.ts",
     "./model-config": "./src/model-config.ts",
+    "./pi-migration": "./src/pi-migration.ts",
     "./pi": "./src/pi.ts",
     "./session-tree": "./src/session-tree.ts",
     "./session-window": "./src/session-window.ts",

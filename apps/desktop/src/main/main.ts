@@ -4,6 +4,8 @@ import path from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import type { HostConnection, HostConnectionError, SavedHostConnection } from '@pi-meme/contracts/host'
+import type { ShortcutPreferences } from '@pi-meme/contracts/keyboard-shortcuts'
+import type { PiMigrationResult, PiMigrationScan } from '@pi-meme/contracts/pi-migration'
 import { defaultDevelopmentFrontendPort, defaultFrontendPort } from '@pi-meme/contracts/host-runtime'
 import { createNodeHostClient, type NodeHostClient } from '@pi-meme/client/node-host-client'
 import { createAppUpdateService } from '@pi-meme/host/app-update'
@@ -16,7 +18,8 @@ import { recoveryUrl } from './window/recovery-page'
 import { retryHostPage } from './window/load-host-page'
 import { createStorageController } from './storage/controller'
 import { pendingStorageJob } from './storage/preferences'
-import { acquireDesktopHost } from './local-host'
+import { acquireDesktopHost, type DesktopHostOperation } from './local-host'
+import { createShortcutPreferencesStore } from './shortcut-preferences'
 import { findHostLoginItem } from './host-login-item'
 import { confirmSessionQuit } from './quit-confirmation'
 import { cancelWindowPreparation, closePreparedWindow, prepareWindowMaintenance } from './window/prepare-window'
@@ -57,6 +60,7 @@ app.on('second-instance', () => {
   window?.show()
   window?.focus()
 })
+const desktopShortcuts = createShortcutPreferencesStore(app.getPath('userData'))
 const desktopUpdates = createAppUpdateService({
   kind: 'desktop',
   version: app.getVersion(),
@@ -117,6 +121,7 @@ async function initializeHost() {
             }
           : {}),
         PI_MEME_FRONTEND_URL: MAIN_WINDOW_VITE_DEV_SERVER_URL ?? process.env.PI_DESKTOP_DEV_SERVER_URL ?? '',
+        PI_MEME_DESKTOP_PREFERENCES: app.getPath('userData'),
       },
     })
     localHost = lease
@@ -159,6 +164,16 @@ function startHost() {
     starting = undefined
   })
   return starting
+}
+async function migratePi<T>(
+  hostId: string,
+  operation: Extract<DesktopHostOperation, `migration:${string}`>,
+  input?: unknown,
+) {
+  const lease = localHost
+  if (!lease || lease.status.hostId !== hostId) throw new Error('本机服务已切换，请重新打开设置')
+  if (lease.ownership !== 'owned') throw new Error('当前使用独立 Host。请用 Desktop 自带的本机服务迁移 Pi 配置')
+  return lease.resource.request<T>(operation, input)
 }
 function trustedOrigin() {
   return uiUrl ? new URL(uiUrl).origin : ''
@@ -237,6 +252,22 @@ app
             : desktopUpdates.check(force),
       },
       storage.adapter,
+      {
+        migration: {
+          scan: (hostId) => migratePi<PiMigrationScan>(hostId, 'migration:scan'),
+          apply: (hostId, input) => migratePi<PiMigrationResult>(hostId, 'migration:apply', input),
+        },
+        shortcuts: {
+          read: () =>
+            localHost?.ownership === 'owned'
+              ? localHost.resource.request<ShortcutPreferences>('shortcuts:read')
+              : desktopShortcuts.read(),
+          save: async (value) => {
+            if (localHost?.ownership === 'owned') await localHost.resource.request('shortcuts:save', value)
+            else await desktopShortcuts.save(value)
+          },
+        },
+      },
     )
     if (!failed && !stopping && process.env.PI_MEME_REMOTE_HOST) {
       try {

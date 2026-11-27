@@ -22,6 +22,7 @@ export type ShortcutContextValue = {
   saving: boolean
   error: string
   save: (overrides: Partial<Record<ShortcutId, string | null>>) => Promise<void>
+  reload: () => Promise<void>
   binding: (id: ShortcutId) => string | null
   getShortcutLabel: (id: ShortcutId) => string | undefined
   register: (owner: symbol, handlers: Partial<Record<ShortcutId, ShortcutHandler>>) => () => void
@@ -49,6 +50,7 @@ const defaultContextValue: ShortcutContextValue = {
   save: async () => {
     throw new Error('未配置 ShortcutProvider，无法保存快捷键')
   },
+  reload: async () => {},
   binding: (id: ShortcutId) => {
     const def = SHORTCUT_DEFINITIONS.find((item) => item.id === id)
     return def ? resolveKeybinding(def, {}, 'web') : null
@@ -259,11 +261,12 @@ export function ShortcutProvider({
       saving,
       error,
       save,
+      reload,
       binding,
       getShortcutLabel,
       register,
     }),
-    [preferences, platform, environment, loading, saving, error, save, binding, getShortcutLabel, register],
+    [preferences, platform, environment, loading, saving, error, save, reload, binding, getShortcutLabel, register],
   )
 
   return <ShortcutContext.Provider value={contextValue}>{children}</ShortcutContext.Provider>

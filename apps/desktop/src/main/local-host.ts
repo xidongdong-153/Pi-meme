@@ -5,9 +5,12 @@ import { defaultDevelopmentHostPort, defaultHostPort, hostPort, localHostUrl } f
 import { acquireLocalHost } from '@pi-meme/host/local-host'
 import { prepareDesktopHostEnv } from './user-login-path'
 
+export type DesktopHostOperation = 'migration:scan' | 'migration:apply' | 'shortcuts:read' | 'shortcuts:save'
+
 export type DesktopHostProcess = {
   url: string
   child: UtilityProcess
+  request: <T>(operation: DesktopHostOperation, input?: unknown) => Promise<T>
   prepareMaintenance: () => Promise<void>
   stopForMaintenance: () => Promise<void>
   dispose: () => Promise<void>
@@ -25,7 +28,28 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
     let hostId = ''
     let startupError: Error | undefined
     let disposing: Promise<void> | undefined
-    const requests = new Map<string, { resolve: () => void; reject: (cause: Error) => void; timer: NodeJS.Timeout }>()
+    const requests = new Map<
+      string,
+      { resolve: (value: unknown) => void; reject: (cause: Error) => void; timer: NodeJS.Timeout }
+    >()
+    function request<T>(type: string, input: object, timeout: number): Promise<T> {
+      return new Promise((resolve, reject) => {
+        if (exited) return reject(new Error('本机服务已退出'))
+        const id = randomUUID()
+        const timer = setTimeout(() => {
+          requests.delete(id)
+          reject(new Error('本机服务操作超时，请重新扫描或刷新设置确认结果'))
+        }, timeout)
+        requests.set(id, { resolve: (value) => resolve(value as T), reject, timer })
+        try {
+          child.postMessage({ ...input, type, id, hostId })
+        } catch (cause) {
+          requests.delete(id)
+          clearTimeout(timer)
+          reject(cause)
+        }
+      })
+    }
     const startup = setTimeout(() => {
       startupError ??= new Error('本机服务启动超时')
       void terminate().catch(reject)
@@ -85,6 +109,7 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
         message?: string
         error?: string
         code?: string
+        result?: unknown
       }) => {
         if (value.type === 'ready' && !startupError) {
           clearTimeout(startup)
@@ -92,20 +117,8 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
           resolve({
             url: value.url,
             child,
-            prepareMaintenance: () =>
-              new Promise<void>((resolve, reject) => {
-                if (exited) {
-                  reject(new Error('本机服务已退出'))
-                  return
-                }
-                const id = randomUUID()
-                const timer = setTimeout(() => {
-                  requests.delete(id)
-                  reject(new Error('本机服务维护准备超时'))
-                }, 10000)
-                requests.set(id, { resolve, reject, timer })
-                child.postMessage({ type: 'maintenance:prepare', id, hostId })
-              }),
+            request: (operation, input) => request('desktop:request', { operation, input }, 180_000),
+            prepareMaintenance: () => request('maintenance:prepare', {}, 10_000),
             stopForMaintenance: () => stop(60000, false),
             dispose() {
               disposing ??= stop(10000, true).catch((cause: unknown) => {
@@ -119,13 +132,13 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
         if (value.type === 'failed') {
           startupError = Object.assign(new Error(value.message ?? '服务启动失败'), { code: value.code })
         }
-        if (value.type === 'maintenance:result') {
+        if (value.type === 'maintenance:result' || value.type === 'desktop:result') {
           const request = requests.get(value.id)
           if (!request) return
           requests.delete(value.id)
           clearTimeout(request.timer)
           if (value.error) request.reject(new Error(value.error))
-          else request.resolve()
+          else request.resolve(value.result)
         }
       },
     )

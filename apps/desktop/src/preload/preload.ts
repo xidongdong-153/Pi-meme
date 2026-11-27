@@ -125,6 +125,10 @@ const platform: PlatformAdapter = {
     clearCache: (hostId) => ipcRenderer.invoke('platform:storage-cache', hostId),
     openDirectory: (input) => ipcRenderer.invoke('platform:storage-open', input),
   },
+  piMigration: {
+    scan: (hostId) => ipcRenderer.invoke('platform:pi-migration-scan', hostId),
+    apply: (hostId, input) => ipcRenderer.invoke('platform:pi-migration-apply', hostId, input),
+  },
   listSavedHostConnections: () => ipcRenderer.invoke('platform:saved-connections'),
   removeSavedHostConnection: (url) => ipcRenderer.invoke('platform:remove-connection', url),
   getHostConnectionError: () => ipcRenderer.invoke('platform:connection-error'),

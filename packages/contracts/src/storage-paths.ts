@@ -32,6 +32,7 @@ export const storageLayoutRelativePaths = {
   agentAgentsFile: 'config/agent/AGENTS.md',
   agentSystemFile: 'config/agent/SYSTEM.md',
   agentAppendSystemFile: 'config/agent/APPEND_SYSTEM.md',
+  agentPromptsDirectory: 'config/agent/prompts',
   agentSubagentsDirectory: 'config/agent/subagents',
   workspacesConfigDirectory: 'config/workspaces',
 

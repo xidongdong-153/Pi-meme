@@ -41,7 +41,9 @@ export function readModelPreferences(settings: SettingsManager) {
 
 export async function readLocalPreferences(cwd: string, agentDir: string) {
   const sdk = await loadPiSdk()
-  return readModelPreferences(createDesktopSettingsManager(sdk, cwd, agentDir))
+  const settings = createDesktopSettingsManager(sdk, cwd, agentDir)
+  const { steeringMode, followUpMode } = settings.getSettings()
+  return { ...readModelPreferences(settings), steeringMode, followUpMode }
 }
 
 // Pi SDK 1.6.0 的 core/model-resolver.ts。SDK 未导出这张表，升级时同步顺序和模型 ID。

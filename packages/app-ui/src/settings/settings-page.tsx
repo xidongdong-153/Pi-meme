@@ -51,7 +51,8 @@ export const SETTINGS_GROUPS = [
         id: 'general',
         label: '常规',
         icon: Settings,
-        description: '设置任务进度、输入预测、上下文用量显示、默认访问权限、应用存储目录和缓存清理。',
+        description:
+          '设置任务进度、输入预测、上下文用量显示、默认访问权限、应用存储目录和缓存清理，从本地 Pi 迁移配置。',
       },
       {
         id: 'shortcuts',

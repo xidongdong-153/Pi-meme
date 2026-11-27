@@ -39,6 +39,7 @@ import { createResourceClient } from '@pi-meme/client/resource-client'
 import { appendSkillInvocation, invokeSkillInNewSession } from './settings/invoke-skill'
 import { AccessSettings } from '@pi-meme/permissions/ui/access-settings'
 import { GeneralSettings } from '@pi-meme/settings/ui/general-settings'
+import { PiMigrationSettings } from './settings/pi-migration-settings'
 import { ModelConfigSettings } from '@pi-meme/models/ui/model-config/model-config-settings'
 import { AgentAccessSelector } from '@pi-meme/permissions/ui/agent-access-selector'
 import { AppHeader } from './layout/app-header'
@@ -2722,10 +2723,11 @@ function AppContent({
           renderSettings={(id) => <PluginSlot registry={registry} pluginId={id} slot="settings" props={pluginProps} />}
         />
       )
-    if (section === 'general')
-      return (
+    if (section === 'general') {
+      const renderGeneral = (migration?: import('react').ReactNode) => (
         <div className="space-y-6">
           <GeneralSettings
+            migration={migration}
             mobile={mobileWeb}
             accessSettings={contentProps.accessSettings}
             settings={settings.snapshot?.settings}
@@ -2746,6 +2748,21 @@ function AppContent({
           )}
         </div>
       )
+      if (hostLocal && localPlatform && hostId && bridge.piMigration && !mobileWeb) {
+        return (
+          <PiMigrationSettings
+            key={hostId}
+            adapter={bridge.piMigration}
+            hostId={hostId}
+            onApplying={setInstructionsSaving}
+            onShortcutsChanged={shortcuts.reload}
+          >
+            {renderGeneral}
+          </PiMigrationSettings>
+        )
+      }
+      return renderGeneral()
+    }
     if (section === 'about' || section === 'appearance' || section === 'instructions')
       return (
         <>

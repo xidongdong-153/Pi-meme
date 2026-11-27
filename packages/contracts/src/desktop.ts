@@ -390,6 +390,7 @@ export interface SettingsBridge {
   desktopUpdates?: import('./app-update').AppUpdateReader
   getStorageInfo: () => Promise<HostStorageInfo>
   storage?: DesktopStorageAdapter
+  piMigration?: import('./pi-migration').DesktopPiMigration
   getInstructions: () => Promise<InstructionsSnapshot>
   saveInstruction: (input: SaveInstruction) => Promise<SaveInstructionResult>
   getUsageStats: () => Promise<UsageStatsSnapshot>
