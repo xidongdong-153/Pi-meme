@@ -1,15 +1,13 @@
-import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import { canUseExternalAgentTools, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import { mcpConfigCredentialPrefix } from '@pi-meme/contracts/mcp'
+import { serviceProcessEnvironment } from '@pi-meme/pi-runtime/sdk/managed-process'
 import type { SystemToolRequest } from '@pi-meme/contracts/system-tools'
 import { SystemReadError } from '@pi-meme/contracts/system-read'
 import type { MemoryRuntimeBridge, MemoryRuntimeRequest } from '@pi-meme/contracts/memory'
 import type { ContextCapture } from '@pi-meme/contracts/context-window'
 import type { VisualizationRequest, VisualizationDocument } from '@pi-meme/contracts/visualize'
 import type { Goal, GoalControl, GoalRequest, GoalRun, PromptOrigin } from '@pi-meme/contracts/goal'
-import {
-  imageGenerationCredentialPrefix,
-  type ImageGenerationRequest,
-  type ImageGenerationReply,
-} from '@pi-meme/contracts/image-generation'
+import type { ImageGenerationRequest, ImageGenerationReply } from '@pi-meme/contracts/image-generation'
 import type { ServiceActivityRequest, ServiceActivityResult } from '@pi-meme/contracts/service-activity'
 import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contracts/collaboration'
 import type { PlanDocument, PlanRef, PlanState, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
@@ -120,6 +118,7 @@ export function createWorkerSession(
     }
     release = options.release
     const entry = options.workerPath ?? fileURLToPath(new URL('./generic-worker.ts', import.meta.url))
+    const mcpCredentials = canUseExternalAgentTools(access, taskMode)
     try {
       worker = new Worker(entry, {
         workerData: {
@@ -130,13 +129,20 @@ export function createWorkerSession(
           settings: { ...options.settings, showComposerHint: composerHintEnabled ?? options.settings.showComposerHint },
           agentEntries: options.agentEntries,
           resourceSnapshot: options.resourceSnapshot,
-          credentials: options.credentials
-            .entries()
-            .filter(([key]) => !key.startsWith('plugin:') && !key.startsWith(imageGenerationCredentialPrefix)),
+          credentials: [
+            ...options.credentials.entries('model-provider:'),
+            ...(mcpCredentials
+              ? [
+                  ...options.credentials.entries(mcpConfigCredentialPrefix),
+                  ...options.credentials.entries('mcp-oauth:'),
+                ]
+              : []),
+          ],
           capabilities,
           access,
           taskMode,
         },
+        env: serviceProcessEnvironment(),
         execArgv: entry.endsWith('.ts') ? ['--import', 'tsx'] : [],
       })
     } catch (cause) {
@@ -145,9 +151,9 @@ export function createWorkerSession(
       throw cause
     }
     const current = worker
-    const unwatch = options.watchMcpCredentials?.((key, value) =>
-      current.postMessage({ mcpCredential: { key, value } }),
-    )
+    const unwatch = mcpCredentials
+      ? options.watchMcpCredentials?.((key, value) => current.postMessage({ mcpCredential: { key, value } }))
+      : undefined
     let exited = false
     const mcpLocks = new Map<string, () => void | Promise<void>>()
     current.once('exit', () => {
@@ -234,8 +240,8 @@ export function createWorkerSession(
                   !options.acquireMcpRefreshLock ||
                   !key ||
                   !/^mcp-oauth:[a-f0-9]{64}$/.test(key) ||
-                  access !== 'full-access' ||
-                  taskMode === 'plan'
+                  !mcpCredentials ||
+                  !canUseExternalAgentTools(access, taskMode)
                 )
                   throw new Error('MCP 凭据当前不可用')
                 const release = await options.acquireMcpRefreshLock(key)
@@ -348,9 +354,12 @@ export function createWorkerSession(
           const mutation = reply.credential
           void Promise.resolve()
             .then(async () => {
-              if (mutation.key.startsWith(imageGenerationCredentialPrefix))
-                throw new Error('Worker 不能修改图片服务凭据')
-              const mcp = mutation.key.startsWith('mcp-oauth:')
+              const mcp = /^mcp-oauth:[a-f0-9]{64}$/.test(mutation.key)
+              if (
+                !mutation.key.startsWith('model-provider:') &&
+                !(mcp && mcpCredentials && canUseExternalAgentTools(access, taskMode))
+              )
+                throw new Error('会话不能修改此凭据')
               const stored = options.credentials.get(mutation.key)
               if (mcp && stored !== mutation.previous) {
                 current.postMessage({ mcpCredential: { key: mutation.key, value: stored } })

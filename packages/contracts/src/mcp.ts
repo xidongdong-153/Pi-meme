@@ -9,6 +9,7 @@ export type SaveMcpServer = { revision: string; name: string; previousName?: str
 export type DeleteMcpServer = { revision: string; name: string }
 export type McpDiagnostic = { checkedAt: string; output: string; exitCode: number | null; timedOut: boolean }
 
+export const mcpConfigCredentialPrefix = 'mcp-config:'
 export type AcquireMcpRefreshLock = (credentialKey: string) => Promise<() => void | Promise<void>>
 export type McpReference = { name: string; revision: string }
 export type McpTarget = McpReference & { sessionKey?: string }
@@ -19,6 +20,7 @@ export type McpService = McpReference & {
   source: 'global' | 'project'
   transport: 'http' | 'stdio'
   endpoint: string
+  endpointConfigured?: boolean
   description?: string
   enabled: boolean
   authorized: boolean

@@ -8,6 +8,7 @@ import type { ModelConfigStore } from './config-store'
 export class ModelService implements ModelsReadonlyApi {
   private capturedModels?: PiModel[]
   private capturedAt?: string
+  private providerOrigins = new Map<string, Set<string>>()
 
   constructor(
     private readonly pi: PiRuntime,
@@ -22,8 +23,23 @@ export class ModelService implements ModelsReadonlyApi {
       this.models.credentialStorage,
     )
     this.capturedModels = runtime.getAvailableSnapshot().map(projectModel)
+    const origins = new Map<string, Set<string>>()
+    for (const model of runtime.getAllModels()) {
+      if (!URL.canParse(model.baseUrl)) continue
+      const values = origins.get(model.provider) ?? new Set<string>()
+      values.add(new URL(model.baseUrl).origin)
+      origins.set(model.provider, values)
+    }
+    this.providerOrigins = origins
     this.capturedAt = new Date().toISOString()
     return this.catalogStatus()
+  }
+
+  async providerAllowsOrigin(provider: string, origin: string) {
+    const { baseUrl } = await this.models.credentials(provider)
+    return baseUrl && URL.canParse(baseUrl)
+      ? new URL(baseUrl).origin === origin
+      : this.providerOrigins.get(provider)?.has(origin) === true
   }
 
   catalogStatus() {

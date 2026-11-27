@@ -824,7 +824,7 @@ export function createSettingsReads(context: SettingsReadContext) {
                   enabled: service.enabled,
                   authorized: service.authorized,
                   transport: service.transport,
-                  endpointConfigured: !!service.endpoint,
+                  endpointConfigured: service.endpointConfigured ?? !!service.endpoint,
                   authenticationConfigured: service.authenticationConfigured,
                   environmentConfigured: service.environmentConfigured,
                   headersConfigured: service.headersConfigured,

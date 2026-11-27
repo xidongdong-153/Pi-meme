@@ -29,6 +29,7 @@ import {
 import { mcpAuthorization } from '../shared/authorization'
 import { object } from '../shared/config'
 import { authentication, oauthClient, probeMcpService } from './connection'
+import { checkMcpServers } from './diagnostics'
 import type { McpConfigStore } from './config-store'
 
 export type McpManagementContext = {
@@ -94,7 +95,6 @@ export class McpManagement {
     const { servers, errors } = this.configuration(cwd)
     const services = servers.map(({ name, revision, config, scope, error, authorized }): McpService => {
       const http = 'url' in config
-      const url = http && URL.canParse(config.url) ? new URL(config.url) : undefined
       const identity = JSON.stringify([name, http ? config.url : null])
       const login = [...this.attempts.values()].find(
         (item) => owner && item.owner === owner && item.identity === identity && this.pending(item),
@@ -104,7 +104,8 @@ export class McpManagement {
         revision,
         source: scope === 'global' ? 'global' : 'project',
         transport: http ? 'http' : 'stdio',
-        endpoint: url ? `${url.origin}${url.pathname}` : http ? '' : config.command,
+        endpoint: '',
+        endpointConfigured: http ? !!config.url : !!config.command,
         description: config.description,
         enabled: config.enabled !== false,
         authorized,
@@ -125,6 +126,10 @@ export class McpManagement {
   async setEnabled(target: McpTarget, enabled: boolean) {
     const { entry, cwd } = this.resolve(target)
     if (typeof enabled !== 'boolean' || entry.error) throw new Error(entry.error ?? '启用状态无效')
+    if (enabled && !entry.authorized && 'url' in entry.config && entry.config.auth) {
+      await this.store.assertProviderOrigin(entry.config.auth.provider, entry.config.url)
+      this.resolve(target)
+    }
     if (cwd) {
       writeDesktopMcpWorkspaceOverride(this.context.paths, cwd, entry.name, { enabled }, mcpAuthorization(entry.config))
     } else {
@@ -140,6 +145,9 @@ export class McpManagement {
       })
     }
     this.context.configurationChanged(cwd)
+  }
+  diagnose() {
+    return checkMcpServers(this.configuration(), this.context.paths.agentDir)
   }
   check(target: McpTarget) {
     const { entry, key, cwd } = this.resolve(target)
@@ -244,7 +252,7 @@ export class McpManagement {
       attempt.state = { id: attempt.state.id, status: 'done' }
     }
     attempt.task = run()
-      .catch((cause) => {
+      .catch(() => {
         attempt.state = {
           id: attempt.state.id,
           status: signal.aborted && signal.reason?.name === 'AbortError' ? 'cancelled' : 'failed',
@@ -252,9 +260,7 @@ export class McpManagement {
             ? signal.reason?.name === 'AbortError'
               ? undefined
               : signal.reason?.message
-            : cause instanceof Error
-              ? cause.message
-              : '登录失败',
+            : 'MCP 登录失败，请检查服务配置后重试',
         }
       })
       .finally(() => clearTimeout(timer))

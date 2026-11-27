@@ -631,6 +631,7 @@ export async function createHost(options: HostOptions = {}) {
       (name, bytes, signal, destinationDirectory) =>
         storeChatAttachment(root, name, Readable.from([bytes]), signal, { destinationDirectory }),
     )
+    await imageGeneration.config.migratePrivateConfig()
     let builtins: Awaited<ReturnType<typeof createBuiltinModules>> | undefined
     let retireWorkers: (keys: string[]) => Promise<void>
     const workerSnapshots = new Map<string, ResourceSnapshot>()
@@ -1136,7 +1137,7 @@ export async function createHost(options: HostOptions = {}) {
               throw new SystemReadError('invalid-input', '读取目标必须是 ProjectRef 或 SessionRef')
             }
             const resourceReads = createResourceReads(resources, resolveReadWorkspace)
-            const pagedFiles = createWorkspaceFiles(resolveReadWorkspace)
+            const pagedFiles = createWorkspaceFiles(resolveReadWorkspace, canonicalImageDataRoot)
             const safeMcp = async () => {
               const value = await mcp.snapshot()
               return {
@@ -1349,7 +1350,7 @@ export async function createHost(options: HostOptions = {}) {
                     await settings.saveUserProfile(input)
                     result = await profile()
                   } else if (operation === 'mcp.save') {
-                    await mcp.save(args[0] as import('@pi-meme/contracts/mcp').SaveMcpServer)
+                    await mcp.save(args[0] as import('@pi-meme/contracts/mcp').SaveMcpServer, true)
                     mcpConfigurationChanged()
                     result = { ...(await safeMcp()), reload: '新会话或重新加载后生效；当前执行保持原资源快照' }
                   } else if (operation === 'mcp.delete') {
@@ -1697,9 +1698,13 @@ export async function createHost(options: HostOptions = {}) {
     })
     if (settings.settings.defaultAccessMode) await pi.configureDefaultAccessMode(settings.settings.defaultAccessMode)
     models = new ModelConfigStore(path.join(paths.agentDir, 'models.json'), credentials, paths.agentDir)
+    await models.migratePlaintextCredentials()
     const modelService = new ModelService(pi, models)
     await modelService.refreshCatalog()
-    mcp = new McpConfigStore(path.join(paths.agentDir, 'mcp.json'), credentials)
+    mcp = new McpConfigStore(storagePaths.agentMcpFile, credentials, (provider, origin) =>
+      modelService.providerAllowsOrigin(provider, origin),
+    )
+    await mcp.migratePrivateConfig()
     const uiDescriptors = (descriptors: PluginDescriptor[]) =>
       descriptors.map((descriptor) => ({
         ...descriptor,
@@ -2627,6 +2632,7 @@ export async function createHost(options: HostOptions = {}) {
       workspace: {
         files: createWorkspaceFiles(
           (ref) => appControl!.resolveRoot(ref),
+          canonicalImageDataRoot,
           (ref) => {
             const roots = [path.join(canonicalImageDataRoot, storageLayoutRelativePaths.attachmentsDirectory)]
             if (ref && 'sessionId' in ref) {

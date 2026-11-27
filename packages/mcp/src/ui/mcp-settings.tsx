@@ -805,24 +805,29 @@ export function McpSettings({
                   <p className="text-xs leading-relaxed text-foreground/90">{selected.description}</p>
                 )}
 
-                {/* 端点地址条 */}
-                <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-secondary/45 px-2.5 py-1.5">
-                  <code className="min-w-0 flex-1 break-all font-mono text-[11px] text-muted-foreground select-text">
-                    {selected.endpoint}
-                  </code>
-                  <TooltipHint content={copiedEndpoint ? '已复制' : '复制地址'}>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="复制服务地址"
-                      className="size-6 shrink-0 text-muted-foreground hover:text-foreground"
-                      onClick={() => void copyEndpoint(selected.endpoint)}
-                    >
-                      {copiedEndpoint ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
-                    </Button>
-                  </TooltipHint>
-                </div>
+                {selected.endpoint && (
+                  <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-secondary/45 px-2.5 py-1.5">
+                    <code className="min-w-0 flex-1 break-all font-mono text-[11px] text-muted-foreground select-text">
+                      {selected.endpoint}
+                    </code>
+                    <TooltipHint content={copiedEndpoint ? '已复制' : '复制地址'}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="复制服务地址"
+                        className="size-6 shrink-0 text-muted-foreground hover:text-foreground"
+                        onClick={() => void copyEndpoint(selected.endpoint)}
+                      >
+                        {copiedEndpoint ? (
+                          <Check className="size-3.5 text-emerald-500" />
+                        ) : (
+                          <Copy className="size-3.5" />
+                        )}
+                      </Button>
+                    </TooltipHint>
+                  </div>
+                )}
 
                 {selected.error && (
                   <div

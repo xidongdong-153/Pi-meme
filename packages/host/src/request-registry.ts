@@ -95,7 +95,7 @@ export async function importLegacyRequests(legacyDirectory: string, journalFile:
 export class RequestRegistry {
   private readonly requests = new Map<
     string,
-    { input: string; promptSession?: string; result: Promise<HostRpcResponse> }
+    { inputHash: string; promptSession?: string; result: Promise<HostRpcResponse> }
   >()
   private readonly expired = new Set<string>()
   private readonly completed: string[] = []
@@ -192,9 +192,10 @@ export class RequestRegistry {
 
   run(request: HostRpcRequest, action: () => Promise<unknown>, retain = true): Promise<HostRpcResponse> {
     const key = `${request.clientId}:${request.requestId}`
-    const input = JSON.stringify([request.method, request.sessionId, request.args])
     const keyHash = createHash('sha256').update(key).digest('hex')
-    const inputHash = createHash('sha256').update(input).digest('hex')
+    const inputHash = createHash('sha256')
+      .update(JSON.stringify([request.method, request.sessionId, request.args]))
+      .digest('hex')
 
     const error = (code: string, message: string): HostRpcResponse => ({
       requestId: request.requestId,
@@ -204,7 +205,7 @@ export class RequestRegistry {
 
     const previous = this.requests.get(key)
     if (retain && previous) {
-      if (previous.input !== input) return Promise.resolve(error('request-conflict', '请求 ID 已用于其他操作'))
+      if (previous.inputHash !== inputHash) return Promise.resolve(error('request-conflict', '请求 ID 已用于其他操作'))
       return previous.result
     }
 
@@ -248,7 +249,7 @@ export class RequestRegistry {
 
     if (retain) {
       const promptSession = request.method === 'pi:prompt' ? request.sessionId : undefined
-      this.requests.set(key, { input, promptSession, result })
+      this.requests.set(key, { inputHash, promptSession, result })
       void result.then(() => {
         this.completed.push(key)
         if (this.completed.length > this.capacity) {

@@ -4,7 +4,6 @@ import type { DeleteMcpServer, SaveMcpServer, McpTarget } from '@pi-meme/contrac
 import { text } from '@pi-meme/contracts/ipc'
 import { object } from '../shared/config'
 import type { McpConfigStore } from './config-store'
-import { checkMcpServers } from './diagnostics'
 import type { McpManagement } from './management'
 
 export function createMcpHandlers(
@@ -52,7 +51,7 @@ export function createMcpHandlers(
           connection.accessChanging
         )
           throw new Error('仅当前完全权限会话可以检查 MCP 服务')
-        return checkMcpServers(store.filePath)
+        return manager.diagnose()
       }, true)
     },
   }

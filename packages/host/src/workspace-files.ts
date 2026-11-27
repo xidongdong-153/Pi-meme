@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { maxImagePreviewBytes } from '@pi-meme/contracts/app-host'
 import { readInteger, readPage, readText, SystemReadError, type ReadQuery } from '@pi-meme/contracts/system-read'
+import { assertPublicHostPath } from '@pi-meme/pi-runtime/sdk/private-host-files'
 import type {
   FileContent,
   FileEntry,
@@ -54,9 +55,10 @@ async function readBytes(filename: string, maximum: number) {
   }
 }
 
-export async function previewLinkedFile(cwd: string, input: string): Promise<FilePreview> {
+export async function previewLinkedFile(cwd: string, input: string, hostRoot: string): Promise<FilePreview> {
   if (typeof input !== 'string' || !input || input.includes('\0')) throw new Error('文件路径无效')
   const filename = await realpath(path.resolve(cwd, input))
+  assertPublicHostPath(await realpath(hostRoot), filename)
   return readPreview(filename, input)
 }
 
@@ -81,6 +83,7 @@ async function readPreview(filename: string, relativePath: string): Promise<File
 
 export function createWorkspaceFiles(
   resolveRoot: ResolveWorkspaceRoot,
+  hostRoot: string,
   attachmentsRoot?: string | ((ref: WorkspaceRef) => string | string[] | Promise<string | string[]>),
 ) {
   const writes = new Map<string, Promise<unknown>>()
@@ -99,6 +102,7 @@ export function createWorkspaceFiles(
     const root = await realpath(await resolveRoot(ref))
     const filename = await realpath(path.resolve(root, relative))
     if (filename !== root && !filename.startsWith(`${root}${path.sep}`)) throw new Error('文件路径越出工作目录')
+    assertPublicHostPath(hostRoot, filename)
     return { root, filename }
   }
   async function absolutePreviewTarget(ref: WorkspaceRef, absolute: string) {
@@ -135,6 +139,7 @@ export function createWorkspaceFiles(
     if (!matchedRoot) throw new Error('图片路径越出工作目录和附件目录')
     const filename = await realpath(absolute)
     if (!filename.startsWith(`${matchedRoot}${path.sep}`)) throw new Error('图片路径越出附件目录')
+    assertPublicHostPath(hostRoot, filename)
     if (!imageTypes[path.extname(filename).toLowerCase()]) throw new Error('附件预览只支持图片')
     return { filename }
   }

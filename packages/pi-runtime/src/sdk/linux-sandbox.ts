@@ -2,7 +2,7 @@ import { access, lstat, readFile, readdir, readlink, realpath } from 'node:fs/pr
 import path from 'node:path'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import type { AccessSandboxOptions, SandboxLaunch } from './access-sandbox'
-import { pathWithin } from './access-sandbox'
+import { isWithin as pathWithin, privateHostPaths } from './private-host-files'
 
 /** mountinfo 中的路径使用八进制转义；按实际 drvfs 挂载识别 Windows 盘。 */
 export function windowsMounts(mountinfo: string): string[] {
@@ -185,12 +185,35 @@ export async function linuxSandboxLaunch(options: AccessSandboxOptions): Promise
         [...(options.mode === 'workspace-write' ? [options.cwd] : []), options.temporary],
         options.dataRoot && pathWithin(options.cwd, options.dataRoot) ? [options.dataRoot] : [],
       )
+      const concealed: string[] = []
+      if (options.dataRoot) {
+        const { directories, files } = privateHostPaths(options.dataRoot)
+        for (const target of directories) {
+          if (
+            await lstat(target).then(
+              (info) => info.isDirectory(),
+              () => false,
+            )
+          )
+            concealed.push('--tmpfs', target, '--remount-ro', target)
+        }
+        for (const target of files) {
+          if (
+            await lstat(target).then(
+              (info) => info.isFile(),
+              () => false,
+            )
+          )
+            concealed.push('--ro-bind', '/dev/null', target)
+        }
+      }
       return {
         args: [
           ...args.slice(0, systemMountCount),
           ...dns.args,
           ...args.slice(systemMountCount),
           ...readonly,
+          ...concealed,
           ...finish,
         ],
         files: dns.files,

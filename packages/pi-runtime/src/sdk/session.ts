@@ -90,6 +90,7 @@ import { branchSkillUsages, createSkillUsageExtension, skillUsageEntry } from '.
 import type { PiRuntimePaths } from '../runtime-paths'
 import type { ModelRestore } from '../runtime'
 import { AccessSandbox, type AccessSandboxOperations } from './access-sandbox'
+import { agentFilePath, assertPublicAgentFile } from './private-host-files'
 import {
   composerHintFromAssistant,
   composerHintSystemPrompt,
@@ -569,8 +570,21 @@ export class SdkSession {
       const targetRestore = initialRestore
       initialRestore = undefined
       const shellDescription = process.platform === 'win32' ? await windowsShellDescription() : undefined
+      const privateDataRoot = this.policy.requireRestrictedPolicy ? await realpath(this.paths.dataRoot) : undefined
       const extensionFactories = [
         (pi: ExtensionAPI) => {
+          if (privateDataRoot)
+            pi.on('tool_call', async (event, context) => {
+              const { toolName, input } = event
+              if (!['read', 'edit', 'write', 'grep', 'find', 'ls'].includes(toolName)) return
+              const target = 'path' in input && typeof input.path === 'string' ? input.path : '.'
+              try {
+                await assertPublicAgentFile(privateDataRoot, agentFilePath(target, context.cwd), toolName === 'grep')
+              } catch (error) {
+                return { block: true, reason: error instanceof Error ? error.message : '文件不可访问' }
+              }
+            })
+
           const gate = () => this.waitForResume()
           pi.on('context', (event) => {
             const run = this.goalRun

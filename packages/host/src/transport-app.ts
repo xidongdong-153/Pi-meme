@@ -161,7 +161,7 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
       return reply(200, {
         requestId: value.requestId,
         hostId: host.hostId,
-        result: await previewLinkedFile(session.cwd, value.args[1] as string),
+        result: await previewLinkedFile(session.cwd, value.args[1] as string, host.root),
       })
     }
     if (value.method === 'chat:link-preview') {

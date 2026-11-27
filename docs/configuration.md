@@ -52,7 +52,7 @@ paths:
 
 [config/app.json](../packages/settings/src/server/store.ts)（原 `settings.json`）保存应用外观、主题、侧栏、新会话默认权限和 `defaultAgentPlugins` 等设置；字段见 [DesktopSettings](../packages/contracts/src/settings.ts)。`config/agent/settings.json`（原 `pi/settings.json`）是 SDK 设置文件，与应用设置分开。项目 `.pi/settings.json` 可读，SDK 存储适配器不向项目写回，见 [sdk/settings.ts](../packages/pi-runtime/src/sdk/settings.ts)。
 
-“设置 → Agent → 模型”管理 Host 的 `config/agent/models.json`（原 `pi/models.json`）。非敏感服务商和模型声明保存在此文件，API Key、OAuth 与敏感请求头由凭据存储管理；界面只返回是否已保存密钥等状态。协议与可编辑字段见 [model-config.ts](../packages/contracts/src/model-config.ts)，校验和保存见 [config-store.ts](../packages/models/src/server/config-store.ts)。
+“设置 → Agent → 模型”管理 Host 的 `config/agent/models.json`（原 `pi/models.json`）。服务地址和模型声明保存在此文件，API Key、OAuth 与请求头的值由凭据存储管理。配置读取以占位值表示保存的地址和请求头，原样提交会保留已存值。协议与可编辑字段见 [model-config.ts](../packages/contracts/src/model-config.ts)，校验和保存见 [config-store.ts](../packages/models/src/server/config-store.ts)。
 
 同一页可以登录 Pi 自带目录里的服务商。登录或退出后重连 Pi，模型选择器会刷新可用模型。会话正在运行时凭据仍会保存，重连失败时页面会提示稍后再点“重新连接”。通用登录调用 `ModelRuntime.login`，退出调用 `logout`。OpenAI 等登录用的设备标识写在 `config/agent/device-id`（原 `pi/device-id`）。
 
@@ -114,7 +114,7 @@ HTTP 接入使用 `POST /api/auth` 登录后返回的 Cookie，向 `POST /api/rp
 
 模型只要求 `id`。模型级 `api` 与 `baseUrl` 可以覆盖服务商默认值，地址须同 origin；跨 origin 使用不同提供商。`contextWindow`、`maxTokens`、`input`、`reasoning`、`thinkingLevelMap`、`headers`、`compat` 均可省略，不猜测上游能力。可用协议见 [model-config.ts](../packages/contracts/src/model-config.ts)。
 
-保存时 API Key 和敏感请求头进入已有凭据存储，不回显明文，不要求用户准备声明文件。操作使用现有空闲守卫：运行中拒绝写入，空闲时自动重连并保留已选模型；移除当前模型时沿用原有回退行为。重连失败返回 `reconnectError`，配置已保存，接入方可在空闲后调用 `models:reconnect`。设置页随模型目录更新自动读取配置，仍在原有自定义提供商列表中编辑和删除。
+保存时 API Key 和请求头的值进入凭据存储。编辑时可原样回传 `models:get` 返回的地址和请求头占位值。只有同源的模型发现请求才复用已保存的凭据。操作使用现有空闲守卫：运行中拒绝写入，空闲时自动重连并保留已选模型；移除当前模型时沿用原有回退行为。重连失败返回 `reconnectError`，配置已保存，接入方可在空闲后调用 `models:reconnect`。设置页随模型目录更新自动读取配置，仍在原有自定义提供商列表中编辑和删除。
 
 查询可用模型使用 [HostApi.models.list](host-api.md#模型目录)，配置写入复用内置 RPC，不向可信插件的 `context.host` 增加全局模型写方法。
 
@@ -124,7 +124,7 @@ HTTP 接入使用 `POST /api/auth` 登录后返回的 Cookie，向 `POST /api/rp
 
 第一条带凭据的配置自动设为默认，生图与编辑共用默认模型。修改配置后下一次调用生效；删除默认模型后需重新选择。保存不发起生成请求。“生成测试图片”会明确提示可能产生费用，只验证生图能力。
 
-配置在 `config/agent/image-generation.json`，API Key 使用 Host 凭据存储，不写入配置文件或会话 Worker 的凭据快照。配置损坏时保留原文件，其他聊天功能仍可使用。
+模型元数据保存在 `config/agent/image-generation.json`。Base URL 和 API Key 一并保存在 Host 凭据存储，由 Host 生图服务直接使用。配置损坏时保留原文件，其他聊天功能仍可使用。
 
 配置完成后，普通任务在“工作区内修改”或“完全权限”下自动获得内置 `image_gen` 工具；规划与只读模式不可使用。参数如下：
 
@@ -161,7 +161,7 @@ MCP 合并 Host `config/agent/mcp.json`（原 `pi/mcp.json`）、项目只读 `.
 
 逐服务启停与明确授权分开校验，授权绑定配置摘要；外部修改配置后旧授权不能继续使用。旧 `mcpEnabled: false` 保留不连接未重新授权服务的选择，升级不会自动连接。MCP 只在完全权限的普通任务中装配，规划模式不运行 MCP。
 
-配置损坏时显示错误并保留原文件；保存使用修订检查。OAuth Client Secret 和令牌进入凭据存储。配置合并、授权和诊断见 [runtime-config.ts](../packages/mcp/src/server/runtime-config.ts) 与 [config-store.ts](../packages/mcp/src/server/config-store.ts)。
+配置损坏时显示错误并保留原文件。保存使用修订检查。全局 MCP 的连接配置、OAuth Client Secret 和令牌进入凭据存储。新绑定的服务商账号要求 MCP 地址与服务商同源。项目配置继续由原项目管理。配置合并、授权和诊断见 [runtime-config.ts](../packages/mcp/src/server/runtime-config.ts) 与 [config-store.ts](../packages/mcp/src/server/config-store.ts)。
 
 ## 指令、资源与主题
 
@@ -191,7 +191,7 @@ Desktop 正常关窗、退出、受控重新加载和存储维护前等待外观
 
 ## 凭据
 
-[FileCredentialStore](../packages/pi-adapter/src/file-credentials.ts) 保存凭据于 `credentials/auth.json`（原根目录 `auth.json`，详见 [数据目录与存储](storage.md)），格式为应用自己的字符串键值对象，权限为 `0600`。这是文件权限保护，不是系统钥匙串或加密存储；备份仍包含敏感凭据。Host 串行写入并原子替换；Worker 同步内存副本，Host 落盘后才确认成功。读取、解析或写入失败会明确报错，不覆盖损坏文件。
+Host 启动时自动迁移受管的旧凭据和连接配置，无需操作设置。[FileCredentialStore](../packages/pi-adapter/src/file-credentials.ts) 使用 AES-256-GCM 封存凭据，密钥由系统随机生成并保存在 `credentials/auth.key`。SSH 探测所需的本机 `host:token` 保留在 `credentials/auth.json` 顶层。两份文件权限均为 `0600`，应随数据目录一同恢复。历史备份可能含有明文。详见 [数据目录与存储](storage.md)。
 
 启动不读系统钥匙串。旧 macOS 凭据只通过主动导入操作读取，保留已有文件凭据和旧钥匙串条目；实现见 [credentials.ts](../packages/host/src/credentials.ts) 与 [HostSettings](../packages/app-ui/src/settings/host-settings.tsx)。Linux 不提供该导入操作。
 
@@ -227,7 +227,7 @@ Plan 始终按本地只读执行，覆盖会话保存的完全权限；选择器
 
 权限或任务模式改变前，主任务及子任务树必须结束，包括等待、排队、暂停待启动和清理中的任务；存在权限高于目标的后台服务时，需要先停止服务。先检查、释放旧运行时与连接，再提交状态；检查失败保留原选择。设置、RPC、消息、队列和恢复入口使用同一规则。
 
-联网不属于这套文件权限：不承诺阻止上传、远端修改或网络服务的副作用，也不增加秘密文件读取隔离。Host 仍正常保存聊天、计划、可视化和必要元数据，相关入口不接受任意落盘路径。本地只读禁止业务文件修改、生图与服务启停；工作台全局写操作要求完全权限。
+Agent 文件工具和 Host 文件接口限制读取应用的私有配置、凭据及备份。只读和工作区写入模式的命令也受平台沙箱限制。完全权限的命令和可信插件仍拥有相应的系统账号访问能力。联网、聊天、计划、可视化和业务写入继续沿用各自的权限。
 
 三档权限仍受 Host 操作系统的文件授权限制。App 内的“完全权限”不会授予 macOS 的“完全磁盘访问权限”；开发态终端与 Finder 启动的应用也可能具有不同授权。系统提示与处理方法见[首次打开与目录授权的区别](getting-started.md#首次打开与目录授权的区别)。
 

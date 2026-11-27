@@ -155,6 +155,7 @@ export function serviceProcessEnvironment(env?: NodeJS.ProcessEnv) {
   delete result.NODE_PATH
   delete result.BASH_ENV
   delete result.ENV
+  for (const key of Object.keys(result)) if (/^PI_MEME_(?:TOKEN|TLS_KEY)$/i.test(key)) delete result[key]
   if (process.platform === 'win32') {
     for (const key of Object.keys(result))
       if (/^(?:NODE_OPTIONS|NODE_PATH|BASH_ENV|ENV)$/i.test(key)) delete result[key]

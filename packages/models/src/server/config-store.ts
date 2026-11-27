@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { parse, printParseErrorCode, type ParseError } from 'jsonc-parser'
-import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
+import { savedEndpoint, type SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import { thinkingLevels } from '@pi-meme/contracts/pi'
 import {
   modelApis,
@@ -57,13 +57,9 @@ function validateCompat(value: unknown) {
 }
 function secretHeaders(value: unknown) {
   const headers = stringHeaders(value)
-  return headers
-    ? Object.fromEntries(Object.entries(headers).map(([key, val]) => [key, sensitiveHeader(key) ? '' : val]))
-    : undefined
+  return headers ? Object.fromEntries(Object.keys(headers).map((key) => [key, ''])) : undefined
 }
-function sensitiveHeader(name: string) {
-  return /auth|key|token|secret|cookie/i.test(name)
-}
+const headerRef = /^\$(PI_DESKTOP_MODEL_[A-Z0-9_]+)$/
 function credentialKey(providerId: string) {
   return `model-provider:${providerId}`
 }
@@ -80,11 +76,7 @@ function readSecrets(storage: SecureCredentialStorage, providerId: string): Mode
 }
 function secretVariable(providerId: string, scope: string, header: string) {
   const provider = createHash('sha256').update(providerId).digest('hex').slice(0, 12).toUpperCase()
-  const value = createHash('sha256')
-    .update(`${scope}\0${header.toLowerCase()}`)
-    .digest('hex')
-    .slice(0, 20)
-    .toUpperCase()
+  const value = createHash('sha256').update(`${scope}\0${header}`).digest('hex').slice(0, 20).toUpperCase()
   return `PI_DESKTOP_MODEL_${provider}_${value}`
 }
 function rejectAmbientCredential(value: string, label: string) {
@@ -106,26 +98,22 @@ function secureHeaders(
   const previous = existing === undefined ? {} : (stringHeaders(existing) ?? {})
   const result: Record<string, string> = {}
   for (const [name, value] of Object.entries(headers)) {
-    const old = previous[name]
-    if (sensitiveHeader(name)) {
-      if (value === '' && old?.startsWith('$PI_DESKTOP_MODEL_')) {
-        result[name] = old
-        const variable = old.slice(1)
-        if (previousEnv[variable] !== undefined) env[variable] = previousEnv[variable]!
-        continue
-      }
-      if (value === '') continue
-      rejectAmbientCredential(value, '敏感请求头')
-      const variable = secretVariable(providerId, scope, name)
-      env[variable] = value
-      result[name] = `$${variable}`
+    const old = Object.hasOwn(previous, name) ? previous[name] : undefined
+    const retained = old && (value === '' || value === old) ? headerRef.exec(old)?.[1] : undefined
+    if (retained) {
+      result[name] = old!
+      if (previousEnv[retained] !== undefined) env[retained] = previousEnv[retained]!
       continue
     }
-    if (value === '' && old !== undefined) result[name] = old
-    else {
-      rejectAmbientCredential(value, '请求头')
-      result[name] = value
+    const secret = value || old || ''
+    if (!secret) {
+      result[name] = ''
+      continue
     }
+    rejectAmbientCredential(secret, '请求头')
+    const variable = secretVariable(providerId, scope, name)
+    env[variable] = secret
+    Object.defineProperty(result, name, { value: `$${variable}`, enumerable: true, configurable: true })
   }
   return Object.keys(result).length ? result : undefined
 }
@@ -186,22 +174,22 @@ const editableFields = [
   'compat',
   'thinkingLevelMap',
 ] as const
-function stripPlaintextSecrets(data: JsonObject) {
-  for (const raw of Object.values(object(data.providers, 'providers'))) {
-    const provider = object(raw, '服务商')
-    delete provider.apiKey
-    const stripHeaders = (value: unknown) => {
-      const headers = value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonObject) : undefined
-      if (!headers) return
-      for (const [name, value] of Object.entries(headers))
-        if (sensitiveHeader(name) && typeof value === 'string' && !value.startsWith('$PI_DESKTOP_MODEL_'))
-          headers[name] = ''
-    }
-    stripHeaders(provider.headers)
-    if (Array.isArray(provider.models))
-      for (const model of provider.models)
-        if (model && typeof model === 'object') stripHeaders((model as JsonObject).headers)
-  }
+function legacyLiteral(value: unknown) {
+  if (typeof value !== 'string' || value.startsWith('!')) return undefined
+  const expression = /\$(\$|!|\{[A-Za-z_]\w*\}|[A-Za-z_]\w*)/g
+  if ([...value.matchAll(expression)].some((match) => match[1] !== '$' && match[1] !== '!')) return undefined
+  return value.replace(expression, '$1')
+}
+
+function modelHeaderEntries(provider: JsonObject): Array<[string, JsonObject]> {
+  const entries: Array<[string, JsonObject]> = [['provider', provider]]
+  for (const model of Array.isArray(provider.models) ? provider.models : [])
+    if (model && typeof model === 'object' && typeof model.id === 'string') entries.push([`model:${model.id}`, model])
+  const overrides = provider.modelOverrides
+  if (overrides && typeof overrides === 'object' && !Array.isArray(overrides))
+    for (const [id, model] of Object.entries(overrides))
+      if (model && typeof model === 'object' && !Array.isArray(model)) entries.push([`override:${id}`, model])
+  return entries
 }
 /** Read defaults without constructing SDK settings managers or applying migrations. */
 export async function readConfiguredModelDefaults(agentDir: string) {
@@ -280,7 +268,7 @@ export class ModelConfigStore {
   private writing = false
   constructor(
     readonly filePath: string,
-    private readonly credentialsStore: SecureCredentialStorage,
+    private readonly credentialsStore: SecureCredentialStorage & { flush?: () => Promise<void> },
     readonly agentDir = path.dirname(filePath),
   ) {}
   get credentialStorage() {
@@ -306,6 +294,55 @@ export class ModelConfigStore {
     object(data.providers, 'providers')
     return { data, revision }
   }
+  /** Move credentials from legacy Pi-compatible declarations before opening the model runtime. */
+  async migratePlaintextCredentials() {
+    const current = await this.read().catch(() => undefined)
+    if (!current) return
+    let changed = false
+    for (const [id, raw] of Object.entries(object(current.data.providers, 'providers'))) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue
+      const provider = raw as JsonObject
+      const oldKey = legacyLiteral(provider.apiKey)
+      const oldHeaders = modelHeaderEntries(provider).flatMap(([scope, entry]) => {
+        if (!entry.headers || typeof entry.headers !== 'object' || Array.isArray(entry.headers)) return []
+        const headers = entry.headers as JsonObject
+        return Object.entries(headers).flatMap(([name, raw]) => {
+          const value = legacyLiteral(raw)
+          return value ? [{ headers, scope, name, value }] : []
+        })
+      })
+      if (!oldKey && !oldHeaders.length) continue
+      const secrets = readSecrets(this.credentialsStore, id)
+      if (oldKey) {
+        secrets.credential ??= { type: 'api_key', key: oldKey }
+        delete provider.apiKey
+      }
+      const env = (secrets.env ??= {})
+      for (const { headers, scope, name, value } of oldHeaders) {
+        const ref = secretVariable(id, scope, name)
+        env[ref] = value
+        headers[name] = `$${ref}`
+      }
+      this.credentialsStore.set(credentialKey(id), JSON.stringify(secrets))
+      changed = true
+    }
+    if (!changed) return
+    const temporary = `${this.filePath}.${randomUUID()}.tmp`
+    const handle = await open(temporary, 'wx', 0o600)
+    try {
+      try {
+        await handle.writeFile(`${JSON.stringify(current.data, null, 2)}\n`)
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
+      await this.credentialsStore.flush?.()
+      if ((await this.read()).revision !== current.revision) throw new Error('模型配置已被其他程序修改')
+      await rename(temporary, this.filePath)
+    } finally {
+      await rm(temporary, { force: true })
+    }
+  }
   async snapshot(): Promise<ModelConfigSnapshot> {
     const { data, revision } = await this.read()
     const providers = await Promise.all(
@@ -318,7 +355,7 @@ export class ModelConfigStore {
           id,
           name: typeof provider.name === 'string' ? provider.name : id,
           api: typeof provider.api === 'string' ? provider.api : '',
-          baseUrl: typeof provider.baseUrl === 'string' ? provider.baseUrl : '',
+          baseUrl: typeof provider.baseUrl === 'string' && provider.baseUrl ? savedEndpoint : '',
           hasApiKey: Boolean(secrets.credential?.type === 'api_key' && secrets.credential.key),
           headers: secretHeaders(provider.headers),
           compat: provider.compat as Record<string, unknown> | undefined,
@@ -327,6 +364,7 @@ export class ModelConfigStore {
             const clean = Object.fromEntries(
               editableFields.filter((key) => model[key] !== undefined).map((key) => [key, model[key]]),
             ) as ConfiguredModel
+            if (clean.baseUrl) clean.baseUrl = savedEndpoint
             clean.headers = secretHeaders(model.headers)
             return clean
           }),
@@ -344,15 +382,16 @@ export class ModelConfigStore {
     const raw = id ? object(data.providers, 'providers')[id] : undefined
     const provider = raw ? object(raw, '服务商') : {}
     const secrets = id ? readSecrets(this.credentialsStore, id) : { env: {} }
-    const headers: Record<string, string> = {}
-    for (const [name, value] of Object.entries(stringHeaders(provider.headers) ?? {})) {
-      if (sensitiveHeader(name)) {
-        const match = /^\$(PI_DESKTOP_MODEL_[A-Z0-9_]+)$/.exec(value)
-        if (match && secrets.env?.[match[1]]) headers[name] = secrets.env[match[1]]!
-      } else headers[name] = value
-    }
+    const headers = Object.fromEntries(
+      Object.entries(stringHeaders(provider.headers) ?? {}).flatMap(([name, value]) => {
+        const ref = headerRef.exec(value)?.[1]
+        const stored = ref ? secrets.env?.[ref] : value
+        return stored === undefined ? [] : [[name, stored]]
+      }),
+    )
     return {
       apiKey: secrets.credential?.type === 'api_key' ? secrets.credential.key : undefined,
+      baseUrl: typeof provider.baseUrl === 'string' ? provider.baseUrl : undefined,
       headers,
     }
   }
@@ -377,8 +416,6 @@ export class ModelConfigStore {
       throw new Error('清除 API Key 参数无效')
     if (!Array.isArray(provider.models) || !provider.models.length) throw new Error('请至少添加一个模型')
     const models = provider.models.map(validateModel)
-    if (models.some((model) => model.baseUrl && endpoint(model.baseUrl).origin !== endpoint(provider.baseUrl).origin))
-      throw new Error('模型级 Base URL 必须与服务商同源；不同地址请分别声明服务商')
     if (new Set(models.map((m) => m.id)).size !== models.length) throw new Error('模型 ID 不能重复')
     let nextSecrets: ModelSecrets | undefined
     let previousSecrets: string | undefined
@@ -396,8 +433,23 @@ export class ModelConfigStore {
         const old = Object.hasOwn(providers, provider.id as string)
           ? object(providers[provider.id as string], '服务商')
           : {}
+        const baseUrl = provider.baseUrl === savedEndpoint ? old.baseUrl : provider.baseUrl
+        const origin = endpoint(baseUrl).origin
+        const oldModels = Array.isArray(old.models) ? (old.models as JsonObject[]) : []
+        for (const model of models) {
+          if (model.baseUrl === savedEndpoint) {
+            const previous = oldModels.find((entry) => entry.id === model.id)?.baseUrl
+            if (typeof previous !== 'string') throw new Error('模型级 Base URL 无效')
+            model.baseUrl = previous
+          }
+          if (model.baseUrl && endpoint(model.baseUrl).origin !== origin)
+            throw new Error('模型级 Base URL 必须与服务商同源；不同地址请分别声明服务商')
+        }
         previousSecrets = this.credentialsStore.get(credentialKey(provider.id as string))
         const secrets = readSecrets(this.credentialsStore, provider.id as string)
+        const previousCredential = secrets.credential
+        const changingOrigin =
+          typeof old.baseUrl === 'string' && URL.canParse(old.baseUrl) && new URL(old.baseUrl).origin !== origin
         const env = { ...(secrets.env ?? {}) }
         const previousEnv = { ...env }
         const providerPrefix = `PI_DESKTOP_MODEL_${createHash('sha256')
@@ -406,7 +458,7 @@ export class ModelConfigStore {
           .slice(0, 12)
           .toUpperCase()}_`
         for (const name of Object.keys(env)) if (name.startsWith(providerPrefix)) delete env[name]
-        const next: JsonObject = { ...old, name: provider.name, api: provider.api, baseUrl: provider.baseUrl }
+        const next: JsonObject = { ...old, name: provider.name, api: provider.api, baseUrl }
         next.headers = secureHeaders(provider.headers, old.headers, provider.id as string, 'provider', env, previousEnv)
         next.compat = provider.compat
         delete next.apiKey
@@ -415,7 +467,6 @@ export class ModelConfigStore {
         } else if (input.apiKey !== undefined) {
           secrets.credential = { type: 'api_key', key: input.apiKey }
         }
-        const oldModels = Array.isArray(old.models) ? (old.models as JsonObject[]) : []
         next.models = models.map((model) => {
           const existing = oldModels.find((m) => m.id === model.id)
           const merged = { ...existing }
@@ -443,10 +494,22 @@ export class ModelConfigStore {
             if (match) referenced.add(match[1]!)
           }
         }
-        collect(next.headers)
-        for (const model of next.models as JsonObject[]) collect(model.headers)
+        for (const [, entry] of modelHeaderEntries(next)) {
+          const headers = stringHeaders(entry.headers)
+          collect(headers)
+          for (const value of Object.values(headers ?? {})) {
+            const ref = headerRef.exec(value)?.[1]
+            if (ref && env[ref] === undefined && previousEnv[ref] !== undefined) env[ref] = previousEnv[ref]!
+          }
+        }
         for (const name of Object.keys(env))
           if (name.startsWith(providerPrefix) && !referenced.has(name)) delete env[name]
+        if (
+          changingOrigin &&
+          ((previousCredential && secrets.credential === previousCredential) ||
+            Object.entries(previousEnv).some(([name, value]) => env[name] === value))
+        )
+          throw new Error('更换服务地址时，请替换或清除之前保存的凭据和请求头')
         secrets.env = env
         nextSecrets = secrets
         Object.defineProperty(providers, provider.id as string, {
@@ -456,17 +519,15 @@ export class ModelConfigStore {
           writable: true,
         })
       },
-      async () => {
+      () => {
         const secrets = nextSecrets
-        const id = provider.id as string
-        try {
-          if (secrets && (secrets.credential || Object.keys(secrets.env ?? {}).length))
-            this.credentialsStore.set(credentialKey(id), JSON.stringify(secrets))
-          else this.credentialsStore.delete(credentialKey(id))
-        } catch (cause) {
-          if (previousSecrets === undefined) this.credentialsStore.delete(credentialKey(id))
-          else this.credentialsStore.set(credentialKey(id), previousSecrets)
-          throw cause
+        const key = credentialKey(provider.id as string)
+        if (secrets && (secrets.credential || Object.keys(secrets.env ?? {}).length))
+          this.credentialsStore.set(key, JSON.stringify(secrets))
+        else this.credentialsStore.delete(key)
+        return () => {
+          if (previousSecrets === undefined) this.credentialsStore.delete(key)
+          else this.credentialsStore.set(key, previousSecrets)
         }
       },
     )
@@ -491,7 +552,7 @@ export class ModelConfigStore {
   private async mutate(
     revision: unknown,
     edit: (data: JsonObject) => Promise<(() => Promise<void> | void) | void>,
-    beforeCommit?: () => Promise<void> | void,
+    beforeCommit?: () => () => void,
   ) {
     if (this.writing) throw new Error('模型配置正在保存，请稍后重试')
     this.writing = true
@@ -501,16 +562,29 @@ export class ModelConfigStore {
       if (typeof revision !== 'string' || revision !== current.revision)
         throw new Error('模型配置已被其他程序修改，请刷新后重新编辑')
       const commit = await edit(current.data)
-      stripPlaintextSecrets(current.data)
       await mkdir(path.dirname(this.filePath), { recursive: true })
       await writeFile(temporary, `${JSON.stringify(current.data, null, 2)}\n`, { mode: 0o600, flag: 'wx' })
       const sdk = await loadPiSdk()
       const runtime = await createDesktopModelRuntime(sdk, this.agentDir, this.credentialsStore, temporary)
       if (runtime.getError()) throw new Error('Pi 无法加载此模型配置，请检查协议和高级参数')
       if ((await this.read()).revision !== revision) throw new Error('模型配置已被其他程序修改，请刷新后重新编辑')
-      await beforeCommit?.()
+      const rollback = beforeCommit?.()
+      try {
+        await this.credentialsStore.flush?.()
+        await rename(temporary, this.filePath)
+      } catch (cause) {
+        if (rollback) {
+          try {
+            rollback()
+            await this.credentialsStore.flush?.()
+          } catch {
+            // Preserve the original write or publish error.
+          }
+        }
+        throw cause
+      }
       await commit?.()
-      await rename(temporary, this.filePath)
+      await this.credentialsStore.flush?.()
       return await this.snapshot()
     } finally {
       await rm(temporary, { force: true })

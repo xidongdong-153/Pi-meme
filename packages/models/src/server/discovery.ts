@@ -1,5 +1,6 @@
 import type { ConfiguredModel, DiscoverModels } from '@pi-meme/contracts/model-config'
 import { isConfigurableFastModeApi } from '@pi-meme/contracts/model-config'
+import { savedEndpoint } from '@pi-meme/contracts/secure-storage'
 import {
   endpoint,
   object,
@@ -23,16 +24,19 @@ export async function discoverModels(
 ): Promise<ConfiguredModel[]> {
   const input = object(value, '获取模型参数') as unknown as DiscoverModels
   validateApi(input.api)
-  const url = endpoint(input.baseUrl)
   if (input.providerId !== undefined && typeof input.providerId !== 'string') throw new Error('服务商 ID 无效')
   if (input.apiKey !== undefined && typeof input.apiKey !== 'string') throw new Error('API Key 无效')
-  const stored = await store.credentials(input.providerId)
-  const key = resolveCredential(input.apiKey || (input.clearApiKey ? '' : stored.apiKey) || '')
+  const previous = await store.credentials(input.providerId)
+  const url = endpoint(input.baseUrl === savedEndpoint ? previous.baseUrl : input.baseUrl)
+  const sameOrigin =
+    previous.baseUrl && URL.canParse(previous.baseUrl) && new URL(previous.baseUrl).origin === url.origin
+  const stored = sameOrigin ? previous : undefined
+  const key = resolveCredential(input.apiKey || (input.clearApiKey ? '' : stored?.apiKey) || '')
   const supplied = stringHeaders(input.headers)
   const headers = new Headers()
-  for (const [name, value] of Object.entries(supplied ?? stored.headers ?? {})) {
+  for (const [name, value] of Object.entries(supplied ?? stored?.headers ?? {})) {
     try {
-      headers.set(name, resolveCredential(value || stored.headers?.[name] || ''))
+      headers.set(name, resolveCredential(value || stored?.headers?.[name] || ''))
     } catch (cause) {
       if (cause instanceof Error && (cause.message.includes('!command') || cause.message.includes('环境变量')))
         throw cause

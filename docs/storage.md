@@ -42,7 +42,7 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 │   ├── profile/                         # 用户资料与头像图片
 │   ├── agent/                           # Pi SDK 设置、模型、MCP、指令与子代理
 │   │   ├── settings.json
-│   │   ├── image-generation.json        # 图片模型配置（不含 API Key）
+│   │   ├── image-generation.json        # 图片模型元数据和连接引用
 │   │   ├── models.json
 │   │   ├── mcp.json
 │   │   ├── device-id
@@ -52,7 +52,8 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 │   │   └── subagents/
 │   └── workspaces/<cwd-hash>/            # 工作区覆盖配置（mcp-overrides.json, resources.json）
 ├── credentials/
-│   └── auth.json                        # 凭据存储（权限 0600）
+│   ├── auth.json                        # 本机访问令牌及加密凭据（权限 0600）
+│   └── auth.key                         # 凭据加密密钥（权限 0600）
 ├── state/
 │   ├── projects.json                    # 项目与 Worktree 登记
 │   ├── goals.json                       # 目标持久化状态
@@ -105,7 +106,7 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 | `config/profile/`                    | 用户个人资料与头像                       | `SettingsStore`                                           | 否                 | 永久保留                                                |
 | `config/agent/`                      | Pi SDK 运行时配置与指令                  | `ModelConfigStore`, `McpConfigStore`, `InstructionsStore` | 否                 | 永久保留                                                |
 | `config/workspaces/`                 | 针对特定 cwd 哈希的 MCP 与资源覆盖       | `McpConfigStore`, `ResourceStore`                         | 否                 | 永久保留（与工作区 cwd 哈希绑定，项目移除时不清理覆盖） |
-| `credentials/auth.json`              | 连接与服务凭据（0600）                   | `FileCredentialStore`                                     | 否（敏感凭据）     | 永久保留                                                |
+| `credentials/auth.json`、`auth.key`  | 本机访问令牌、加密凭据和密钥（0600）     | `FileCredentialStore`                                     | 否（敏感凭据）     | 成对保留                                                |
 | `state/projects.json`                | 登记项目与活动 Worktree                  | `ProjectStore`                                            | 否                 | 显式移除项目时更新                                      |
 | `state/goals.json`                   | 目标执行与续跑状态                       | `GoalService`                                             | 否                 | 目标清除或会话成功删除时清理                            |
 | `state/session-attention.json`       | 正式会话的回复版本与交互查看记录         | `SessionAttentionStore`                                   | 否                 | 首次初始化历史回复已读；会话成功删除时清理              |

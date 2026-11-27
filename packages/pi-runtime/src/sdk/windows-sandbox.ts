@@ -4,7 +4,7 @@ import { windowsRuntimeReadPaths, requireWindowsSandbox } from '@pi-meme/windows
 import { windowsNodeExecutable } from '@pi-meme/windows-native/runtime'
 import type { WindowsSandboxPolicy } from '@pi-meme/windows-native/process'
 import type { AccessSandboxOptions } from './access-sandbox'
-import { pathWithin } from './access-sandbox'
+import { isWithin as pathWithin, privateHostPaths } from './private-host-files'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 export async function windowsSandboxPolicy(options: AccessSandboxOptions): Promise<WindowsSandboxPolicy> {
@@ -19,6 +19,11 @@ export async function windowsSandboxPolicy(options: AccessSandboxOptions): Promi
     if (options.mode === 'workspace-write' && pathWithin(options.cwd, root))
       throw new Error('Windows 受限写入的项目不能包含应用数据目录，请将应用数据移到项目外')
     if (pathWithin(options.cwd, root)) deny.push(root)
+    const privatePaths = privateHostPaths(root)
+    for (const target of [...privatePaths.directories, ...privatePaths.files]) {
+      const canonical = await realpath(target).catch(() => undefined)
+      if (canonical) deny.push(canonical)
+    }
     const attachments = path.join(root, storageLayoutRelativePaths.attachmentsDirectory)
     try {
       read.push(await realpath(attachments))

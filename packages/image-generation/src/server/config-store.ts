@@ -9,9 +9,10 @@ import {
   type ImageModelConfig,
   type SaveImageModel,
 } from '@pi-meme/contracts/image-generation'
-import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
+import { savedEndpoint, type SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 
-type StoredModel = Omit<ImageModelConfig, 'hasApiKey'> & { credentialRef?: string }
+type StoredModel = Omit<ImageModelConfig, 'hasApiKey' | 'baseUrl'> & { baseUrl?: string; credentialRef?: string }
+type ImageConnection = { baseUrl: string; apiKey?: string }
 type StoredConfig = { version: 1; models: StoredModel[]; defaultId?: string }
 
 function validateModel(raw: unknown): Omit<ImageModelConfig, 'hasApiKey'> {
@@ -46,6 +47,34 @@ export class ImageConfigStore {
     private readonly credentials: SecureCredentialStorage & { flush?: () => Promise<void> },
   ) {}
 
+  private connection(model: StoredModel): ImageConnection {
+    const value = model.credentialRef ? this.credentials.get(model.credentialRef) : undefined
+    if (model.baseUrl !== undefined) return { baseUrl: model.baseUrl, apiKey: value }
+    const connection = value ? (JSON.parse(value) as Partial<ImageConnection>) : undefined
+    if (
+      typeof connection?.baseUrl !== 'string' ||
+      (connection.apiKey !== undefined && typeof connection.apiKey !== 'string')
+    )
+      throw new Error('图片模型连接配置不可用')
+    return { baseUrl: connection.baseUrl, apiKey: connection.apiKey }
+  }
+
+  private storeConnection(model: StoredModel, connection: ImageConnection): StoredModel {
+    const { baseUrl: _legacyUrl, ...metadata } = validateModel({ ...model, baseUrl: connection.baseUrl })
+    const credentialRef = `${imageGenerationCredentialPrefix}${randomUUID()}`
+    this.credentials.set(credentialRef, JSON.stringify(connection))
+    return { ...metadata, credentialRef }
+  }
+
+  private async releaseCredentials(refs: string[]) {
+    if (!refs.length) return
+    const current = await this.read().catch(() => undefined)
+    if (!current) return
+    const used = new Set(current.value.models.map((model) => model.credentialRef))
+    for (const ref of refs) if (!used.has(ref)) this.credentials.delete(ref)
+    await this.credentials.flush?.()
+  }
+
   private async read(): Promise<{ value: StoredConfig; revision: string }> {
     let raw: string
     try {
@@ -60,7 +89,7 @@ export class ImageConfigStore {
       if (value.version !== 1 || !Array.isArray(value.models)) throw new Error('图片模型配置结构无效')
       const ids = new Set<string>()
       for (const model of value.models) {
-        validateModel(model)
+        validateModel({ ...model, baseUrl: this.connection(model).baseUrl })
         if (ids.has(model.id)) throw new Error('图片模型配置结构无效')
         ids.add(model.id)
         if (
@@ -76,15 +105,30 @@ export class ImageConfigStore {
     }
   }
 
+  async migratePrivateConfig() {
+    const current = await this.read().catch(() => undefined)
+    if (!current?.value.models.some((model) => model.baseUrl !== undefined)) return
+    const previous = new Set<string>()
+    await this.change(current.revision, (value) => {
+      value.models = value.models.map((model) => {
+        if (model.baseUrl === undefined) return model
+        if (model.credentialRef) previous.add(model.credentialRef)
+        return this.storeConnection(model, this.connection(model))
+      })
+      for (const model of value.models) if (model.credentialRef) previous.delete(model.credentialRef)
+    })
+    await this.releaseCredentials([...previous])
+  }
+
   async snapshot(): Promise<ImageGenerationConfig> {
     try {
       const { value, revision } = await this.read()
       return {
         revision,
         defaultId: value.defaultId,
-        models: value.models.map(({ credentialRef, ...model }) => ({
-          ...model,
-          hasApiKey: Boolean(credentialRef && this.credentials.get(credentialRef)),
+        models: value.models.map((item) => ({
+          ...validateModel({ ...item, baseUrl: savedEndpoint }),
+          hasApiKey: Boolean(this.connection(item).apiKey),
         })),
       }
     } catch (cause) {
@@ -95,19 +139,20 @@ export class ImageConfigStore {
   async selected(id?: string) {
     const { value } = await this.read()
     const model = value.models.find((item) => item.id === (id ?? value.defaultId))
-    const apiKey = model?.credentialRef ? this.credentials.get(model.credentialRef) : undefined
-    if (!model || !apiKey) throw new Error('请先在“设置 → Agent → 图片生成”配置默认模型和 API Key')
-    return { ...model, apiKey }
+    const connection = model && this.connection(model)
+    if (!model || !connection?.apiKey) throw new Error('请先在“设置 → Agent → 图片生成”配置默认模型和 API Key')
+    return { ...model, baseUrl: connection.baseUrl, apiKey: connection.apiKey }
   }
 
-  private async change(revision: string, update: (value: StoredConfig) => Promise<void>) {
+  private async change(revision: string, update: (value: StoredConfig) => void) {
     if (this.writing) throw new Error('图片配置正在保存，请稍后重试')
     this.writing = true
     const temporary = `${this.file}.${randomUUID()}.tmp`
     try {
       const current = await this.read()
       if (current.revision !== revision) throw new Error('图片模型配置已变化，请刷新后重试')
-      await update(current.value)
+      update(current.value)
+      await this.credentials.flush?.()
       await mkdir(path.dirname(this.file), { recursive: true, mode: 0o700 })
       const handle = await open(temporary, 'wx', 0o600)
       try {
@@ -116,6 +161,7 @@ export class ImageConfigStore {
       } finally {
         await handle.close()
       }
+      if ((await this.read()).revision !== revision) throw new Error('图片模型配置已变化，请刷新后重试')
       await rename(temporary, this.file)
       return await this.snapshot()
     } finally {
@@ -141,30 +187,32 @@ export class ImageConfigStore {
     let newKey: string | undefined
     let oldKey: string | undefined
     try {
-      const result = await this.change(input.revision, async (value) => {
+      const result = await this.change(input.revision, (value) => {
         const old = value.models.find((item) => item.id === model.id)
+        const previous = old && this.connection(old)
         if (!old && !input.apiKey) throw new Error('新增图片模型时必须填写 API Key')
-        oldKey = old?.credentialRef
-        if (old && new URL(old.baseUrl).origin !== new URL(model.baseUrl).origin && !input.apiKey && !input.clearApiKey)
-          throw new Error('更换服务地址的 origin 时，请重新填写或清除 API Key')
-        let credentialRef = input.clearApiKey ? undefined : oldKey
-        if (input.apiKey) {
-          newKey = `${imageGenerationCredentialPrefix}${randomUUID()}`
-          this.credentials.set(newKey, input.apiKey.trim())
-          await this.credentials.flush?.()
-          credentialRef = newKey
+        if (model.baseUrl === savedEndpoint) {
+          if (!previous) throw new Error('请填写图片模型服务地址')
+          model.baseUrl = previous.baseUrl
         }
-        const next = { ...model, credentialRef }
+        oldKey = old?.credentialRef
+        if (
+          previous?.apiKey &&
+          new URL(previous.baseUrl).origin !== new URL(model.baseUrl).origin &&
+          !input.apiKey &&
+          !input.clearApiKey
+        )
+          throw new Error('更换服务地址的 origin 时，请重新填写或清除 API Key')
+        const apiKey = input.clearApiKey ? undefined : (input.apiKey?.trim() ?? previous?.apiKey)
+        const next = this.storeConnection(model, { baseUrl: model.baseUrl, apiKey })
+        newKey = next.credentialRef
         if (old) value.models[value.models.indexOf(old)] = next
         else {
-          if (!value.models.length && credentialRef) value.defaultId = model.id
+          if (!value.models.length && apiKey) value.defaultId = model.id
           value.models.push(next)
         }
       })
-      if (oldKey && (newKey || input.clearApiKey)) {
-        this.credentials.delete(oldKey)
-        await this.credentials.flush?.()
-      }
+      if (oldKey) await this.releaseCredentials([oldKey])
       return result
     } catch (cause) {
       if (newKey) {
@@ -183,22 +231,19 @@ export class ImageConfigStore {
 
   async delete(id: string, revision: string) {
     let credentialRef: string | undefined
-    const result = await this.change(revision, async (value) => {
+    const result = await this.change(revision, (value) => {
       const model = value.models.find((item) => item.id === id)
       if (!model) throw new Error('图片模型配置不存在')
       credentialRef = model.credentialRef
       value.models = value.models.filter((item) => item.id !== id)
       if (value.defaultId === id) delete value.defaultId
     })
-    if (credentialRef) {
-      this.credentials.delete(credentialRef)
-      await this.credentials.flush?.()
-    }
+    if (credentialRef) await this.releaseCredentials([credentialRef])
     return result
   }
 
   setDefault(id: string, revision: string) {
-    return this.change(revision, async (value) => {
+    return this.change(revision, (value) => {
       if (!value.models.some((model) => model.id === id)) throw new Error('图片模型配置不存在')
       value.defaultId = id
     })

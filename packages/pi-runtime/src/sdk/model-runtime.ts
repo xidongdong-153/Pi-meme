@@ -53,9 +53,12 @@ export function createModelCredentialStore(storage: SecureCredentialStorage): Cr
       if (!value) return undefined
       if (value.credential) {
         const credential = value.credential
-        return credential.type === 'api_key' && value.env
-          ? { ...credential, env: { ...credential.env, ...value.env } }
-          : credential
+        if (!value.env) return credential
+        const credentialEnv = credential.env
+        return {
+          ...credential,
+          env: { ...(credentialEnv && typeof credentialEnv === 'object' ? credentialEnv : {}), ...value.env },
+        }
       }
       return value.env ? ({ type: 'api_key', env: value.env } satisfies Credential) : undefined
     },

@@ -14,6 +14,8 @@ import type {
 import type { McpOAuthState } from '@earendil-works/pi-mcp/oauth'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import type { PiRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
+import { createMcpTransport } from './connection'
+import { loadGlobalMcpConfig } from './private-config'
 
 type ConfigFile = { data?: Record<string, unknown>; error?: string }
 type McpConfigPatch = { enabled?: boolean; exposure?: McpExposure }
@@ -35,8 +37,8 @@ function readConfig(filePath: string): ConfigFile {
     if (!isObject(parsed) || (parsed.mcpServers !== undefined && !isObject(parsed.mcpServers)))
       throw new Error('配置必须是对象，mcpServers 必须是服务键值对象')
     return { data: parsed }
-  } catch (cause) {
-    return { error: `MCP 配置无效 ${filePath}：${String(cause)}` }
+  } catch {
+    return { error: `MCP 配置无效 ${filePath}` }
   }
 }
 
@@ -49,6 +51,7 @@ function applyConfigFile(
   filePath: string,
   scope: 'global' | 'project',
   errors: string[],
+  credentials?: SecureCredentialStorage,
 ) {
   const loaded = readConfig(filePath)
   if (loaded.error) {
@@ -63,8 +66,17 @@ function applyConfigFile(
         continue
       }
       const previous = servers.get(name)
-      if (completeServer(raw) || !previous) {
-        servers.set(name, { name, config: raw as unknown as McpServerConfig, source: filePath, scope })
+      let config = raw
+      if (credentials) {
+        try {
+          config = loadGlobalMcpConfig(name, raw, credentials)
+        } catch {
+          errors.push(`${name}：MCP 连接配置不可用`)
+          continue
+        }
+      }
+      if (completeServer(config) || !previous) {
+        servers.set(name, { name, config: config as unknown as McpServerConfig, source: filePath, scope })
       } else {
         const config = { ...previous.config } as unknown as Record<string, unknown>
         for (const key of ['enabled', 'exposure', 'toolExposure']) if (key in raw) config[key] = raw[key]
@@ -89,7 +101,7 @@ export function loadDesktopMcpConfig(
   const servers = new Map<string, McpServerEntry>()
   const errors: string[] = []
   const globalPath = path.join(paths.agentDir, 'mcp.json')
-  const globalData = applyConfigFile(servers, globalPath, 'global', errors)
+  const globalData = applyConfigFile(servers, globalPath, 'global', errors, credentials)
   const projectData = cwd ? applyConfigFile(servers, path.join(cwd, '.pi', 'mcp.json'), 'project', errors) : undefined
   const overrideData = cwd
     ? applyConfigFile(servers, path.join(paths.workspaceDirectory(cwd), 'mcp-overrides.json'), 'project', errors)
@@ -129,13 +141,7 @@ export function loadDesktopMcpConfig(
         ]),
       )
       .digest('hex')
-    if (isObject(config.oauth)) {
-      const oauth = { ...config.oauth }
-      delete oauth.clientSecret
-      const secret = entry.source === globalPath ? credentials.get(`mcp-oauth-client:${name}`) : undefined
-      if (secret) oauth.clientSecret = secret
-      config.oauth = oauth
-    }
+    if (entry.source !== globalPath && isObject(config.oauth)) delete config.oauth.clientSecret
     services.push({ ...entry, config: config as unknown as McpServerConfig, revision, authorized, error })
   }
 
@@ -287,6 +293,7 @@ export function createDesktopMcpExtension(
     credentials: new DesktopMcpOAuthCredentials(credentials, undefined, acquire) as unknown as NonNullable<
       NonNullable<Parameters<typeof sdk.createMcpExtension>[0]>['credentials']
     >,
+    createTransport: (entry, cwd, authProvider) => createMcpTransport(entry.config, cwd, authProvider),
     logPath: path.join(paths.dataRoot, 'logs', 'mcp.log'),
   }
   return {

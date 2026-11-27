@@ -1,8 +1,60 @@
-import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { randomUUID } from 'node:crypto'
+import { chmod, mkdir, open, readFile, rename, rm } from 'node:fs/promises'
+import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
+
+const sealedCredentials = 'pi-meme:sealed-credentials'
+const hostToken = 'host:token'
+const sealHeader = Buffer.from('pi-meme credentials\0')
+const nonceLength = 12
+const tagLength = 16
+
+async function writePrivate(file: string, contents: Buffer | string) {
+  const temporary = `${file}.${randomUUID()}.tmp`
+  const handle = await open(temporary, 'wx', 0o600)
+  try {
+    try {
+      await handle.writeFile(contents)
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+    await rename(temporary, file)
+  } finally {
+    await rm(temporary, { force: true })
+  }
+}
+
+async function readKey(keyFile: string, initialize: boolean) {
+  const key = await readFile(keyFile).catch(async (cause: NodeJS.ErrnoException) => {
+    if (!initialize || cause.code !== 'ENOENT') throw cause
+    const generated = randomBytes(32)
+    await writePrivate(keyFile, generated)
+    return generated
+  })
+  if (key.length !== 32) throw new Error('凭据加密密钥格式无效')
+  await chmod(keyFile, 0o600)
+  return key
+}
+
+function seal(values: Record<string, string>, key: Buffer) {
+  const nonce = randomBytes(nonceLength)
+  const cipher = createCipheriv('aes-256-gcm', key, nonce)
+  cipher.setAAD(sealHeader)
+  const encrypted = Buffer.concat([cipher.update(JSON.stringify(values), 'utf8'), cipher.final()])
+  return Buffer.concat([nonce, cipher.getAuthTag(), encrypted]).toString('base64')
+}
+
+function unseal(value: string, key: Buffer) {
+  const envelope = Buffer.from(value, 'base64')
+  if (envelope.length <= nonceLength + tagLength) throw new Error('凭据密文格式无效')
+  const decipher = createDecipheriv('aes-256-gcm', key, envelope.subarray(0, nonceLength))
+  decipher.setAAD(sealHeader)
+  decipher.setAuthTag(envelope.subarray(nonceLength, nonceLength + tagLength))
+  const plaintext = Buffer.concat([decipher.update(envelope.subarray(nonceLength + tagLength)), decipher.final()])
+  return records(JSON.parse(plaintext.toString('utf8')))
+}
 
 function records(value: unknown): Record<string, string> {
   if (
@@ -22,46 +74,53 @@ export class FileCredentialStore implements SecureCredentialStorage {
   private writes: Promise<void> = Promise.resolve()
   private failure?: Error
 
-  private constructor(readonly filePath: string) {}
+  private constructor(
+    readonly filePath: string,
+    private readonly key: Buffer,
+  ) {}
 
   static async create(dataRoot: string) {
     const filePath = path.join(dataRoot, storageLayoutRelativePaths.authFile)
-    const store = new FileCredentialStore(filePath)
-    let source: string
+    let source: string | undefined
     try {
-      source = await readFile(store.filePath, 'utf8')
+      source = await readFile(filePath, 'utf8')
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('无法读取 auth.json，请检查文件权限')
-      try {
-        await store.persist(store.values)
-      } catch {
-        throw new Error('无法初始化 auth.json，请检查数据目录权限')
-      }
-      return store
     }
+    let stored: Record<string, string>
     try {
-      store.values = records(JSON.parse(source))
+      stored = source === undefined ? records({}) : records(JSON.parse(source))
     } catch {
       throw new Error('auth.json 凭据格式无效，原文件未修改')
     }
+    const encrypted = stored[sealedCredentials]
     try {
-      await chmod(store.filePath, 0o600)
+      await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 })
+      const key = await readKey(path.join(path.dirname(filePath), 'auth.key'), encrypted === undefined)
+      const store = new FileCredentialStore(filePath, key)
+      if (encrypted !== undefined) {
+        const privateValues = unseal(encrypted, key)
+        // Entries written by an older Host are kept when reopening the directory with a newer Host.
+        delete stored[sealedCredentials]
+        store.values = records({ ...privateValues, ...stored })
+        if (Object.keys(stored).some((name) => name !== hostToken)) await store.persist(store.values)
+        else await chmod(filePath, 0o600)
+      } else {
+        store.values = stored
+        await store.persist(store.values)
+      }
+      store.committed = records(store.values)
+      return store
     } catch {
-      throw new Error('无法设置 auth.json 的 0600 权限，请检查文件权限')
+      throw new Error('无法开启凭据存储，请检查 auth.json、auth.key 和数据目录权限')
     }
-    store.committed = records(store.values)
-    return store
   }
 
-  private async persist(value: Record<string, string>) {
-    const temporary = `${this.filePath}.${randomUUID()}.tmp`
-    try {
-      await mkdir(path.dirname(this.filePath), { recursive: true, mode: 0o700 })
-      await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600, flag: 'wx' })
-      await rename(temporary, this.filePath)
-    } finally {
-      await rm(temporary, { force: true })
-    }
+  private persist(values: Record<string, string>) {
+    // SSH 引导只读取本 Host 的访问令牌，其余记录通过 Host 解封。
+    const { [hostToken]: token, ...privateValues } = values
+    const encrypted = seal(privateValues, this.key)
+    return writePrivate(this.filePath, `${JSON.stringify({ [hostToken]: token, [sealedCredentials]: encrypted })}\n`)
   }
 
   private enqueue(value: Record<string, string>) {

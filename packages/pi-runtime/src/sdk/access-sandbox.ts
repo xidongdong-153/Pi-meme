@@ -3,6 +3,7 @@ import { access, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { linuxSandboxLaunch } from './linux-sandbox'
+import { isWithin, privateHostPaths } from './private-host-files'
 import { serviceProcessEnvironment, spawnManagedProcess, type ManagedProcess } from './managed-process'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
@@ -54,10 +55,7 @@ export type SandboxLaunch = {
   prepare?: () => Promise<{ args: string[]; files?: Buffer[] }>
 }
 
-export function pathWithin(root: string, value: string) {
-  const relative = path.relative(root, value)
-  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
-}
+export const pathWithin = isWithin
 
 /** 写入根目录先解析符号链接。 */
 async function accessProfile(
@@ -100,12 +98,15 @@ async function accessProfile(
       throw new Error('请先选择具体项目目录，不能将用户目录、Pi 配置目录或系统临时目录整体授权为工作区')
     roots.push(project)
   }
+  const privatePaths = dataRoot ? privateHostPaths(dataRoot) : { directories: [], files: [] }
   return [
     '(version 1)',
     '(allow default)',
     '(deny file-write*)',
     '(allow file-write* (literal "/dev/null"))',
     `(allow file-write* ${roots.map((root) => (dataRoot && pathWithin(root, dataRoot) ? `(require-all (subpath ${JSON.stringify(root)}) (require-not (subpath ${JSON.stringify(dataRoot)})))` : `(subpath ${JSON.stringify(root)})`)).join(' ')})`,
+    ...privatePaths.directories.map((target) => `(deny file-read* file-write* (subpath ${JSON.stringify(target)}))`),
+    ...privatePaths.files.map((target) => `(deny file-read* file-write* (literal ${JSON.stringify(target)}))`),
   ].join('\n')
 }
 

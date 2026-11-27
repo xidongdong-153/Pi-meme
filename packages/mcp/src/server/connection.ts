@@ -8,6 +8,7 @@ import {
   McpHttpError,
   StdioTransport,
   StreamableHttpTransport,
+  type AuthProvider,
 } from '@earendil-works/pi-mcp'
 import {
   createMcpAuthProvider,
@@ -17,6 +18,7 @@ import {
 } from '@earendil-works/pi-mcp/oauth'
 import type { McpServerConfig } from '@earendil-works/pi-coding-agent'
 import type { McpCheck, McpService } from '@pi-meme/contracts/mcp'
+import { serviceProcessEnvironment } from '@pi-meme/pi-runtime/sdk/managed-process'
 import type { DesktopMcpOAuthCredentials } from './runtime-config'
 
 type Http = Extract<McpServerConfig, { url: string }>
@@ -62,6 +64,54 @@ function expandHome(value: string) {
       ? path.join(homedir(), value.slice(2))
       : value
 }
+class PrivateStdioTransport extends StdioTransport {
+  override get stderr() {
+    return ''
+  }
+
+  override async start() {
+    try {
+      await super.start()
+    } catch {
+      throw new Error('MCP 本地进程启动失败')
+    }
+  }
+}
+
+export function createMcpTransport(
+  config: McpServerConfig,
+  cwd: string,
+  authProvider?: AuthProvider,
+  openGetStream = true,
+) {
+  return 'url' in config
+    ? new StreamableHttpTransport({
+        url: config.url,
+        headers: resolveValues(config.headers),
+        authProvider,
+        openGetStream,
+        fetch: async (input, init) => {
+          const response = await fetch(input, { ...init, redirect: 'error' })
+          if (response.ok) return response
+          await response.body?.cancel().catch(() => {})
+          return new Response(null, { status: response.status, headers: response.headers })
+        },
+      })
+    : new PrivateStdioTransport({
+        command: expandHome(config.command),
+        args: config.args?.map(expandHome),
+        env: Object.fromEntries(
+          Object.entries(serviceProcessEnvironment(resolveValues(config.env))).filter(
+            (entry): entry is [string, string] => entry[1] !== undefined,
+          ),
+        ),
+        inheritEnv: false,
+        cwd: path.resolve(cwd, expandHome(config.cwd ?? '.')),
+        stderr: 'pipe',
+        maxStderrBytes: 1,
+      })
+}
+
 export function oauthClient(
   name: string,
   config: Http,
@@ -125,21 +175,13 @@ export async function probeMcpService(
         },
       })
     }
-    const transport =
-      'url' in config
-        ? new StreamableHttpTransport({
-            url: config.url,
-            headers: resolveValues(config.headers),
-            authProvider: auth ?? (config.auth ? { token: () => providerToken(config.auth!.provider) } : undefined),
-            openGetStream: false,
-          })
-        : new StdioTransport({
-            command: expandHome(config.command),
-            args: config.args?.map(expandHome),
-            env: resolveValues(config.env),
-            cwd: path.resolve(cwd, expandHome(config.cwd ?? '.')),
-            stderr: 'pipe',
-          })
+    const provider = 'url' in config ? config.auth?.provider : undefined
+    const transport = createMcpTransport(
+      config,
+      cwd,
+      auth ?? (provider ? { token: () => providerToken(provider) } : undefined),
+      false,
+    )
     await client.connect(transport)
     const tools = client.serverCapabilities?.tools ? (await client.listTools()).length : 0
     check = { state: 'connected', checkedAt, tools }
@@ -154,7 +196,7 @@ export async function probeMcpService(
           : '服务要求登录或补充授权'
         : error instanceof McpHttpError
           ? `服务返回 HTTP ${error.status}`
-          : (error instanceof Error ? error.message : '连接失败').slice(0, 500),
+          : '连接失败，请检查服务地址、启动配置与网络',
     }
   } finally {
     clearTimeout(timer)
