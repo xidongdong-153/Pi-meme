@@ -22,6 +22,7 @@ LABEL org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${REVISION}"
 
 ENV HOME=/home/ubuntu \
+    PI_MEME_DISTRIBUTION=docker \
     PI_MEME_HOST=0.0.0.0 \
     PI_MEME_AUTH_MODE=token-required \
     PI_MEME_TLS_CERT=/run/pi-meme/tls/host.crt \

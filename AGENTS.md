@@ -97,4 +97,4 @@ Web (Vite) ──────────┘                                    
 - 新增或修改导航、Tab、面板与加载状态时遵循 [UI 体验与动效](docs/ui-experience.md)，复用现有过渡入口，保持页面状态，并支持系统和应用的减少动态效果设置。
 - 刷新保留已有列表结构；加载和禁用只作用在触发操作上。Popover 关闭动画结束前保留虚拟 Anchor，并显式指定展开方向。
 - Prettier：两空格、单引号、无分号、LF、120 列、尾随逗号。
-- 没有配置公证或自动更新。无证书时 Forge 用 ad-hoc 签名，可用 `PI_DESKTOP_SIGNING_IDENTITY` 指定证书。
+- 从 0.1.9 起，「设置 → 关于」检查稳定版，安装包由用户下载、校验并手动安装。macOS 尚未配置公证。无证书时 Forge 用 ad-hoc 签名，可用 `PI_DESKTOP_SIGNING_IDENTITY` 指定证书。

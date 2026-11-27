@@ -7,6 +7,7 @@ import type {
   HostControlEvent,
 } from '@pi-meme/contracts/app-host'
 import { createAppHostClient } from './app-host-client'
+import { isAppUpdateCheck, isAppUpdateInstallation } from '@pi-meme/contracts/app-update'
 import { maxImagePreviewBytes } from '@pi-meme/contracts/app-host'
 import type { ImageLibraryItem, ImageLibraryUploadInput } from '@pi-meme/contracts/image-library'
 import {
@@ -670,6 +671,40 @@ export class HostClient {
     if (value.hostId !== targetHostId) throw new Error('服务返回了不匹配的 Host 身份')
     this.acceptHost(value.hostId)
     onProgress?.(data.size, data.size)
+    return value.result
+  }
+
+  private async readAppUpdate<T>(path: string, valid: (value: unknown) => value is T, force?: boolean): Promise<T> {
+    const epoch = this.networkEpoch
+    await this.authenticate()
+    this.assertAvailable(epoch)
+    const send = () =>
+      this.fetch(this.endpoint(path), {
+        credentials: 'include',
+        signal: this.lifetime.signal,
+        ...(force === undefined
+          ? {}
+          : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ force }) }),
+      })
+    let response = await send()
+    this.assertAvailable(epoch)
+    if (response.status === 401) {
+      await this.renewAuthentication()
+      this.assertAvailable(epoch)
+      response = await send()
+    }
+    this.assertAvailable(epoch)
+    if (response.status === 404) throw new Error('当前服务尚未提供更新检查，请从发布页手动升级')
+    const value = (await response.json().catch(() => null)) as {
+      hostId?: unknown
+      result?: unknown
+      error?: unknown
+    } | null
+    this.assertAvailable(epoch)
+    if (!response.ok)
+      throw new Error(typeof value?.error === 'string' ? value.error : `读取更新信息失败（HTTP ${response.status}）`)
+    if (typeof value?.hostId !== 'string' || !valid(value.result)) throw new Error('服务返回的更新信息无效')
+    this.acceptHost(value.hostId)
     return value.result
   }
 
@@ -1679,6 +1714,11 @@ export class HostClient {
       respondBuiltinLogin: (input) => rpc('models:builtin-login-respond', [input], null),
       cancelBuiltinLogin: () => rpc('models:builtin-login-cancel', [], null),
       logoutBuiltinProvider: (providerId) => rpc('models:builtin-logout', [providerId], null),
+      appUpdates: {
+        getInfo: () => this.readAppUpdate('/api/update', isAppUpdateInstallation),
+        check: (force = false) => this.readAppUpdate('/api/update/check', isAppUpdateCheck, force),
+      },
+      desktopUpdates: platform?.desktopUpdates,
       getStorageInfo: () => rpc('host:storage-info', [], null),
       storage: platform?.storage,
       getUsageStats: () => rpc('settings:usage-stats'),

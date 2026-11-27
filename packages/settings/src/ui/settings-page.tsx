@@ -7,6 +7,7 @@ import type {
   Theme,
 } from '@pi-meme/contracts/settings'
 import type { SettingsBridge, ModelsBridge } from '@pi-meme/contracts/desktop'
+import { AppUpdateSettings } from './app-update-settings'
 import { ThemeSettings } from './theme-settings'
 import type { AppearanceSaveStatus } from './appearance-save'
 import { GeneralSettings } from './general-settings'
@@ -20,8 +21,13 @@ export type SettingsPageProps = {
   section: 'about' | 'appearance' | 'general' | 'instructions'
   snapshot: SettingsSnapshot | null
   piVersion?: string
+  desktopUpdates?: SettingsBridge['desktopUpdates']
+  hostId?: string
+  hostLabel: string
+  hostLocal: boolean
+  hostConnected: boolean
   error: string
-  bridge: Pick<SettingsBridge, 'getInstructions' | 'saveInstruction' | 'getStorageInfo' | 'storage'> &
+  bridge: Pick<SettingsBridge, 'getInstructions' | 'saveInstruction' | 'getStorageInfo' | 'storage' | 'appUpdates'> &
     Pick<ModelsBridge, 'reconnectModels'>
   onBeforeRestart: () => Promise<void>
   cwd: string
@@ -50,6 +56,11 @@ export function SettingsPage({
   section,
   snapshot,
   piVersion,
+  desktopUpdates,
+  hostId,
+  hostLabel,
+  hostLocal,
+  hostConnected,
   error,
   bridge,
   cwd,
@@ -84,16 +95,27 @@ export function SettingsPage({
           onMaintaining={onMaintaining}
         />
       ) : section === 'about' ? (
-        <SettingsGroup title="Pi">
-          <SettingsCard>
-            <dl className="settings-row flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs">
-              <dt className="font-medium">内置版本</dt>
-              <dd>
-                <CrossfadeText>{piVersion ? `v${piVersion}` : '尚未连接'}</CrossfadeText>
-              </dd>
-            </dl>
-          </SettingsCard>
-        </SettingsGroup>
+        <>
+          <AppUpdateSettings
+            key={hostId}
+            desktop={desktopUpdates}
+            host={bridge.appUpdates}
+            hostId={hostId}
+            hostLabel={hostLabel}
+            hostLocal={hostLocal}
+            connected={hostConnected}
+          />
+          <SettingsGroup title="Pi 运行时">
+            <SettingsCard>
+              <dl className="settings-row flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs">
+                <dt className="font-medium">内置版本</dt>
+                <dd>
+                  <CrossfadeText>{hostConnected && piVersion ? `v${piVersion}` : '尚未连接'}</CrossfadeText>
+                </dd>
+              </dl>
+            </SettingsCard>
+          </SettingsGroup>
+        </>
       ) : (
         <ThemeSettings mobile={mobile} snapshot={snapshot} {...appearance} />
       )}

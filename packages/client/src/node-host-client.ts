@@ -1,5 +1,6 @@
 import type { EventCursor, HostApi, HostControlEvent, HostControlResponse } from '@pi-meme/contracts/app-host'
 import type { HostRpcResponse } from '@pi-meme/contracts/host'
+import type { AppUpdateCheck } from '@pi-meme/contracts/app-update'
 import { createAppHostClient } from './app-host-client'
 
 export type NodeHostClientOptions = {
@@ -20,6 +21,7 @@ export type NodeHostClientOptions = {
 }
 type RpcOptions = { sessionId?: string; signal?: AbortSignal }
 export type NodeHostClient = HostApi & {
+  checkAppUpdate: (force?: boolean) => Promise<AppUpdateCheck>
   rpc: <T>(method: string, args?: unknown[], options?: RpcOptions) => Promise<T>
   dispose: () => void
 }
@@ -61,7 +63,7 @@ export async function createNodeHostClient(options: NodeHostClientOptions): Prom
   }
   await authenticate()
   async function call<T>(
-    pathname: '/api/control' | '/api/rpc',
+    pathname: '/api/control' | '/api/rpc' | '/api/update/check',
     input: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<T> {
@@ -160,6 +162,7 @@ export async function createNodeHostClient(options: NodeHostClientOptions): Prom
     },
   })
   return Object.assign(api, {
+    checkAppUpdate: (force = false) => call<AppUpdateCheck>('/api/update/check', { force }, AbortSignal.timeout(20000)),
     rpc: <T>(method: string, args: unknown[] = [], { sessionId, signal }: RpcOptions = {}) =>
       call<T>('/api/rpc', { requestId: crypto.randomUUID(), method, args, sessionId }, signal),
     dispose() {

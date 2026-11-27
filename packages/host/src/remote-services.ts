@@ -9,6 +9,7 @@ import { sessionCookieName } from './transport-auth'
 import type { SshConnection } from '@pi-meme/contracts/ssh-connections'
 import { SshConnections, type SshConnectionOptions } from './ssh-connections'
 import { SshError } from './ssh-tunnels'
+import { responseBody } from './response-body'
 
 function record(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
@@ -53,16 +54,6 @@ function sessions(value: unknown): value is NonNullable<HostService['sessions']>
     (value.standaloneSessions === undefined ||
       (Array.isArray(value.standaloneSessions) && value.standaloneSessions.every(summary)))
   )
-}
-async function responseBody(response: Response, limit: number) {
-  const chunks: Uint8Array[] = []
-  let size = 0
-  for await (const chunk of response.body ?? []) {
-    size += chunk.byteLength
-    if (size > limit) throw new Error('远程响应超过大小限制')
-    chunks.push(chunk)
-  }
-  return Buffer.concat(chunks)
 }
 
 export class RemoteServices {
@@ -441,16 +432,11 @@ export class RemoteServices {
   }
   private async proxyRequest(id: string, pathname: string, method: string, body?: string) {
     const state = this.get(id)
-    if ((pathname === '/api/auth' || pathname === '/api/rpc' || pathname === '/api/control') && method !== 'POST')
-      throw new Error('远程代理请求方法无效')
-    if (pathname.startsWith('/api/plugins/') && method !== 'GET') throw new Error('远程资源请求方法无效')
-    if (!(
-      pathname === '/api/auth' ||
-      pathname === '/api/rpc' ||
-      pathname === '/api/control' ||
-      pathname.startsWith('/api/plugins/')
-    ))
-      throw new Error('远程代理接口无效')
+    const post = ['/api/auth', '/api/rpc', '/api/control', '/api/update/check'].includes(pathname)
+    const get = pathname === '/api/update' || pathname.startsWith('/api/plugins/')
+    if (!post && !get) throw new Error('远程代理接口无效')
+    if (post && method !== 'POST') throw new Error('远程代理请求方法无效')
+    if (get && method !== 'GET') throw new Error('远程资源请求方法无效')
     if (pathname === '/api/rpc') {
       const rpc = JSON.parse(body ?? '{}') as { method?: unknown }
       if (
@@ -487,14 +473,16 @@ export class RemoteServices {
         response = await send()
       }
       this.assertCurrent(state)
-      let data = await responseBody(response, 48 * 1024 * 1024)
+      const update = pathname === '/api/update' || pathname === '/api/update/check'
+      let data = await responseBody(response, update ? 256 * 1024 : 48 * 1024 * 1024)
       this.assertCurrent(state)
-      if (pathname === '/api/rpc' && response.ok) {
+      if (response.ok && (pathname === '/api/rpc' || update)) {
         const envelope = JSON.parse(data.toString()) as HostRpcResponse
         if (envelope.hostId !== state.hostId) {
           this.disconnect(id)
           throw new SshError('host-identity', '远程服务身份已变化')
         }
+        if (update) return { status: response.status, contentType: 'application/json', data }
         const request = JSON.parse(body!) as { method: string }
         if (!envelope.error && request.method === 'workspace:projects') {
           if (!projects(envelope.result)) throw new Error('远程项目摘要格式无效')

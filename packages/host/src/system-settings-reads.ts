@@ -39,7 +39,7 @@ const definitions: Array<[string, string, string, SystemOperation['scope']?]> = 
   ['tools.execution', '区分保存的工具开关、本轮捕获设置和有效权限', '[]', 'session'],
   ['permissions.status', '读取默认与本轮有效访问权限及沙箱可用性', '[]', 'session'],
   ['sandbox.status', '读取 Host 启动时已缓存的沙箱能力，不重新探测', '[]'],
-  ['host.runtime', '读取实际 Host 与已有 Pi 连接的安全运行摘要', '[]'],
+  ['host.runtime', '读取 Host 产品版本、已有更新检查结果与 Pi 运行时，不发起联网检查', '[]'],
   ['host.modules', '分页读取已装配内置模块状态', '[{cursor?,limit?}?]'],
   ['host.diagnostics', '读取配置、模块、插件的安全诊断代码，不返回原始错误日志', '[{cursor?,limit?}?]'],
   [
@@ -411,8 +411,14 @@ function configuredModel(value: unknown) {
 function safeRuntime(value: unknown) {
   const source = row(value)
   const connection = row(source.connection)
+  const update = row(source.lastUpdateCheck)
   return {
     ...fields(source, ['hostId', 'version', 'piVersion', 'platform', 'arch', 'nodeVersion']),
+    distribution: selected(source.distribution, ['host', 'desktop', 'docker']) ?? 'unknown',
+    lastUpdateCheck: {
+      status: selected(update.status, ['available', 'current', 'ahead']) ?? 'unknown',
+      ...fields(update, ['version', 'checkedAt']),
+    },
     status: selected(source.status, ['running', 'ready', 'stopping', 'stopped', 'unknown']) ?? 'unknown',
     connection: {
       status:

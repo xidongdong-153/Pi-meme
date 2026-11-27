@@ -7,6 +7,7 @@ paths:
   - 'pnpm-lock.yaml'
   - 'scripts/package-host.mts'
   - 'scripts/release.mts'
+  - 'docs/release-notes.md'
   - 'scripts/release-licenses.mts'
   - 'scripts/release-workspace.mts'
   - 'apps/desktop/forge.config.ts'
@@ -24,7 +25,7 @@ paths:
 
 ## 平台与附件
 
-版本取 Desktop 与 Server 的 `package.json`，Tag 为 `v<版本>`；预览版本在 GitHub 标记 Pre-release。每次发布包含七个附件。
+版本取 Desktop 与 Server 的 `package.json`，Tag 为 `v<版本>`。从 0.1.9 起，每次发布包含八个附件。带预发布后缀的版本在 GitHub 标记为 Pre-release，稳定更新入口继续指向正式版。
 
 | 附件                                            | 用途与验收基线                               |
 | ----------------------------------------------- | -------------------------------------------- |
@@ -34,15 +35,16 @@ paths:
 | `pi-meme-host-<版本>-linux-x64.tar.gz`          | Ubuntu 24.04 x64 独立 Host 与 Web            |
 | `pi-meme-host-<版本>-docker-linux-amd64.tar.gz` | Docker Engine 原生 AMD64                     |
 | `pi-meme-host-<版本>-docker-linux-arm64.tar.gz` | Docker Engine 原生 ARM64，包括 Apple Silicon |
-| `SHA256SUMS`                                    | 四个平台包和两个 Docker 镜像的 SHA256        |
+| `SHA256SUMS`                                    | 六个产品包与更新清单的 SHA-256               |
+| `latest.json`                                   | 本版说明与六个产品包的下载信息               |
 
-Web 随 Host 提供，不单独发布。当前不提供 Intel Mac、Linux ARM64 独立归档、Alpine/musl、Windows arm64、Windows 独立 Host、MSI/Setup、DMG、Homebrew 或 npm 分发，不自动注册系统服务，也没有自动更新。其他 macOS 版本与 Linux 发行版未作为产物验收基线。Windows 发布构建使用 `windows-2025` runner；构建和文件校验通过不表示 Windows 桌面功能已完成人工验收。
+Web 随 Host 提供，不单独发布。当前不提供 Intel Mac、Linux ARM64 独立归档、Alpine/musl、Windows arm64、Windows 独立 Host、MSI/Setup、DMG、Homebrew 或 npm 分发，系统服务由用户配置。用户可以在「设置 → 关于」检查稳定版，按部署方式手动安装。其他 macOS 版本与 Linux 发行版未作为产物验收基线。Windows 发布构建使用 `windows-2025` runner；构建和文件校验通过不表示 Windows 桌面功能已完成人工验收。
 
 macOS Desktop 默认使用 ad-hoc 签名，可通过 `PI_DESKTOP_SIGNING_IDENTITY` 指定证书，见 [Forge 配置](../apps/desktop/forge.config.ts)；当前未配置公证。`codesign --verify` 检查签名完整性，不代表 Gatekeeper 会接受网络下载的应用。不要把 `spctl` 拒绝未公证应用当作已实现公证，也不要让用户关闭系统 Gatekeeper。Windows 包未配置代码签名。
 
 ## 版本与产物来源
 
-[Desktop package.json](../apps/desktop/package.json) 和 [Server package.json](../apps/server/package.json) 的 `version` 必须相同，Tag 必须为 `v<version>`。内部私有包不随应用统一改版。版本检查入口：
+[Desktop package.json](../apps/desktop/package.json) 和 [Server package.json](../apps/server/package.json) 的 `version` 必须相同，Tag 必须为 `v<version>`。内部私有包不随应用统一改版。[本版亮点](release-notes.md) 的首行写 `# v<版本>`，空行后用中文纯文本写本版变化，段落间可空行。下次发版时替换整份内容，各版说明随 Git Tag 和 Release 保存。发布脚本会检查说明的版本与正文。版本检查入口：
 
 ```bash
 node --import tsx scripts/release.mts check
@@ -168,7 +170,9 @@ Windows x64 已接入本机受限权限、受限插件和 Agent 受管服务。�
 node --import tsx scripts/release.mts checksums
 ```
 
-脚本检查 `out/release/` 的六个产物，核对各平台包内的元数据，读取 Docker 归档的 manifest 和镜像配置，比对标签、系统、架构、版本和 commit，然后生成 `SHA256SUMS` 和 `out/release-notes.md`。
+脚本检查 `out/release/` 的六个产物，核对平台包元数据及 Docker 归档中的标签、系统、架构、版本和 commit。校验通过后，每个产物的字节数和 SHA-256 写入 `latest.json`。`SHA256SUMS` 复用这六个哈希，并记录 `latest.json` 的哈希，供发布 job 在上传前校验。重跑汇总命令会重新生成两个清单。`out/release-notes.md` 和清单中的 `notes` 共用[本版亮点](release-notes.md)正文。Release 正文还包含安装、校验和升级说明。
+
+`latest.json` 顶层包含 `version`、`tag`、`channel`、`notes` 和 `assets`。正式版 `channel` 为 `stable`，预发布为 `preview`。每个资产记录 `kind`（`desktop`、`host`、`docker`）、`platform`（`darwin`、`win32`、`linux`）、`arch`（`x64`、`arm64`）、`name`、`url`、`size`（字节）与 `sha256`。Docker AMD64 的归档名沿用 `amd64`，清单中的 `arch` 使用 `x64`。所有资产 URL 均指向官方仓库的具体 Tag。打开关于页时使用一小时内的成功检查结果，「检查更新」可立即刷新。开发构建默认关闭联网检查，联调时可给开发 Host 或 Desktop 设置 `PI_MEME_UPDATE_FEED`，指向返回同一清单格式的 HTTP(S) 地址。发行包始终使用官方稳定更新源。
 
 ## GitHub workflow
 
@@ -203,13 +207,13 @@ flowchart TD
 
 只有发布 job 有 `contents: write`，使用 GitHub 自带 `GITHUB_TOKEN`，不需要个人 PAT 或 Apple 凭据。其他 job 只读；发布 job 不执行依赖安装或构建脚本。平台 job 缓存 pnpm 下载存储，不缓存原生构建结果。Linux 的版本检查 job 执行 `pnpm check`，复用类型检查增量缓存。Host 直接运行 `pnpm package:host`；Desktop 先运行 `pnpm package --arch <目标架构>`，再用 `pnpm make --skip-package --arch <目标架构>` 生成 ZIP，macOS 为 `arm64`，Windows 为 `x64`，随后复核对应平台的最终包。所有检查仍基于本次 checkout；发布构建成功不表示功能测试通过。
 
-汇总的 `release-complete` artifact 包含七个附件和 Release Notes，保留七天。只有所有平台成功才会进入汇总与发布。并发按 ref 排队；重跑可覆盖 Actions artifacts，但公开 Release 附件不可覆盖。
+汇总的 `release-complete` artifact 包含八个附件和 Release Notes，保留七天。只有所有平台成功才会进入汇总与发布。并发按 ref 排队；重跑可覆盖 Actions artifacts，但公开 Release 附件不可覆盖。
 
-草稿正文中的 `pi-meme-release-commit` 标记绑定本次 commit。重跑若发现草稿没有匹配标记、Release 已公开、Tag 被移动或附件列表异常，流程失败，不删除或覆盖已公开内容。上传中断可能留下不完整草稿，不能手动公开它；先排除失败原因并重新运行。已有草稿多出的附件需要维护者核对后手动处理。完整附件列表核对通过后，执行 `gh release edit --draft=false` 自动公开；成功公开的版本不需要重新运行 workflow。
+草稿正文中的 `pi-meme-release-commit` 标记绑定本次 commit。重跑若发现草稿没有匹配标记、Release 已公开、Tag 被移动或附件列表异常，流程失败，不删除或覆盖已公开内容。上传中断可能留下不完整草稿，不能手动公开它；先排除失败原因并重新运行。已有草稿多出的附件需要维护者核对后手动处理。八个附件名称核对通过后，流程公开草稿。正式版设为 GitHub Latest，预发布显式设置 `--latest=false`。成功公开的版本不需要重新运行 workflow。
 
 ## 发布步骤
 
-1. 将 `apps/desktop/package.json` 与 `apps/server/package.json` 的 `version` 改为相同的新版本，例如 `0.1.0`。内部私有包不改版。
+1. 将 `apps/desktop/package.json` 与 `apps/server/package.json` 的 `version` 改为相同的新版本，在[本版亮点](release-notes.md)更新版本标题和正文。
 2. 按[Git 提交规范](development.md#git-提交规范)提交本次代码与版本号，确保工作区干净。单独的版本号提交使用 `chore(release): 发布 <版本>`；包含功能或修复的提交按实际改动选择类型。Agent 执行提交与推送前仍需展示改动并获得明确确认，提交确认同时展示拟用提交信息。
 3. 在仓库根目录执行：
 
@@ -223,7 +227,7 @@ flowchart TD
 
 工作区存在未提交或未跟踪文件、两个版本不一致、处于 detached HEAD、远端 Tag 已存在，或本地同名 Tag 指向其他 commit 时，脚本中止。远端分支拒绝快进或不支持原子推送时，分支和 Tag 都不会更新；排除原因后可在同一 HEAD 重试，脚本会复用指向该 HEAD 的本地 Tag。远端 Tag 已存在时需查看对应 Actions，不能靠再次推送触发构建。构建失败后若需修改代码，使用新版本和新 Tag，不移动已公开 Tag。
 
-下载入口用 [Releases 页面](https://github.com/xidongdong-153/Pi-meme/releases) 或明确的 Tag 地址，不依赖 `/releases/latest`。不通过 `pnpm publish` 发布 npm 包。
+应用内检查使用[稳定版更新清单](https://github.com/xidongdong-153/Pi-meme/releases/latest/download/latest.json)。用户也可以从 [Releases 页面](https://github.com/xidongdong-153/Pi-meme/releases)选择具体版本，下载地址固定到 `/releases/download/v<版本>/<附件名>`。
 
 ## 许可与升级
 

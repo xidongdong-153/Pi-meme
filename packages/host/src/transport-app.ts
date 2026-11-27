@@ -33,7 +33,7 @@ type TransportServices = {
   host: Awaited<ReturnType<typeof createHost>>
   remotes: RemoteServices
   auth: ReturnType<typeof createTransportAuth>
-  options: Pick<ServerOptions, 'staticDirectory' | 'frontendUrl' | 'owner'>
+  options: Pick<ServerOptions, 'staticDirectory' | 'frontendUrl' | 'owner' | 'appUpdate'>
 }
 
 function reply(status: number, value: unknown, headers?: Record<string, string>) {
@@ -460,6 +460,17 @@ export function createTransportApp(services: TransportServices) {
   })
   // 固定沙箱壳公开提供，不含会话、凭据或草图数据。内容仅由父页面通过端口传入。
   app.get(visualizationPreviewPath, () => visualizationPreviewResponse())
+  app.get('/api/update', () => {
+    if (!options.appUpdate) return reply(404, { error: '当前服务未提供版本信息' })
+    return reply(200, { hostId: host.hostId, result: options.appUpdate.getInfo() })
+  })
+  app.post('/api/update/check', async (c) => {
+    if (!options.appUpdate) return reply(404, { error: '当前服务未提供更新检查' })
+    const input = await jsonBody(c.req.raw)
+    if (!input || typeof input !== 'object' || !('force' in input) || typeof input.force !== 'boolean')
+      return reply(400, { error: '检查更新参数无效' })
+    return reply(200, { hostId: host.hostId, result: await options.appUpdate.check(input.force) })
+  })
   registerEvents(app, services)
   registerResources(app, services)
   registerRpc(app, services)

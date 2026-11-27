@@ -6,6 +6,7 @@ import { homedir } from 'node:os'
 import type { HostConnection, HostConnectionError, SavedHostConnection } from '@pi-meme/contracts/host'
 import { defaultDevelopmentFrontendPort, defaultFrontendPort } from '@pi-meme/contracts/host-runtime'
 import { createNodeHostClient, type NodeHostClient } from '@pi-meme/client/node-host-client'
+import { createAppUpdateService } from '@pi-meme/host/app-update'
 import { readLocalHostStatus } from '@pi-meme/host/host-status'
 import { startFrontendServer } from '@pi-meme/host/frontend-server'
 import { syncDockIcon } from './dock-icon'
@@ -55,6 +56,12 @@ if (!instanceLocked) app.exit(0)
 app.on('second-instance', () => {
   window?.show()
   window?.focus()
+})
+const desktopUpdates = createAppUpdateService({
+  kind: 'desktop',
+  version: app.getVersion(),
+  packaged: app.isPackaged,
+  developmentFeed: app.isPackaged ? undefined : process.env.PI_MEME_UPDATE_FEED,
 })
 const storage = createStorageController({
   anchor: app.getPath('userData'),
@@ -218,6 +225,16 @@ app
         list: () => rpc<SavedHostConnection[]>('host:connections:list'),
         remove: (url) => rpc<void>('host:connections:remove', [url]),
         error: () => lastConnectionError,
+      },
+      {
+        getInfo: () => {
+          const info = desktopUpdates.getInfo()
+          return localHost?.ownership === 'owned' ? { ...info, bundledHostId: localHost.status.hostId } : info
+        },
+        check: (force) =>
+          localHost?.ownership === 'owned' && hostClient
+            ? hostClient.checkAppUpdate(force)
+            : desktopUpdates.check(force),
       },
       storage.adapter,
     )

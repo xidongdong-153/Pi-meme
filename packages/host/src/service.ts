@@ -107,6 +107,7 @@ import type { ResourceImportInput, ResourceSnapshot } from '@pi-meme/contracts/r
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 export type HostOptions = {
+  appUpdate?: import('./app-update').AppUpdateService
   dataRoot?: string
   workerPath?: string
   restrictedNode?: string
@@ -1105,6 +1106,9 @@ export async function createHost(options: HostOptions = {}) {
               execution: () => ({ mode: actor.mode, accessMode: actor.accessMode }),
               runtime: () => ({
                 hostId,
+                version: options.appUpdate?.getInfo().version,
+                distribution: options.appUpdate?.getInfo().kind,
+                lastUpdateCheck: options.appUpdate?.getLastCheck(),
                 piVersion: pi.connection().piVersion,
                 platform: process.platform,
                 arch: process.arch,

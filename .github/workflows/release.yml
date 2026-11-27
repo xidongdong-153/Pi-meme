@@ -153,7 +153,7 @@ jobs:
           pattern: platform-*
           path: out/release
           merge-multiple: true
-      - name: 核对全部产物并生成校验清单
+      - name: 核对全部产物并生成更新清单、校验和与发布说明
         run: node --import tsx scripts/release.mts checksums
       - uses: actions/upload-artifact@v4
         with:
@@ -178,6 +178,7 @@ jobs:
       VERSION: ${{ needs.check.outputs.version }}
       COMMIT: ${{ needs.check.outputs.commit }}
       PRERELEASE: ${{ needs.check.outputs.prerelease }}
+      MAKE_LATEST: ${{ needs.check.outputs.prerelease == 'false' }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -198,6 +199,7 @@ jobs:
             "pi-meme-host-${VERSION}-docker-linux-amd64.tar.gz"
             "pi-meme-host-${VERSION}-docker-linux-arm64.tar.gz"
             SHA256SUMS
+            latest.json
           )
           if gh release view "$TAG" --json isDraft,body > "$RUNNER_TEMP/existing-release.json"; then
             jq --exit-status --arg marker "<!-- pi-meme-release-commit:$COMMIT -->" \
@@ -209,4 +211,4 @@ jobs:
               --title "pi-meme $TAG" --notes-file ../release-notes.md
           fi
           diff <(printf '%s\n' "${assets[@]}" | sort) <(gh release view "$TAG" --json assets --jq '.assets[].name' | sort)
-          gh release edit "$TAG" --draft=false --prerelease="$PRERELEASE"
+          gh release edit "$TAG" --draft=false --prerelease="$PRERELEASE" --latest="$MAKE_LATEST"

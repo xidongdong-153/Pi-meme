@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./desktop": "./src/desktop.ts",
+    "./app-update": "./src/app-update.ts",
     "./link-preview": "./src/link-preview.ts",
     "./turn-changes": "./src/turn-changes.ts",
     "./git-review": "./src/git-review.ts",

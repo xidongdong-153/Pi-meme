@@ -233,6 +233,7 @@ export function ServicesApp({
             workspaceView={workspaceView}
             client={client}
             bridge={client.bridge}
+            desktopUpdates={registry.local.bridge.desktopUpdates}
             host={client.host}
             plugins={client.plugins}
             hostId={service.hostId}

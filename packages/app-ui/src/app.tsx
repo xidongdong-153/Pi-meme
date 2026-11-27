@@ -33,7 +33,7 @@ import { useActivities } from '@pi-meme/activities/ui/activity-store'
 import { GoalControl } from '@pi-meme/goals/ui/goal-control'
 import { GitMenu } from '@pi-meme/git/ui/git-menu'
 import { LocationSelector } from './shell/location-selector'
-import { serviceLabel, serviceStatus, type ServiceUI } from './shell/service-ui'
+import { serviceAddress, serviceLabel, serviceStatus, type ServiceUI } from './shell/service-ui'
 import { SubagentsPanel } from './panels/subagents-panel'
 import { createResourceClient } from '@pi-meme/client/resource-client'
 import { appendSkillInvocation, invokeSkillInNewSession } from './settings/invoke-skill'
@@ -175,6 +175,7 @@ export function App(props: ComponentProps<typeof AppContent>) {
 
 function AppContent({
   bridge,
+  desktopUpdates,
   host,
   plugins,
   call,
@@ -195,6 +196,7 @@ function AppContent({
   sidebarLayout: SidebarLayout
   workspaceView: WorkspaceView
   bridge: DesktopBridge
+  desktopUpdates?: DesktopBridge['desktopUpdates']
   host: HostApi
   plugins: PluginClient
   call: <T>(method: string, args?: unknown[]) => Promise<T>
@@ -2620,6 +2622,13 @@ function AppContent({
       busy: chat.busy || chat.connection.status === 'connecting',
       snapshot: settings.snapshot,
       piVersion: chat.connection.piVersion,
+      desktopUpdates,
+      hostId,
+      hostLocal,
+      hostLabel: currentService?.name || (hostAddress ? serviceAddress(hostAddress) : '当前服务'),
+      hostConnected: currentService
+        ? currentService.status === 'connected'
+        : chat.connection.status !== 'disconnected' && chat.connection.status !== 'connecting',
       error: settings.error,
       onDirty: setInstructionsDirty,
       onSaving: setInstructionsSaving,

@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { HostConnection, HostConnectionError, SavedHostConnection } from '@pi-meme/contracts/host'
 import { isTrustedPlatformSource } from './platform-source'
 import type { DesktopStorageAdapter } from '@pi-meme/contracts/storage'
+import type { AppUpdateService } from '@pi-meme/host/app-update'
 import { getProjectApps, openProjectInApp } from '../project-apps'
 import { readShortcutPreferences, writeShortcutPreferences } from '../shortcut-preferences'
 import { executeWindowCommand, updateTitleBar } from '../window/desktop-window'
@@ -21,6 +22,7 @@ export function registerPlatformIpc(
     remove: (url: string) => Promise<void>
     error: () => HostConnectionError | null
   },
+  desktopUpdates: Pick<AppUpdateService, 'getInfo' | 'check'>,
   storage?: DesktopStorageAdapter,
   userDataDir?: string,
 ) {
@@ -37,6 +39,11 @@ export function registerPlatformIpc(
       return action(...args)
     })
   registerComputerUse(handle, getWindow)
+  handle('platform:desktop-update-info', () => desktopUpdates.getInfo())
+  handle('platform:desktop-update-check', (force) => {
+    if (force !== undefined && typeof force !== 'boolean') throw new Error('检查更新参数无效')
+    return desktopUpdates.check(force)
+  })
   const local = async () => {
     if (!(await getConnection()).local) throw new Error('远程服务不能调用本机文件操作')
     const window = getWindow()
@@ -165,6 +172,8 @@ export function registerPlatformIpc(
       'export-theme',
       'shortcuts-read',
       'shortcuts-save',
+      'desktop-update-info',
+      'desktop-update-check',
       'storage-info',
       'storage-choose',
       'storage-migrate',

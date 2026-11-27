@@ -114,6 +114,10 @@ const platform: PlatformAdapter = {
         },
       }
     : {}),
+  desktopUpdates: {
+    getInfo: () => ipcRenderer.invoke('platform:desktop-update-info'),
+    check: (force) => ipcRenderer.invoke('platform:desktop-update-check', force),
+  },
   storage: {
     getInfo: (hostId) => ipcRenderer.invoke('platform:storage-info', hostId),
     chooseTarget: (hostId) => ipcRenderer.invoke('platform:storage-choose', hostId),

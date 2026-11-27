@@ -15,7 +15,11 @@ export type DesktopHostProcess = {
 
 function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostProcess> {
   return new Promise((resolve, reject) => {
-    const child = utilityProcess.fork(entry, [], { serviceName: 'Pi Meme Host', env, stdio: 'pipe' })
+    const child = utilityProcess.fork(entry, app.isPackaged ? [] : ['--development'], {
+      serviceName: 'Pi Meme Host',
+      env,
+      stdio: 'pipe',
+    })
     let exited = false
     let exitCode: number | undefined
     let hostId = ''

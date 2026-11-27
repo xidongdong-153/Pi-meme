@@ -3,8 +3,11 @@ import { readFileSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { getCACertificates, setDefaultCACertificates } from 'node:tls'
 import { startHostServer } from '@pi-meme/host/server'
+import { createAppUpdateService } from '@pi-meme/host/app-update'
 import { errorCode } from '@pi-meme/host/host-status'
 import { hostPort } from '@pi-meme/contracts/host-runtime'
+
+declare const __PI_MEME_VERSION__: string
 
 type ParentPort = {
   postMessage: (value: unknown) => void
@@ -25,7 +28,14 @@ if (testCertificate) {
   if (!certificatePath.startsWith(`${fixtureRoot}${path.sep}`)) throw new Error('验收证书必须位于临时 fixture 目录')
   setDefaultCACertificates([...getCACertificates('default'), readFileSync(certificatePath, 'utf8')])
 }
+const packaged = !process.argv.includes('--development')
 void startHostServer({
+  appUpdate: createAppUpdateService({
+    kind: 'desktop',
+    version: __PI_MEME_VERSION__,
+    packaged,
+    developmentFeed: packaged ? undefined : process.env.PI_MEME_UPDATE_FEED,
+  }),
   dataRoot: process.env.PI_MEME_DATA_ROOT,
   testCredentials: process.env.PI_MEME_TEST_CREDENTIALS === 'memory',
   port: hostPort(process.env.PI_MEME_PORT),

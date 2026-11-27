@@ -386,6 +386,8 @@ export interface ModelsBridge {
 
 /** 桌面设置与主题。 */
 export interface SettingsBridge {
+  appUpdates: import('./app-update').AppUpdateReader
+  desktopUpdates?: import('./app-update').AppUpdateReader
   getStorageInfo: () => Promise<HostStorageInfo>
   storage?: DesktopStorageAdapter
   getInstructions: () => Promise<InstructionsSnapshot>

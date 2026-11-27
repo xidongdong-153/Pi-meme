@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ServerOptions } from '@pi-meme/host/server'
+import { createAppUpdateService } from '@pi-meme/host/app-update'
+import { errorCode } from '@pi-meme/host/host-status'
 import { hostPort } from '@pi-meme/contracts/host-runtime'
 
 export async function serverOptions(
@@ -16,7 +18,22 @@ export async function serverOptions(
   if (Boolean(certificate) !== Boolean(key)) throw new Error('HTTPS 证书与私钥必须同时配置')
   const directory = path.dirname(fileURLToPath(entryUrl))
   const bundled = entryUrl.endsWith('.js')
+  const release = bundled
+    ? await readFile(path.resolve(directory, '../../../release.json'), 'utf8').catch((cause: unknown) => {
+        if (errorCode(cause) !== 'ENOENT') throw cause
+        return undefined
+      })
+    : undefined
+  const metadata = release ?? (await readFile(path.join(directory, '../package.json'), 'utf8'))
+  const { version } = JSON.parse(metadata) as { version: string }
+  if (typeof version !== 'string' || !version) throw new Error('Host 包元数据缺少产品版本')
   return {
+    appUpdate: createAppUpdateService({
+      kind: release !== undefined && environment.PI_MEME_DISTRIBUTION === 'docker' ? 'docker' : 'host',
+      version,
+      packaged: release !== undefined,
+      developmentFeed: release === undefined ? environment.PI_MEME_UPDATE_FEED : undefined,
+    }),
     dataRoot: environment.PI_MEME_DATA_ROOT,
     restrictedNode: environment.PI_MEME_PLUGIN_NODE || process.execPath,
     restrictedEntry:

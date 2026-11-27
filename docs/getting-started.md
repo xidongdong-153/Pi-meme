@@ -38,7 +38,7 @@ Desktop 和独立 Host 归档面向 macOS 15 arm64、Ubuntu 24.04 x64 和 Window
 Get-FileHash -Algorithm SHA256 "pi-meme-desktop-<版本>-windows-x64.zip"
 ```
 
-与 `SHA256SUMS` 中对应值一致后，解压整个 ZIP，运行目录内的 `Pi meme.exe`。保留同目录的 DLL、`resources` 和其他文件，不单独移动 EXE。当前为 ZIP 分发，未配置 Windows 代码签名、安装向导或自动更新。
+与 `SHA256SUMS` 中对应值一致后，解压整个 ZIP，运行目录内的 `Pi meme.exe`。保留同目录的 DLL、`resources` 和其他文件，不单独移动 EXE。Windows 使用未签名的 ZIP 分发，从「设置 → 关于」检查新版后按上述步骤安装。
 
 应用数据默认位于 `%USERPROFILE%\.pi-meme`。升级时完全退出 Desktop，用新版完整目录替换应用文件，保留数据目录。
 
@@ -191,6 +191,10 @@ curl --retry 5 --retry-all-errors --retry-delay 1 --cacert pi-meme-local.crt \
 容器以 UID 1000 运行，根文件系统只读，所有外层 Linux capabilities 均已移除。Compose 针对该容器解除 Docker 的默认系统路径遮罩，让 bubblewrap 能挂载私有 `/proc`，同时以空只读挂载遮蔽 `/sys`。外层 seccomp 保留 Moby 默认策略并增加 bubblewrap 所需规则。Host 启动时探测实际沙箱能力，Plan、只读和工作区修改取决于该探测结果。见 [Linux 与 WSL 隔离](configuration.md#linux-与-wsl-隔离)。
 
 ### 升级
+
+从 **0.1.9** 起，打开「设置 → 关于」即可检查最新稳定版，也可以点「检查更新」重新获取。发现新版时会显示中文更新说明、适配当前平台的下载链接、包大小和 SHA-256。0.1.8 及更早版本请先从 [GitHub Releases](https://github.com/xidongdong-153/Pi-meme/releases) 手动升级一次。
+
+Desktop 自带的 Host 随桌面包升级。复用独立 Host 或连接远程 Host 时，分别查看本机 Desktop 和当前服务。Web 显示所连服务的信息。Docker 请选择对应架构的镜像归档，按[本地 Docker 部署](#本地-docker-部署)加载镜像、切换 `PI_MEME_IMAGE` 并重建容器。由 SSH 或系统服务管理的 Host 请在部署机器上完成升级。
 
 先退出旧 Host 的管理方，备份数据目录，再替换 Desktop 的 `.app`、Windows 完整应用目录，或解压新版 Host。数据默认在 `~/.pi-meme`，与安装目录分离；独立 Host 继续使用原来的 `PI_MEME_DATA_ROOT`。新版 Host 启动时若检测到旧版数据根，会在独占锁下自动就地升级布局并建立备份，规则与异常恢复见 [数据目录与存储](storage.md)。不要覆盖或上传备份中的凭据。不承诺数据格式变化后可直接降级。Desktop 与独立 Host 使用相同目录和端口时可能复用旧实例，见[共享 Host](#desktop-与-server-共享-host)。
 

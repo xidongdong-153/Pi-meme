@@ -19,6 +19,17 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  isAppReleaseVersion,
+  isReleaseNotes,
+  maxReleaseManifestBytes,
+  releaseAssetName,
+  releaseAssetUrl,
+  releaseRepositoryUrl,
+  type AppReleaseAsset,
+  type AppReleaseManifest,
+  type AppReleaseTarget,
+} from '@pi-meme/contracts/app-update'
 import { writeThirdPartyLicenses } from './release-licenses.mjs'
 
 export const repoRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -29,7 +40,7 @@ export const releaseResourceFiles = ['release.json', 'LICENSE', 'THIRD_PARTY_NOT
 const desktopResourceFiles = [...releaseResourceFiles, 'ELECTRON_LICENSE', 'LICENSES.chromium.html']
 
 export function validateVersion(desktop: string, server: string, tag?: string) {
-  assert.match(desktop, /^\d+\.\d+\.\d+(?:-[a-z0-9]+(?:\.[a-z0-9]+)*)?$/i, '发布版本必须是无构建后缀的版本号')
+  assert.ok(isAppReleaseVersion(desktop), '发布版本必须是无构建后缀的版本号')
   assert.equal(server, desktop, 'Desktop 与 Server 版本不一致')
   if (tag !== undefined) assert.equal(tag, `v${desktop}`, 'Tag 与应用版本不一致')
   return desktop
@@ -48,6 +59,15 @@ export async function releaseInfo() {
   return { version, commit }
 }
 
+async function readVersionNotes(version: string, root = repoRoot) {
+  const source = await readFile(path.join(root, 'docs/release-notes.md'), 'utf8')
+  const [title, ...lines] = source.trim().split(/\r?\n/)
+  assert.equal(title, `# v${version}`, 'docs/release-notes.md 的标题须与本次版本一致')
+  const notes = lines.join('\n').trim()
+  assert.ok(isReleaseNotes(notes), '请在 docs/release-notes.md 中填写本次版本的中文亮点')
+  return notes
+}
+
 export async function pushRelease(root = repoRoot) {
   const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim()
   assert.equal(git('status', '--porcelain'), '', '工作区有未提交改动，请先提交本次版本和发布代码')
@@ -56,6 +76,7 @@ export async function pushRelease(root = repoRoot) {
   const desktop = JSON.parse(await readFile(path.join(root, 'apps/desktop/package.json'), 'utf8'))
   const server = JSON.parse(await readFile(path.join(root, 'apps/server/package.json'), 'utf8'))
   const version = validateVersion(desktop.version, server.version)
+  await readVersionNotes(version, root)
   const tag = `v${version}`
   const tagRef = `refs/tags/${tag}`
   const commit = git('rev-parse', 'HEAD')
@@ -74,15 +95,17 @@ export async function pushRelease(root = repoRoot) {
   console.log(`已推送 ${tag}，请在 GitHub Actions 查看“构建发布包”的运行结果`)
 }
 
+const releaseTargets = [
+  { kind: 'desktop', platform: 'darwin', arch: 'arm64', label: 'Apple Silicon Mac 桌面应用' },
+  { kind: 'host', platform: 'darwin', arch: 'arm64', label: 'Apple Silicon Mac 独立 Host' },
+  { kind: 'host', platform: 'linux', arch: 'x64', label: 'Linux x64 独立 Host' },
+  { kind: 'desktop', platform: 'win32', arch: 'x64', label: 'Windows x64 桌面应用' },
+  { kind: 'docker', platform: 'linux', arch: 'x64', label: 'Linux AMD64 Docker 镜像' },
+  { kind: 'docker', platform: 'linux', arch: 'arm64', label: 'Linux ARM64 Docker 镜像（包括 Apple Silicon）' },
+] satisfies (AppReleaseTarget & { label: string })[]
+
 export function releaseAssetNames(version: string) {
-  return [
-    `pi-meme-desktop-${version}-macos-arm64.zip`,
-    `pi-meme-host-${version}-macos-arm64.tar.gz`,
-    `pi-meme-host-${version}-linux-x64.tar.gz`,
-    `pi-meme-desktop-${version}-windows-x64.zip`,
-    `pi-meme-host-${version}-docker-linux-amd64.tar.gz`,
-    `pi-meme-host-${version}-docker-linux-arm64.tar.gz`,
-  ]
+  return releaseTargets.map((target) => releaseAssetName(version, target))
 }
 
 export async function writeReleaseResources(directory: string, runtime: 'desktop' | 'host') {
@@ -122,9 +145,14 @@ export async function assertPortableLinks(directory: string) {
   }
 }
 
-async function checkMetadata(value: string, platform: string, arch: string, host: boolean) {
+function checkMetadata(
+  value: string,
+  info: { version: string; commit: string },
+  platform: string,
+  arch: string,
+  host: boolean,
+) {
   const metadata = JSON.parse(value)
-  const info = await releaseInfo()
   assert.equal(metadata.version, info.version, '产物版本不一致')
   assert.equal(metadata.commit, info.commit, '产物 commit 不一致')
   assert.equal(metadata.platform, platform, '产物平台不一致')
@@ -134,7 +162,13 @@ async function checkMetadata(value: string, platform: string, arch: string, host
 
 export async function checkWindowsDesktop(directory: string) {
   const resources = path.join(directory, 'resources')
-  await checkMetadata(await readFile(path.join(resources, 'release.json'), 'utf8'), 'win32', 'x64', false)
+  checkMetadata(
+    await readFile(path.join(resources, 'release.json'), 'utf8'),
+    await releaseInfo(),
+    'win32',
+    'x64',
+    false,
+  )
   for (const name of [
     ...desktopResourceFiles,
     'app.asar',
@@ -169,7 +203,8 @@ async function prepareDesktopAsset() {
   const windows = process.platform === 'win32'
   assert.ok(windows || process.platform === 'darwin', 'Desktop 发布包只在 macOS 或 Windows 构建')
   assert.equal(process.arch, windows ? 'x64' : 'arm64', 'Desktop 仅分发 macOS arm64 和 Windows x64')
-  const { version } = await releaseInfo()
+  const info = await releaseInfo()
+  const { version } = info
   const source = path.join(
     repoRoot,
     'apps/desktop/out/make/zip',
@@ -177,7 +212,14 @@ async function prepareDesktopAsset() {
     process.arch,
     `Pi meme-${process.platform}-${process.arch}-${version}.zip`,
   )
-  const destination = path.join(releaseDirectory, releaseAssetNames(version)[windows ? 3 : 0])
+  const destination = path.join(
+    releaseDirectory,
+    releaseAssetName(version, {
+      kind: 'desktop',
+      platform: windows ? 'win32' : 'darwin',
+      arch: windows ? 'x64' : 'arm64',
+    }),
+  )
   await mkdir(releaseDirectory, { recursive: true })
   await copyFile(source, destination)
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-meme desktop '))
@@ -191,7 +233,7 @@ async function prepareDesktopAsset() {
     execFileSync('unzip', ['-q', destination, '-d', directory])
     const app = path.join(directory, 'Pi meme.app')
     const metadata = await readFile(path.join(app, 'Contents/Resources/release.json'), 'utf8')
-    await checkMetadata(metadata, 'darwin', 'arm64', false)
+    checkMetadata(metadata, info, 'darwin', 'arm64', false)
     const bundleId = execFileSync(
       '/usr/libexec/PlistBuddy',
       ['-c', 'Print :CFBundleIdentifier', path.join(app, 'Contents/Info.plist')],
@@ -229,59 +271,84 @@ function checkDockerArchive(file: string, version: string, commit: string, arch:
 }
 
 export async function writeChecksums(directory: string) {
-  const { version, commit } = await releaseInfo()
-  const names = releaseAssetNames(version)
+  const info = await releaseInfo()
+  const { version, commit } = info
+  const tag = `v${version}`
+  const notes = await readVersionNotes(version)
   assert.deepEqual(
-    (await readdir(directory)).filter((name) => name !== 'SHA256SUMS').sort(),
-    [...names].sort(),
+    (await readdir(directory)).filter((name) => name !== 'SHA256SUMS' && name !== 'latest.json').sort(),
+    releaseAssetNames(version).sort(),
     'Release 目录必须包含四个平台包和两种原生架构的 Docker 镜像包',
   )
-  const lines: string[] = []
-  for (const [index, name] of names.entries()) {
+  const assets: AppReleaseAsset[] = []
+  for (const target of releaseTargets) {
+    const { kind, platform, arch } = target
+    const name = releaseAssetName(version, target)
     const file = path.join(directory, name)
     const stat = await lstat(file)
     assert.ok(stat.isFile() && stat.size > 0, `发布文件无效：${name}`)
-    if (name === names[4] || name === names[5]) {
-      checkDockerArchive(file, version, commit, name === names[4] ? 'amd64' : 'arm64')
+    if (kind === 'docker') {
+      checkDockerArchive(file, version, commit, arch === 'x64' ? 'amd64' : 'arm64')
     } else {
-      const desktop = index === 0 || index === 3
+      const desktop = kind === 'desktop'
       const metadata = execFileSync(
         desktop ? 'unzip' : 'tar',
         desktop
-          ? ['-p', file, index === 3 ? 'resources[/\\\\]release.json' : 'Pi meme.app/Contents/Resources/release.json']
+          ? [
+              '-p',
+              file,
+              platform === 'win32' ? 'resources[/\\\\]release.json' : 'Pi meme.app/Contents/Resources/release.json',
+            ]
           : ['-xOf', file, 'pi-meme-host/release.json'],
         { encoding: 'utf8', maxBuffer: 1024 * 1024 },
       )
-      await checkMetadata(
-        metadata,
-        index === 3 ? 'win32' : index === 2 ? 'linux' : 'darwin',
-        index >= 2 ? 'x64' : 'arm64',
-        !desktop,
-      )
+      checkMetadata(metadata, info, platform, arch, !desktop)
     }
-    lines.push(`${await sha256(file)}  ${name}`)
+    assets.push({
+      kind,
+      platform,
+      arch,
+      name,
+      url: releaseAssetUrl(version, target),
+      size: stat.size,
+      sha256: await sha256(file),
+    })
   }
+  const manifest: AppReleaseManifest = {
+    version,
+    tag,
+    channel: version.includes('-') ? 'preview' : 'stable',
+    notes,
+    assets,
+  }
+  const contents = `${JSON.stringify(manifest, null, 2)}\n`
+  assert.ok(Buffer.byteLength(contents) <= maxReleaseManifestBytes, '清单超过客户端读取上限，请缩短本次版本亮点')
+  const lines = assets.map((asset) => `${asset.sha256}  ${asset.name}`)
+  lines.push(`${createHash('sha256').update(contents).digest('hex')}  latest.json`)
+  await writeFile(path.join(directory, 'latest.json'), contents)
   await writeFile(path.join(directory, 'SHA256SUMS'), `${lines.join('\n')}\n`)
+  return { manifest, commit }
 }
 
-async function writeReleaseNotes() {
-  const { version, commit } = await releaseInfo()
-  const names = releaseAssetNames(version)
+async function writeReleaseNotes({
+  manifest: { version, tag, notes },
+  commit,
+}: Awaited<ReturnType<typeof writeChecksums>>) {
+  const documentation = `${releaseRepositoryUrl}/blob/${tag}/docs`
   await writeFile(
     path.join(repoRoot, 'out/release-notes.md'),
     `# Pi meme v${version}
+
+## 本版亮点
+
+${notes}
 
 Desktop 包含本机 Host；只使用桌面应用时无需再下载 Host。Host 包含 Web、Worker、内置技能、生产依赖和 Node.js ${nodeVersion}，不需要安装 pnpm 或 Pi CLI。
 
 ## 下载
 
-- Apple Silicon Mac 桌面应用：\`${names[0]}\`
-- Apple Silicon Mac 独立 Host：\`${names[1]}\`
-- Linux x64 独立 Host：\`${names[2]}\`
-- Windows x64 桌面应用：\`${names[3]}\`
-- Linux AMD64 Docker 镜像 \`${names[4]}\`
-- Linux ARM64 Docker 镜像 \`${names[5]}\`（适用于 Apple Silicon 上的 Docker）
-- Docker 部署使用同版本的 Compose 与沙箱策略，见[本地 Docker 部署](https://github.com/xidongdong-153/Pi-meme/blob/v${version}/docs/getting-started.md#本地-docker-部署)。
+${releaseTargets.map((target) => `- ${target.label} \`${releaseAssetName(version, target)}\``).join('\n')}
+- Docker 部署使用同版本的 Compose 与沙箱策略，见[本地 Docker 部署](${documentation}/getting-started.md#本地-docker-部署)。
 - 下载后使用 \`SHA256SUMS\` 核验文件。
 
 构建 commit：\`${commit}\`。原生平台包面向 macOS 15 arm64、Ubuntu 24.04 x64 和 Windows x64；不提供 Intel Mac、Windows arm64 或 Alpine/musl 包。Docker 镜像分别在 Ubuntu 24.04 AMD64 和 ARM64 上构建。
@@ -290,7 +357,7 @@ Desktop 包含本机 Host；只使用桌面应用时无需再下载 Host。Host 
 
 Desktop 解压后将 Pi meme.app 放入 /Applications。macOS 使用 ad-hoc 签名，未做 Developer ID 签名与公证，首次打开可能被 Gatekeeper 阻止。仅在确认来源并校验文件后允许打开具体应用，不要关闭系统 Gatekeeper。
 
-Windows Desktop 解压整个 ZIP 后运行 \`Pi meme.exe\`，需要 Git for Windows 及其 bash。Windows 包未配置代码签名、安装向导或自动更新。本机 Host 的只读、工作区写入和受限插件使用原生 PSEC 沙箱，需要已更新的 Windows 11 24H2（26100.9278）、25H2（26200.9278）或更新版本；能力探测失败时明确报错，不自动改为完全权限。命令与 Agent 受管服务优先使用 PowerShell 7，缺失时使用 Windows PowerShell 5.1。
+Windows Desktop 解压整个 ZIP 后运行 \`Pi meme.exe\`，需要 Git for Windows 及其 bash。Windows 包采用手动解压安装，未配置代码签名。本机 Host 的只读、工作区写入和受限插件使用原生 PSEC 沙箱，需要已更新的 Windows 11 24H2（26100.9278）、25H2（26200.9278）或更新版本；能力探测失败时明确报错，不自动改为完全权限。命令与 Agent 受管服务优先使用 PowerShell 7，缺失时使用 Windows PowerShell 5.1。
 
 Host 解压后运行 \`./pi-meme-host/bin/pi-meme-host\`，访问 http://127.0.0.1:3185。需要 Git 和 bash；Linux 还需要可用的 bubblewrap。远程监听必须配置 HTTPS 证书、私钥和令牌。
 
@@ -300,9 +367,9 @@ Desktop/Web 客户端与远程 Host 请同步升级。当前自有 API 已移除
 
 Pi SDK 与 Chord 已升级至 1.6.0。已有可信 Server 插件需使用 Chord 1.6.0 DevKit 重建。本地只读、工作区修改和 Plan 不再加载插件 Agent 或 MCP；需要使用它们时选择完全权限的普通任务并明确授权。
 
-数据默认位于 ~/.pi-meme。升级前退出旧 Host 的管理方并备份数据目录；不提供自动更新或自动注册系统服务，不承诺数据格式变化后的降级兼容。
+数据默认位于 ~/.pi-meme。升级前退出旧 Host 的管理方，备份数据目录，再手动替换安装包。系统服务由原管理方维护。数据格式变化后的降级需核对兼容性。
 
-安装、首次打开与校验步骤见[快速开始](https://github.com/xidongdong-153/Pi-meme/blob/v${version}/docs/getting-started.md)，远程部署见[Remote](https://github.com/xidongdong-153/Pi-meme/blob/v${version}/docs/remote.md)。
+安装、首次打开与校验步骤见[快速开始](${documentation}/getting-started.md)，远程部署见[Remote](${documentation}/remote.md)。
 
 ## 验收
 
@@ -319,6 +386,7 @@ async function main() {
   const command = process.argv[2]
   if (command === 'check') {
     const { version, commit } = await releaseInfo()
+    await readVersionNotes(version)
     if (process.env.GITHUB_OUTPUT)
       await appendFile(
         process.env.GITHUB_OUTPUT,
@@ -328,8 +396,8 @@ async function main() {
   } else if (command === 'push') await pushRelease()
   else if (command === 'desktop') await prepareDesktopAsset()
   else if (command === 'checksums') {
-    await writeChecksums(releaseDirectory)
-    await writeReleaseNotes()
+    const release = await writeChecksums(releaseDirectory)
+    await writeReleaseNotes(release)
   } else throw new Error('用法：node --import tsx scripts/release.mts check|push|desktop|checksums')
 }
 
