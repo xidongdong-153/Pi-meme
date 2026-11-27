@@ -99,11 +99,9 @@ export function TurnImageGallery({
                 : item.editing
                   ? '正在编辑图片'
                   : '正在生成图片'
-              : item.status === 'error'
-                ? '图片生成失败'
-                : item.status === 'running'
-                  ? '图片生成已中断'
-                  : '未返回可预览图片'
+              : item.status === 'running'
+                ? '图片生成已中断'
+                : '未返回可预览图片'
             return (
               <div
                 key={item.id}
@@ -112,9 +110,6 @@ export function TurnImageGallery({
                 data-running={running && !isPaused}
               >
                 <div className="image-generation-dots" aria-hidden="true" />
-                {item.error && (
-                  <p className="relative mb-3 max-h-28 overflow-auto text-xs text-muted-foreground">{item.error}</p>
-                )}
                 <span
                   role="status"
                   className={

@@ -66,7 +66,7 @@ export type ChatState = {
   /** 本次运行已收到对话消息或工具活动，用于把运行状态归到实际轮次。 */
   turnStarted: boolean
   compacting: ChatCompactionState | null
-  retry?: PiRetryState
+  retry?: PiRetryState & { failedRequestTimestamp?: number }
   recovery?: PiState['recovery']
   compactionError?: string
   steering: readonly QueuedInput[]
@@ -106,6 +106,17 @@ export type ActivityItem =
       durationMs?: number
       status?: 'running' | 'success' | 'error'
     }
+
+export type ModelRequestFailure = {
+  id: string
+  type: 'model_request_failure'
+  message: string
+  timestamp?: number
+  retry?: PiRetryState
+  afterFinalText?: true
+}
+
+export type TurnActivity = ActivityItem | ModelRequestFailure
 
 export type ActionItemData = ActivityItem
 
@@ -152,7 +163,7 @@ export type TurnChunk =
     }
   | {
       type: 'assistant_turn'
-      activities: ActivityItem[]
+      activities: TurnActivity[]
       collaboration?: AgentCollaborationStatus[]
       agentStatuses?: AgentStatusEvent[]
       finalText: string

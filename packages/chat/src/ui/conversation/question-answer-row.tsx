@@ -89,12 +89,12 @@ export function QuestionAnswerRow({
                       : '提问已结束，未收到回答'}
             </span>
           </div>
+          {item.status === 'error' && <ErrorLine message={formatDetailValue(item.result) || '未能完成提问'} />}
           <div className="space-y-2 whitespace-pre-wrap [overflow-wrap:anywhere]">
             {questions.map((question) => (
               <p key={question.id}>{question.question}</p>
             ))}
           </div>
-          {item.status === 'error' && <ErrorLine message={formatDetailValue(item.result) || '未能完成提问'} />}
         </>
       )}
     </section>

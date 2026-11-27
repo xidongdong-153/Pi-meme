@@ -103,7 +103,7 @@ function ToolActivityRowContent({
           ? args.cmd
           : '')
   const isExecution = meta.kind === 'command' || script !== undefined
-  const detailValue = isExecution || (isImage && !isError) ? item.result : (item.result ?? item.args)
+  const detailValue = isExecution || isImage || isError ? item.result : (item.result ?? item.args)
   const rawText = React.useMemo(() => item.output ?? formatDetailValue(detailValue), [item.output, detailValue])
   const actionAnchor = React.useMemo(() => toolMessageActionAnchor(item, rawText), [item, rawText])
   const diffContent = React.useMemo(
@@ -113,11 +113,10 @@ function ToolActivityRowContent({
   const hasDetail =
     hasImages ||
     computerInfo !== undefined ||
-    (isError
-      ? Boolean(rawText || item.children?.length)
-      : isFileMutation
-        ? Boolean(filePatch)
-        : meta.kind !== 'read' && Boolean(isExecution || diff || rawText || item.children?.length || item.source))
+    isError ||
+    (isFileMutation
+      ? Boolean(filePatch)
+      : meta.kind !== 'read' && Boolean(isExecution || diff || rawText || item.children?.length || item.source))
   const detailsId = React.useId()
   const imageOnly = isImage && hasImages && !isExecution && !diff && !item.children?.length && !item.source
 
@@ -141,7 +140,7 @@ function ToolActivityRowContent({
         <TooltipHint content={meta.fullPath}>
           <div
             role={hasDetail ? 'button' : undefined}
-            aria-label={hasDetail ? `工具详情：${item.name ?? '未知工具'}` : undefined}
+            aria-label={hasDetail ? `工具详情：${item.name ?? '未知工具'}${isError ? '，失败' : ''}` : undefined}
             aria-expanded={hasDetail ? open : undefined}
             aria-controls={hasDetail ? detailsId : undefined}
             tabIndex={hasDetail ? 0 : undefined}
@@ -245,6 +244,7 @@ function ToolActivityRowContent({
                       isScript={script !== undefined}
                       isRunning={isRunning}
                       isPaused={isPaused}
+                      isError={isError}
                     >
                       {diffContent}
                     </ToolExecutionDetails>

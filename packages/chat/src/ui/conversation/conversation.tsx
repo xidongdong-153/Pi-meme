@@ -190,6 +190,7 @@ export const Conversation = React.memo(
               'agentStatuses' in view ? view.agentStatuses : [],
               chat.runIntervals,
               modelChanges,
+              chat.retry?.kind === 'model' ? chat.retry : undefined,
             )
       const finalReplyKeys = new Set<string>()
       let canBeFinal = true
@@ -571,7 +572,6 @@ export const Conversation = React.memo(
                       }
                       interrupted={Boolean(chat.stopped && turn === turns.at(-1))}
                       isFinalReply={finalReplyKeys.has(turn.key)}
-                      retry={turn.isLive && chat.retry?.kind === 'model' ? chat.retry : undefined}
                       isPaused={Boolean(chat.paused && turn.isLive)}
                       pauseIntervals={chat.pauseIntervals}
                       canFork={canForkReplies}

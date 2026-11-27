@@ -81,10 +81,13 @@ export function readPiNestedInteractionEntry(value: unknown): PiNestedInteractio
   return { rootToolCallId, interaction }
 }
 export type PiThinkingTiming = { startedAt: number; durationMs?: number }
+export type PiModelRequestFailure = { entryId: string; timestamp: number; errorMessage: string }
 export type PiMessage = AgentSession['messages'][number] & {
   source?: PiUiSource
   /** 客户端观测到的思考流区间；没有精确记录的历史消息不补造耗时。 */
   thinkingTimings?: Record<number, PiThinkingTiming>
+  /** 自动重试从模型上下文省略的请求失败，供聊天按发生时间展示。 */
+  retryFailures?: PiModelRequestFailure[]
   /** 按原生调用 ID 绑定的嵌套结果，用于恢复界面及工具产物引用，不加入模型上下文。 */
   nestedInteractions?: PiNestedInteraction[]
   completedAt?: number

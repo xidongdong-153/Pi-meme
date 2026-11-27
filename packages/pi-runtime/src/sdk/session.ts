@@ -101,6 +101,7 @@ import { explicitSessionName } from '@pi-meme/contracts/sessions'
 import { toDesktopEvent } from './events'
 import { GenerationMetricsTracker } from './generation-metrics'
 import { findSessionRecovery, recoveryEntryType, recoveryMessage } from './recovery'
+import { modelRetryHistoryEntry } from './model-retry-history'
 import { loadPiSdk, type PiSdk } from './load'
 import { createDesktopModelRuntime, projectModel } from './model-runtime'
 import { appendServiceTier, branchServiceTiers, restoreDraftServiceTiers } from '../session-service-tier'
@@ -1087,6 +1088,37 @@ export class SdkSession {
       if (event.type === 'entry_appended' && this.goalRun)
         void this.accountGoalUsage().catch((cause: unknown) => this.report(String(cause)))
       const desktopEvent = toDesktopEvent(event)
+      if (desktopEvent?.type === 'auto_retry_start') {
+        const manager = session.sessionManager
+        const failure = manager
+          .getBranch()
+          .findLast((entry) => entry.type === 'message' && entry.message.role === 'assistant')
+        if (
+          failure?.type === 'message' &&
+          failure.message.role === 'assistant' &&
+          failure.message.stopReason === 'error'
+        ) {
+          const previousLeaf = manager.getLeafId()
+          // Pi 在广播重试后同步省略失败消息。用原生编辑 ID 确认这次省略归属于自动重试。
+          queueMicrotask(() => {
+            if (!current()) return
+            const branch = manager.getBranch()
+            const boundary = branch.findIndex((entry) => entry.id === previousLeaf)
+            if (boundary < 0) return
+            const omission = branch
+              .slice(boundary + 1)
+              .find(
+                (entry) => entry.type === 'context_edit' && entry.targetId === failure.id && entry.replacement === null,
+              )
+            if (!omission) return
+            try {
+              manager.appendCustomEntry(modelRetryHistoryEntry, { entryId: failure.id, omissionId: omission.id })
+            } catch (cause) {
+              this.report(String(cause))
+            }
+          })
+        }
+      }
       if (desktopEvent?.type === 'message_start' && desktopEvent.message.role === 'custom') {
         // sendMessage 的非运行路径先追加再广播；在开始边界捕获刚追加的原生条目。
         const leaf = session.sessionManager.getLeafEntry()
@@ -1652,6 +1684,13 @@ export class SdkSession {
     }
     return {
       started: () => {
+        try {
+          manager.appendCustomEntry(modelRetryHistoryEntry, {
+            clearedEntryIds: recovery.failures.map((entry) => entry.id),
+          })
+        } catch (cause) {
+          this.report(String(cause))
+        }
         this.notify.event({
           generation: this.generation,
           event: {

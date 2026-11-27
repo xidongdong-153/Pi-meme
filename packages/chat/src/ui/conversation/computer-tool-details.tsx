@@ -268,13 +268,17 @@ function ComputerToolDetailsContent({
         <pre className="max-h-[min(16rem,40dvh)] overflow-auto overscroll-contain p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
           {formattedRaw}
         </pre>
-      ) : error || (isError && rawText) ? (
+      ) : error || isError ? (
         <div className="space-y-1 px-3 py-2.5">
-          <div className="flex flex-wrap items-center gap-1.5 text-destructive">
-            {errorCode && <span className="font-mono text-[11px]">{errorCode}</span>}
-            {phase && <span>{phase}</span>}
-          </div>
-          <p className="text-destructive [overflow-wrap:anywhere]">{error?.message || rawText}</p>
+          <p className="text-foreground [overflow-wrap:anywhere]">
+            {error?.message || rawText || '工具未返回错误详情'}
+          </p>
+          {(errorCode || phase) && (
+            <div className="flex flex-wrap items-center gap-1.5 text-muted-foreground">
+              {errorCode && <span className="font-mono text-[11px]">{errorCode}</span>}
+              {phase && <span>{phase}</span>}
+            </div>
+          )}
           {(deliveryLabel || recovery) && (
             <p className="[overflow-wrap:anywhere]">{[deliveryLabel, recovery].filter(Boolean).join('。')}</p>
           )}

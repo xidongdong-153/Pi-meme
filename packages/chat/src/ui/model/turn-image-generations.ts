@@ -1,29 +1,28 @@
 import type { PiImage } from '@pi-meme/contracts/pi'
-import type { ActivityItem, TurnChunk } from './types'
-import { extractImages, formatDetailValue } from './tool-details'
+import type { TurnActivity, TurnChunk } from './types'
+import { extractImages } from './tool-details'
 
 export type TurnImageGeneration = {
   id: string
   path?: string
   image?: PiImage & { id: string }
-  status: 'running' | 'success' | 'error'
+  status: 'running' | 'success'
   editing: boolean
-  error?: string
 }
 
 const emptyGenerations: TurnImageGeneration[] = []
-const collected = new WeakMap<readonly ActivityItem[], TurnImageGeneration[]>()
+const collected = new WeakMap<readonly TurnActivity[], TurnImageGeneration[]>()
 const galleryLists = new WeakMap<TurnChunk, TurnImageGeneration[]>()
 const groupedGalleries = new WeakMap<readonly TurnChunk[], Map<string, TurnImageGeneration[]>>()
 
-export function collectImageGenerations(activities: readonly ActivityItem[]): TurnImageGeneration[] {
+export function collectImageGenerations(activities: readonly TurnActivity[]): TurnImageGeneration[] {
   const cached = collected.get(activities)
   if (cached) return cached
   const results = new Map<string, TurnImageGeneration>()
-  const visit = (items: readonly ActivityItem[]) => {
+  const visit = (items: readonly TurnActivity[]) => {
     for (const item of items) {
-      if (item.type === 'thinking' || item.type === 'narration') continue
-      if (item.name === 'image_gen') {
+      if (item.type !== 'tool' && item.type !== undefined) continue
+      if (item.name === 'image_gen' && item.status !== 'error') {
         const result = item.result as { details?: { artifact?: { id?: string; path?: string } } } | undefined
         const artifact = result?.details?.artifact
         const args = item.args as { referenced_image_paths?: string[]; num_last_images_to_include?: number } | undefined
@@ -35,7 +34,6 @@ export function collectImageGenerations(activities: readonly ActivityItem[]): Tu
           image: image ? { ...image, type: 'image', id } : undefined,
           status: item.status ?? 'success',
           editing: Boolean(args?.referenced_image_paths?.length || args?.num_last_images_to_include),
-          error: item.status === 'error' ? formatDetailValue(item.result) || '图片生成失败' : undefined,
         })
       }
       if (item.children) visit(item.children)

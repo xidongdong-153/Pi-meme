@@ -33,6 +33,7 @@ function marksTurnStarted(message: PiMessage) {
 }
 
 function snapshotTurnStarted(snapshot: Snapshot) {
+  if (snapshot.state.retry?.kind === 'model') return true
   if (!snapshot.state.isStreaming) return false
   const last = snapshot.messages.findLast(marksTurnStarted)
   if (!last) return false
@@ -275,9 +276,13 @@ export function applyEvent(
       )
       return {
         ...state,
-        messages: state.messages.filter(
-          (message) => message.role !== 'assistant' || message.stopReason !== 'error' || !failed.has(message.timestamp),
-        ),
+        messages: state.messages.flatMap((message) => {
+          if (message.role === 'assistant' && message.stopReason === 'error' && failed.has(message.timestamp)) return []
+          if (!message.retryFailures?.some((failure) => removed.has(failure.timestamp))) return [message]
+          return [
+            { ...message, retryFailures: message.retryFailures.filter((failure) => !removed.has(failure.timestamp)) },
+          ]
+        }),
         sessionEntries: state.sessionEntries
           ? {
               ...state.sessionEntries,
@@ -323,10 +328,15 @@ export function applyEvent(
         retry: state.retry?.kind === 'summary' ? undefined : state.retry,
       }
     case 'auto_retry_start':
-    case 'summarization_retry_scheduled':
+    case 'summarization_retry_scheduled': {
+      const failedRequest =
+        event.type === 'auto_retry_start'
+          ? (state.live ?? state.messages.findLast((message) => message.role === 'assistant'))
+          : undefined
       return {
         ...state,
         running: true,
+        turnStarted: state.turnStarted || event.type === 'auto_retry_start',
         compactionError: event.type === 'summarization_retry_scheduled' ? undefined : state.compactionError,
         retry: {
           kind: event.type === 'auto_retry_start' ? 'model' : 'summary',
@@ -334,8 +344,14 @@ export function applyEvent(
           maxAttempts: event.maxAttempts,
           delayMs: event.delayMs,
           errorMessage: event.errorMessage,
+          ...(failedRequest?.role === 'assistant' &&
+          failedRequest.stopReason === 'error' &&
+          (!failedRequest.errorMessage || failedRequest.errorMessage === event.errorMessage)
+            ? { failedRequestTimestamp: failedRequest.timestamp }
+            : {}),
         },
       }
+    }
     case 'auto_retry_end':
       return { ...state, retry: state.retry?.kind === 'model' ? undefined : state.retry }
     case 'summarization_retry_finished':
@@ -396,6 +412,7 @@ export function applyEvent(
           sourceEntry: message.sourceEntry ?? messages[index]?.sourceEntry,
           source: message.source ?? messages[index]?.source,
           completedAt: message.completedAt ?? messages[index]?.completedAt,
+          retryFailures: message.retryFailures ?? messages[index]?.retryFailures,
         }
         messages[index] = message
       }

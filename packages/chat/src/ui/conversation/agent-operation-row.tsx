@@ -33,10 +33,7 @@ export function AgentOperationRow({
         aria-expanded={open}
         aria-controls={detailsId}
         onClick={() => setOpen((value) => !value)}
-        className={cn(
-          'conversation-activity-toggle group/agent-operation flex min-h-6 min-w-0 w-fit max-w-full items-start gap-2 rounded-sm pr-1 text-left text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer',
-          operation.status === 'error' && 'text-destructive',
-        )}
+        className="conversation-activity-toggle group/agent-operation flex min-h-6 min-w-0 w-fit max-w-full items-start gap-2 rounded-sm pr-1 text-left text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
       >
         <span aria-hidden="true" className="mt-[0.16em] inline-flex size-[1.4em] shrink-0 items-center justify-center">
           <Bot className="size-[1.15em]" />
@@ -66,6 +63,11 @@ export function AgentOperationRow({
       >
         <div className="min-h-0 overflow-hidden">
           <div className="ml-[calc(1.4em+0.5rem)] flex min-w-0 flex-col gap-2 border-l border-border py-2 pl-3 select-text">
+            {operation.error && (
+              <p className="max-h-60 overflow-auto whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]">
+                {operation.error}
+              </p>
+            )}
             <div className="flex min-w-0 items-start gap-2 text-muted-foreground">
               {recipient.agentId && (
                 <AgentAvatar
@@ -94,11 +96,6 @@ export function AgentOperationRow({
               </div>
             )}
             {operation.note && <p className="text-muted-foreground">{operation.note}</p>}
-            {operation.error && (
-              <p className="max-h-60 overflow-auto whitespace-pre-wrap text-destructive [overflow-wrap:anywhere]">
-                {operation.error}
-              </p>
-            )}
           </div>
         </div>
       </RetainedDisclosure>

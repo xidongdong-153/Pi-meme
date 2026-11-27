@@ -18,6 +18,7 @@ export function CollapsibleSection({
   contentClassName,
   actions,
   open: controlledOpen,
+  defaultOpen = false,
   onOpenChange,
   children,
 }: {
@@ -29,10 +30,11 @@ export function CollapsibleSection({
   contentClassName?: string
   actions?: ReactNode
   open?: boolean
+  defaultOpen?: boolean
   onOpenChange?: (open: boolean) => void
   children: ReactNode
 }) {
-  const [localOpen, setLocalOpen] = useState(false)
+  const [localOpen, setLocalOpen] = useState(defaultOpen)
   const open = controlledOpen ?? localOpen
   const triggerRef = useRef<HTMLButtonElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)

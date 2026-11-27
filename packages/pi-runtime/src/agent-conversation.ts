@@ -7,6 +7,7 @@ import { projectBranchEntries } from './session-tree-entries'
 import { loadPiSdk } from './sdk/load'
 import { projectMessageSources } from './sdk/ui-source'
 import { stableMessageRevision } from './sdk/message-projection'
+import { withModelRetryFailures } from './sdk/model-retry-history'
 
 export function projectAgentConversation(
   entries: readonly SessionEntry[],
@@ -76,7 +77,7 @@ export function projectAgentConversation(
   })
   const ownIds = new Set(branch.map((current) => current.id))
   return {
-    messages: projectMessageSources(branch, messages),
+    messages: withModelRetryFailures(projectMessageSources(branch, messages), branch),
     skillUsages: branchSkillUsages(fullBranch.reverse(), origin.inheritedEntryIds),
     sessionEntries: {
       entries: projectBranchEntries(branch).map((current) => ({

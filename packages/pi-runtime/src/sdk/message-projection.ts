@@ -10,6 +10,7 @@ import { readServiceTierEntry } from '../session-service-tier'
 import { createHash } from 'node:crypto'
 import { projectMessageSources } from './ui-source'
 import { loadPiSdk, type PiSdk } from './load'
+import { withModelRetryFailures } from './model-retry-history'
 
 export const promptRequestEntry = 'pi-meme.prompt-request'
 
@@ -114,8 +115,9 @@ export function projectStableMessageMetadata(
   const promptRequests = new Map<string, string>()
   let model = initialModel
   let selections: ModelServiceTiers | undefined
-  for (const id of [...seen].reverse()) {
-    const entry = byId.get(id)!
+  const branch = [...seen].reverse().map((id) => byId.get(id)!)
+  for (const entry of branch) {
+    const id = entry.id
     if (entry.type === 'model_change') model = { provider: entry.provider, id: entry.modelId }
     else if (entry.type === 'custom') {
       const receipt = readPromptRequest(entry)
@@ -144,7 +146,7 @@ export function projectStableMessageMetadata(
         : message,
     )
   })
-  return projectMessageSources(entries, messages, leafId)
+  return withModelRetryFailures(projectMessageSources(entries, messages, leafId), branch)
 }
 
 export async function projectStableMessages(

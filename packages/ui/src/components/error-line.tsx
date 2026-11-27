@@ -1,6 +1,5 @@
-import * as React from 'react'
 import type { ReactNode } from 'react'
-import { X } from 'lucide-react'
+import { CircleAlert, X } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { CollapsibleSection } from './ui/collapsible'
 
@@ -23,6 +22,8 @@ export function ErrorLine({
   message,
   summary,
   suffix,
+  defaultOpen,
+  onOpenChange,
   actions,
   onDismiss,
   className,
@@ -30,6 +31,8 @@ export function ErrorLine({
   message: string
   summary?: string
   suffix?: string
+  defaultOpen?: boolean
+  onOpenChange?: (open: boolean) => void
   actions?: ReactNode
   onDismiss?: () => void
   className?: string
@@ -45,11 +48,14 @@ export function ErrorLine({
           className="min-w-0 flex-1"
           variant="inline"
           triggerClassName="gap-1.5 rounded-md px-1 py-0.5 text-sm"
-          contentClassName="p-1"
+          contentClassName="p-1 pl-6"
+          defaultOpen={defaultOpen}
+          onOpenChange={onOpenChange}
           title={
             <span role="status" className="flex min-w-0 flex-1 items-center gap-1.5">
-              <span className="min-w-0 truncate text-destructive">{preview}</span>
-              {suffix && <span className="shrink-0 whitespace-nowrap text-destructive">{suffix}</span>}
+              <CircleAlert aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate text-foreground">{preview}</span>
+              {suffix && <span className="shrink-0 whitespace-nowrap text-muted-foreground">{suffix}</span>}
             </span>
           }
         >

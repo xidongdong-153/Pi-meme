@@ -17,7 +17,7 @@ type Row = Location & {
   role: PiMessage['role']
   part: number
   edit?: Location
-  metadata: Pick<PiMessage, 'sourceEntry' | 'source' | 'completedAt' | 'nestedInteractions'>
+  metadata: Pick<PiMessage, 'sourceEntry' | 'source' | 'completedAt' | 'nestedInteractions' | 'retryFailures'>
 }
 type Index = {
   version: string
@@ -163,6 +163,7 @@ async function build(file: string, expected: string, version: string): Promise<I
           ...(message.source ? { source: message.source } : {}),
           ...(message.completedAt !== undefined ? { completedAt: message.completedAt } : {}),
           ...(message.nestedInteractions?.length ? { nestedInteractions: message.nestedInteractions } : {}),
+          ...(message.retryFailures?.length ? { retryFailures: message.retryFailures } : {}),
         },
       }
     }),
@@ -306,7 +307,7 @@ async function readIndex(file: string, background = false): Promise<Index | unde
   const target = indexFile(file)
   if (!target) return
   const expected = await signature(file)
-  const version = `9:${getPiVersion()}`
+  const version = `10:${getPiVersion()}`
   const retained = cache.get(file)
   if (retained?.signature === expected && retained.version === version) {
     remember(file, retained)

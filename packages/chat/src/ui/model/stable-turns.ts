@@ -1,4 +1,4 @@
-import type { ActivityItem, AgentCollaborationStatus, AgentStatusEvent, ToolRun, TurnChunk } from './types'
+import type { AgentCollaborationStatus, AgentStatusEvent, ToolRun, TurnActivity, TurnChunk } from './types'
 
 export function sameItems<T>(left: readonly T[], right: readonly T[]) {
   return left === right || (left.length === right.length && left.every((item, index) => item === right[index]))
@@ -39,14 +39,14 @@ function retainChildren(previous: ToolRun[] | undefined, next: ToolRun[] | undef
   return retainItems(previous, items)
 }
 
-function retainActivities(previous: ActivityItem[], next: ActivityItem[]) {
+function retainActivities(previous: TurnActivity[], next: TurnActivity[]) {
   if (previous === next) return next
   const lookup = byIdentity(previous)
   const items = next.map((item) => {
     const old = lookup.get(item.id)?.next().value
     if (!old || old.type !== item.type) return item
     let candidate = item
-    if (item.type !== 'thinking' && item.type !== 'narration' && old.type !== 'thinking' && old.type !== 'narration') {
+    if ((item.type === 'tool' || item.type === undefined) && (old.type === 'tool' || old.type === undefined)) {
       const children = retainChildren(old.children, item.children)
       if (children !== item.children) candidate = { ...item, children }
     }

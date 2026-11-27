@@ -1,10 +1,10 @@
 import { nestedTools, toolTreeIndex } from './nested-tools'
 import { retainTurns, sameItems } from './stable-turns'
 import type { PiImage, PiMessage, PiRunInterval } from '@pi-meme/contracts/pi'
-import type { ActivityItem, AgentStatusEvent, ChatState, TurnChunk } from './types'
+import type { ActivityItem, AgentStatusEvent, ChatState, TurnActivity, TurnChunk } from './types'
 
 type RawTurnItem =
-  | { kind: 'activity'; item: ActivityItem }
+  | { kind: 'activity'; item: TurnActivity }
   | { kind: 'text'; id: string; text: string; message?: PiMessage }
   | { kind: 'agent_status'; item: AgentStatusEvent }
 type GroupBoundary = { last: boolean; timestamp?: number; assigned: ReadonlySet<string> }
@@ -23,6 +23,7 @@ export function groupConversationTurns(
   agentStatuses: Array<Extract<TurnChunk, { type: 'agent_status' }>> = [],
   runIntervals: readonly PiRunInterval[] = [],
   modelChanges: Array<Extract<TurnChunk, { type: 'model_change' }>> = [],
+  modelRetry?: ChatState['retry'],
   messageOffset = 0,
   boundary?: GroupBoundary,
 ): TurnChunk[] {
@@ -59,6 +60,7 @@ export function groupConversationTurns(
     }))
 
   let turnItems: RawTurnItem[] = []
+  let liveStartIndex: number | undefined
   let sourceMessages: PiMessage[] = []
   let turnImages: Array<PiImage & { id?: string }> = []
   let turnErrorMessage: string | undefined
@@ -70,21 +72,53 @@ export function groupConversationTurns(
   let userEntryId: string | undefined
 
   const flushTurn = (isLastTurn: boolean, boundary?: number) => {
+    if (isLastTurn && isAgentRunning && modelRetry?.kind === 'model') {
+      const message = modelRetry.errorMessage.trim()
+      const lastRequest = sourceMessages.findLast((source) => source !== liveMessage)
+      const failure = turnItems.findLast(
+        (entry) =>
+          entry.kind === 'activity' &&
+          entry.item.type === 'model_request_failure' &&
+          (modelRetry.failedRequestTimestamp === undefined
+            ? (entry.item.timestamp ?? 0) >= (lastRequest?.timestamp ?? 0) && entry.item.message === message
+            : entry.item.timestamp === modelRetry.failedRequestTimestamp),
+      )
+      if (failure?.kind === 'activity' && failure.item.type === 'model_request_failure') {
+        failure.item.retry = modelRetry
+      } else if (message) {
+        // 重连快照可能已省略被重试的消息。把该次失败放在当前请求的流式内容之前。
+        turnItems.splice(liveStartIndex ?? turnItems.length, 0, {
+          kind: 'activity',
+          item: { id: `model-retry-${modelRetry.attempt}`, type: 'model_request_failure', message, retry: modelRetry },
+        })
+      }
+    }
     if (isLastTurn && unassignedTools.length > 0) {
       for (const toolItem of unassignedTools) {
         turnItems.push({ kind: 'activity', item: toolItem })
       }
     }
 
-    let lastWorkIdx = -1
-    for (let i = turnItems.length - 1; i >= 0; i--) {
-      if (turnItems[i]!.kind === 'activity') {
-        lastWorkIdx = i
-        break
-      }
+    const isLive = isLastTurn && (isAgentRunning || Boolean(liveMessage))
+    const lastItemIndex = turnItems.findLastIndex((entry) => entry.kind !== 'agent_status')
+    const lastItem = turnItems[lastItemIndex]
+    const precedingItem = turnItems[lastItemIndex - 1]
+    // 终止失败之前已生成的正文仍可复制和分叉，失败原因紧接该段正文。
+    if (
+      !isLive &&
+      lastItem?.kind === 'activity' &&
+      lastItem.item.type === 'model_request_failure' &&
+      precedingItem?.kind === 'text' &&
+      precedingItem.message === sourceMessages.at(-1)
+    ) {
+      lastItem.item.afterFinalText = true
     }
+    const lastWorkIdx = turnItems.findLastIndex(
+      (entry) =>
+        entry.kind === 'activity' && !(entry.item.type === 'model_request_failure' && entry.item.afterFinalText),
+    )
 
-    const activities: ActivityItem[] = []
+    const activities: TurnActivity[] = []
     const finalTextParts: string[] = []
     let finalTextId: string | undefined
     const inlineStatuses: AgentStatusEvent[] = []
@@ -122,9 +156,7 @@ export function groupConversationTurns(
           .flatMap((item) => (item.kind === 'text' && item.message ? [item.message] : [])),
       ),
     ]
-    const isLive = isLastTurn && (isAgentRunning || Boolean(liveMessage))
-    const hasWorkOrText =
-      activities.length > 0 || inlineStatuses.length > 0 || Boolean(finalText) || Boolean(turnErrorMessage)
+    const hasWorkOrText = activities.length > 0 || inlineStatuses.length > 0 || Boolean(finalText)
 
     if (hasWorkOrText || isLive) {
       const run = runIntervals.findLast(
@@ -134,7 +166,7 @@ export function groupConversationTurns(
           (interval.endedAt ?? Infinity) > turnStartTimestamp,
       )
       const hasPendingTools = activities.some(
-        (item) => item.type !== 'thinking' && item.type !== 'narration' && item.status === 'running',
+        (item) => (item.type === 'tool' || item.type === undefined) && item.status === 'running',
       )
       const finishedAt =
         run?.endedAt !== undefined
@@ -170,6 +202,7 @@ export function groupConversationTurns(
     }
 
     turnItems = []
+    liveStartIndex = undefined
     sourceMessages = []
     turnImages = []
     turnErrorMessage = undefined
@@ -178,12 +211,23 @@ export function groupConversationTurns(
     turnKey = ''
   }
 
+  const retryFailures = allMessages.flatMap((message) => message.retryFailures ?? [])
+  const receivedEntryIds = new Set<string>()
+  if (retryFailures.length) {
+    for (const message of allMessages)
+      if (message.role === 'assistant' && message.sourceEntry) receivedEntryIds.add(message.sourceEntry.id)
+  }
   let timelineKey = 0
   const timeline = [
     ...allMessages.map((message) => {
       if (typeof message.timestamp === 'number') timelineKey = message.timestamp
       return { type: 'message' as const, message, timestamp: timelineKey }
     }),
+    ...retryFailures.flatMap((failure) =>
+      receivedEntryIds.has(failure.entryId)
+        ? []
+        : [{ type: 'model_request_failure' as const, failure, timestamp: failure.timestamp }],
+    ),
     ...agentStatuses.map((status) => ({ type: 'status' as const, status, timestamp: status.timestamp })),
     ...modelChanges.map((change) => ({ type: 'model_change' as const, change, timestamp: change.timestamp })),
   ].sort((a, b) => a.timestamp - b.timestamp)
@@ -198,6 +242,17 @@ export function groupConversationTurns(
     if (item.type === 'model_change') {
       flushTurn(false, item.timestamp)
       chunks.push(item.change)
+      continue
+    }
+    if (item.type === 'model_request_failure') {
+      const { entryId, timestamp, errorMessage } = item.failure
+      turnKey ||= `turn-init-${timestamp}`
+      turnStartTimestamp ??= timestamp
+      turnEndTimestamp = Math.max(turnEndTimestamp ?? 0, timestamp)
+      turnItems.push({
+        kind: 'activity',
+        item: { id: `model-request-${entryId}`, type: 'model_request_failure', timestamp, message: errorMessage },
+      })
       continue
     }
     const msg = item.message
@@ -255,10 +310,7 @@ export function groupConversationTurns(
       turnEndTimestamp = Math.max(turnEndTimestamp || 0, msg.completedAt ?? msg.timestamp)
     }
 
-    if (msg.role === 'assistant') {
-      sourceMessages.push(msg)
-      turnErrorMessage = msg.stopReason === 'aborted' ? undefined : msg.errorMessage
-    }
+    if (msg === liveMessage) liveStartIndex = turnItems.length
 
     if (msg.role === 'bashExecution') {
       turnItems.push({
@@ -276,7 +328,12 @@ export function groupConversationTurns(
     }
 
     if (msg.role === 'assistant') {
-      const assistantIndex = sourceMessages.length - 1
+      const assistantIndex = sourceMessages.length
+      sourceMessages.push(msg)
+      turnErrorMessage =
+        msg.stopReason === 'aborted'
+          ? undefined
+          : msg.errorMessage?.trim() || (msg.stopReason === 'error' ? '未知错误' : undefined)
       if (Array.isArray(msg.content)) {
         for (let pIdx = 0; pIdx < msg.content.length; pIdx++) {
           const part = msg.content[pIdx]!
@@ -333,6 +390,17 @@ export function groupConversationTurns(
           })
         }
       }
+      if (turnErrorMessage) {
+        turnItems.push({
+          kind: 'activity',
+          item: {
+            id: `model-request-${msg.sourceEntry?.id ?? `${msg.timestamp}-${assistantIndex}`}`,
+            type: 'model_request_failure',
+            timestamp: msg.timestamp,
+            message: turnErrorMessage,
+          },
+        })
+      }
     }
   }
 
@@ -371,6 +439,7 @@ type TurnPartition = {
   running: boolean
   completed: Record<number, boolean>
   intervals: readonly PiRunInterval[]
+  modelRetry?: ChatState['retry']
   boundary?: number
   offset: number
   last: boolean
@@ -425,16 +494,30 @@ export function createConversationTurnProjector() {
       statuses = emptyStatuses,
       intervals = emptyIntervals,
       changes = emptyChanges,
+      modelRetry,
       messageOffset = 0,
+      groupBoundary,
     ] = args
-    const inputs = [messages, live, tools, running, completed, statuses, intervals, changes, messageOffset, args[9]]
+    const inputs = [
+      messages,
+      live,
+      tools,
+      running,
+      completed,
+      statuses,
+      intervals,
+      changes,
+      modelRetry,
+      messageOffset,
+      groupBoundary,
+    ]
     if (sameItems(previousInputs, inputs)) return previous
     const input = live ? [...messages, live] : messages
     let timestamp = -Infinity
     const compatible =
       !statuses.length &&
       !changes.length &&
-      !args[9] &&
+      !groupBoundary &&
       (!live || !messages.includes(live)) &&
       input.every((message) => {
         if (
@@ -466,6 +549,7 @@ export function createConversationTurnProjector() {
       const boundary = last ? undefined : input[end]!.timestamp
       const slice = messages.slice(from, Math.min(end, messages.length))
       const active = last ? live : null
+      const retry = last ? modelRetry : undefined
       const source = active ? [...slice, active] : slice
       const dependencies = toolDependencies(assignedTools(source), tools, last, assigned)
       const old = partitions.get(from)
@@ -476,6 +560,7 @@ export function createConversationTurnProjector() {
         old.running === running &&
         old.completed === completion &&
         old.intervals === intervals &&
+        old.modelRetry === retry &&
         old.boundary === boundary &&
         old.offset === from + messageOffset &&
         old.last === last &&
@@ -492,6 +577,7 @@ export function createConversationTurnProjector() {
             emptyStatuses,
             intervals,
             emptyChanges,
+            retry,
             from + messageOffset,
             { last, timestamp: boundary, assigned },
           )
@@ -504,6 +590,7 @@ export function createConversationTurnProjector() {
             running,
             completed: completion,
             intervals,
+            modelRetry: retry,
             boundary,
             offset: from + messageOffset,
             last,

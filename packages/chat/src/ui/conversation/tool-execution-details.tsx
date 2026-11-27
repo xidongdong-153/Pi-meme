@@ -14,6 +14,7 @@ function ToolExecutionDetailsContent({
   isScript = false,
   isRunning,
   isPaused,
+  isError,
   children,
 }: {
   code?: string
@@ -21,11 +22,12 @@ function ToolExecutionDetailsContent({
   isScript?: boolean
   isRunning: boolean
   isPaused: boolean
+  isError: boolean
   children?: React.ReactNode
 }) {
-  return (
-    <div className="my-2 min-w-0 overflow-hidden rounded-lg border border-border/70 bg-transparent font-mono text-xs leading-relaxed text-muted-foreground select-text">
-      {code !== undefined && <div className="px-3 pt-2 font-sans text-xs">{isScript ? '执行脚本' : 'Shell'}</div>}
+  const codeSection = code !== undefined && (
+    <div key="code">
+      <div className="px-3 pt-2 font-sans text-xs">{isScript ? '执行脚本' : 'Shell'}</div>
       {code && (
         <ExecutionSection
           text={code}
@@ -34,17 +36,29 @@ function ToolExecutionDetailsContent({
           className="max-h-[min(10rem,30dvh)] text-foreground/90"
         />
       )}
-      <div className={cn(code !== undefined && 'border-t border-border/50')}>
-        <ExecutionSection
-          text={output}
-          label="执行输出"
-          copyLabel="复制输出"
-          placeholder={isRunning ? (isPaused ? '已暂停，等待输出' : '等待输出…') : '无输出'}
-          className="max-h-[min(16rem,40dvh)]"
-        >
-          {children}
-        </ExecutionSection>
-      </div>
+    </div>
+  )
+  const outputSection = (
+    <div
+      key="output"
+      className={cn(codeSection && (isError ? 'border-b border-border/50' : 'border-t border-border/50'))}
+    >
+      <ExecutionSection
+        text={output}
+        label={isError ? '错误详情' : '执行输出'}
+        copyLabel="复制输出"
+        placeholder={
+          isError ? '工具未返回错误详情' : isRunning ? (isPaused ? '已暂停，等待输出' : '等待输出…') : '无输出'
+        }
+        className="max-h-[min(16rem,40dvh)]"
+      >
+        {children}
+      </ExecutionSection>
+    </div>
+  )
+  return (
+    <div className="my-2 min-w-0 overflow-hidden rounded-lg border border-border/70 bg-transparent font-mono text-xs leading-relaxed text-muted-foreground select-text">
+      {isError ? [outputSection, codeSection] : [codeSection, outputSection]}
     </div>
   )
 }

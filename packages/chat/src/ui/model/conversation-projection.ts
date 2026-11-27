@@ -28,6 +28,7 @@ const statusViews = new WeakMap<
 export function mainMessage(message: PiMessage): PiMessage | undefined {
   if (
     message.role === 'custom' &&
+    !message.retryFailures?.length &&
     (message.customType === 'pi-meme-collaboration' ||
       message.customType === 'pi-meme-collaboration-control' ||
       message.customType === 'pi-meme-goal-control' ||

@@ -3,7 +3,7 @@ import { MarkdownHiddenImagesContext, MarkdownHiddenVisualizationsContext } from
 import { insertTurnVisualizations } from '../model/turn-visualizations'
 import * as React from 'react'
 import { ChevronDown } from 'lucide-react'
-import type { PiPauseInterval, PiRetryState } from '@pi-meme/contracts/pi'
+import type { PiPauseInterval } from '@pi-meme/contracts/pi'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import { ErrorLine } from '@pi-meme/ui/components/error-line'
 import type { ActivityItem, TurnChunk } from '../model/types'
@@ -69,7 +69,6 @@ function AssistantTurnContent({
   onOpenAgent,
   agents = emptyAgents,
   caller,
-  retry,
   onActivityToggle,
   reply,
   changes,
@@ -90,7 +89,6 @@ function AssistantTurnContent({
   onOpenAgent?: (agentId: string) => void
   agents?: readonly AgentSummary[]
   caller?: AgentSummary
-  retry?: PiRetryState
   onActivityToggle?: () => void
   reply?: React.ReactNode
   changes?: React.ReactNode
@@ -115,6 +113,7 @@ function AssistantTurnContent({
           (item) =>
             item.type === 'thinking' ||
             item.type === 'narration' ||
+            item.type === 'model_request_failure' ||
             item.name !== 'update_plan' ||
             item.status === 'error',
         ),
@@ -150,8 +149,12 @@ function AssistantTurnContent({
     [segments],
   )
   const firstReplyIndex = segments.findIndex((segment) => segment.type === 'text' && segment.finalReply)
-  const lastTextIndex = segments.findLastIndex((segment) => segment.type === 'text')
-  const lastActivityIndex = segments.findLastIndex((segment) => segment.type === 'activity')
+  const lastTextIndex = segments.findLastIndex(
+    (segment) => segment.type === 'text' || segment.type === 'model_request_failure',
+  )
+  const lastActivityIndex = segments.findLastIndex(
+    (segment) => segment.type === 'activity' || segment.type === 'model_request_failure',
+  )
   const processId = React.useId()
   const processIds = segments.flatMap((segment, index) =>
     (segment.type === 'text' && segment.finalReply) ||
@@ -161,9 +164,10 @@ function AssistantTurnContent({
       ? []
       : [`${processId}-${index}`],
   )
-  const [process, setProcess] = React.useState(() => ({ isLive: turn.isLive, open: turn.isLive }))
-  if (process.isLive !== turn.isLive) {
-    setProcess({ isLive: turn.isLive, open: turn.isLive })
+  const initiallyOpen = turn.isLive || Boolean(turn.errorMessage)
+  const [process, setProcess] = React.useState(() => ({ initiallyOpen, open: initiallyOpen }))
+  if (process.initiallyOpen !== initiallyOpen) {
+    setProcess({ initiallyOpen, open: initiallyOpen })
   }
   const elapsedTime = (
     <ActivityElapsedTime
@@ -280,6 +284,17 @@ function AssistantTurnContent({
                       isPaused={isPaused}
                       onOpenAgent={onOpenAgent}
                     />
+                  ) : segment.type === 'model_request_failure' ? (
+                    <ErrorLine
+                      className="conversation-event"
+                      message={segment.message}
+                      summary="模型请求失败"
+                      suffix={
+                        segment.retry ? `重试中（${segment.retry.attempt}/${segment.retry.maxAttempts}）` : undefined
+                      }
+                      defaultOpen
+                      onOpenChange={onActivityToggle}
+                    />
                   ) : segment.type === 'question' ? (
                     <QuestionAnswerRow item={segment.item} isLive={turn.isLive} isPaused={isPaused} />
                   ) : segment.type === 'image_activity' ? (
@@ -329,13 +344,6 @@ function AssistantTurnContent({
             </div>
           )}
           <TurnImageGallery generations={generated} isLive={turn.isLive} isPaused={isPaused} />
-          {(retry?.errorMessage || turn.errorMessage) && (
-            <ErrorLine
-              className="mt-2"
-              message={retry?.errorMessage || turn.errorMessage!}
-              suffix={retry ? `重试中（${retry.attempt}/${retry.maxAttempts}）` : undefined}
-            />
-          )}
         </div>
         {changes}
         {hasReplyContent && (

@@ -11,7 +11,9 @@ import type {
   AgentCollaborationStatus,
   AgentStatusEvent,
   ChatState,
+  ModelRequestFailure,
   RenderSegment,
+  TurnActivity,
   TurnChunk,
 } from './types'
 
@@ -22,6 +24,7 @@ export type AgentActivitySegment =
   | RenderSegment
   | CollaborationSegment
   | { type: 'agent_status'; item: AgentStatusEvent }
+  | ModelRequestFailure
   | { type: 'agent_operation'; item: AgentOperationItem }
   | { type: 'question'; item: ToolActivity }
   | { type: 'image_activity'; item: ToolActivity }
@@ -126,6 +129,7 @@ export function projectAgentConversation(chat: ChatState, agent: AgentSummary): 
     [],
     chat.runIntervals,
     modelChangesForConversation(chat.sessionEntries, messages),
+    chat.retry?.kind === 'model' ? chat.retry : undefined,
   )
   const results = new Map<string, ToolResult>()
   const calledAt = new Map<string, number>()
@@ -303,7 +307,7 @@ export function projectAgentConversation(chat: ChatState, agent: AgentSummary): 
     let previousWait: { row: AgentCollaborationStatus; signature: string } | undefined
     for (const item of turn.activities) {
       if (item.type === 'thinking') continue
-      if (item.type === 'narration' || item.name !== 'wait_agent') {
+      if (item.type === 'narration' || item.type === 'model_request_failure' || item.name !== 'wait_agent') {
         previousWait = undefined
         continue
       }
@@ -329,7 +333,13 @@ export function projectAgentConversation(chat: ChatState, agent: AgentSummary): 
     for (const turn of projected) {
       if (turn.type !== 'assistant_turn') continue
       for (const item of turn.activities) {
-        if (item.type === 'thinking' || item.type === 'narration' || item.name !== 'finish_agent') continue
+        if (
+          item.type === 'thinking' ||
+          item.type === 'narration' ||
+          item.type === 'model_request_failure' ||
+          item.name !== 'finish_agent'
+        )
+          continue
         const result = results.get(item.id)
         const timestamp = calledAt.get(item.id) ?? NaN
         if (
@@ -375,7 +385,7 @@ export function projectAgentConversation(chat: ChatState, agent: AgentSummary): 
 }
 
 export function groupAgentActivities(
-  items: ActivityItem[],
+  items: TurnActivity[],
   finalText: string,
   collaboration: AgentCollaborationStatus[] = [],
   hideAgentOperations = false,
@@ -434,10 +444,20 @@ export function groupAgentActivities(
       appendChildren(child, includeImages && extractImages(child.result).length === 0)
     }
   }
+  let failureAfterReply: ModelRequestFailure | undefined
   for (const item of items) {
-    append(item)
-    if (item.type !== 'thinking' && item.type !== 'narration')
-      appendChildren(item, extractImages(item.result).length === 0)
+    if (item.type === 'model_request_failure') {
+      if (item.afterFinalText) {
+        failureAfterReply = item
+        continue
+      }
+      flush()
+      groups.push(item)
+    } else {
+      append(item)
+      if (item.type !== 'thinking' && item.type !== 'narration')
+        appendChildren(item, extractImages(item.result).length === 0)
+    }
     const statuses = anchors.get(item.id)
     if (!statuses) continue
     flush()
@@ -452,6 +472,7 @@ export function groupAgentActivities(
   for (const item of textStatuses) if (item.afterFinalTextLength! <= 0) groups.push({ type: 'agent_status', item })
   if (finalText.trim())
     groups.push({ type: 'text', ...(finalTextId ? { id: finalTextId } : {}), text: finalText, finalReply: true })
+  if (failureAfterReply) groups.push(failureAfterReply)
   for (const item of textStatuses) if (item.afterFinalTextLength! > 0) groups.push({ type: 'agent_status', item })
   return groups
 }
