@@ -47,6 +47,7 @@
     "./schedules": "./src/schedules.ts",
     "./computer-use": "./src/computer-use.ts",
     "./browser": "./src/browser.ts",
+    "./browser-agent": "./src/browser-agent.ts",
     "./browser-annotations": "./src/browser-annotations.ts",
     "./image-generation": "./src/image-generation.ts",
     "./visualize": "./src/visualize.ts",

@@ -1,4 +1,5 @@
 import { setTimeout, clearTimeout } from 'node:timers'
+import { browserAgentOperations } from '@pi-meme/contracts/browser-agent'
 import { computerOperations } from '@pi-meme/contracts/computer-use'
 import { randomUUID } from 'node:crypto'
 import type { SessionRef } from '@pi-meme/contracts/app-host'
@@ -32,13 +33,13 @@ const readErrorCodes = new Set<ReadErrorCode>([
 ])
 
 const allowed = new Set([
+  ...browserAgentOperations.map((op) => op.name),
   ...computerOperations.map((op) => op.name),
   ...clientReadDefinitions.map((definition) => definition.name),
   ...visualizationClientOperationDefinitions.map((definition) => definition.name),
   'appearance.get',
   'appearance.save',
   'browser.list',
-  'browser.read',
   'browser.screenshot',
   'browser.open',
   'browser.navigate',

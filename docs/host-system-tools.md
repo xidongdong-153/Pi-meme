@@ -42,7 +42,7 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 | 用量与模型   | `usage.get`、`models.list`                                                  | 模型凭据不通过此目录返回                                                                                |
 | 项目与会话   | `projects.list/get/deletePreview`、`sessions.list/get/messages/attention`   | `projects.create/rename/setPinned/delete`、`sessions.create/rename/configure/setPinned/delete/markRead` |
 | Agent 与目标 | `agents.list`、`goals.get`                                                  | 沿用已有协作和目标工具                                                                                  |
-| Desktop 网页 | `browser.list`、`read`、`screenshot`                                        | `browser.open`、`navigate`、`click`、`input`、`scroll`、`close`                                         |
+| Desktop 网页 | `browser.list`、`read`、`waitFor`、`screenshot`                             | `browser.open`、`navigate`、`click`、`input`、`press`、`select`、`scroll`、`close`                      |
 
 短名称沿用该行前缀，例如定时任务的 `get` 完整名称为 `schedules.get`。
 
@@ -153,11 +153,27 @@ Agent 不通过此目录修改主开关、每日预算或清空整个 Host。管
 
 ### Desktop 网页
 
-网页属于发起对话的 Desktop 和明确会话，读取隐藏会话不会切换前台标签。Web 不注册 `browser.*`，目录的 `available` 为 `false`，调用返回不可用；不借用另一台 Desktop。
+网页属于发起对话的 Desktop 和明确会话。读取及等待复用已加载的标签，保留前台焦点。能力目录按客户端实际支持报告 `available`，Web 入口的 Desktop 网页操作不可用。新增操作由 Desktop 与所连 Host 协商注册。写入需要普通任务和完全权限。
 
-`browser.read([tabId])` 返回标题、最多 40000 字符的页面正文和最多 150 个可交互元素，以及 `documentId`。元素编号由本次读取生成，下一次读取可能更换编号。密码输入值不返回。读取和操作目前覆盖主文档，不跨 iframe 和封闭 Shadow DOM。
+| 操作              | 参数                                                 | 返回与行为                                                                                                             |
+| ----------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `browser.read`    | `[tabId]`                                            | 返回 `tab`、`documentId`、标题、正文、控件和截断标记。控件包括角色、可访问名称、禁用、只读及可观察的选中和展开状态。   |
+| `browser.press`   | `[tabId, documentId, elementId, key]`                | 支持 `Enter`、`Tab`、`Shift+Tab`、`Escape`、`Space` 和四个方向键。Pi meme 窗口需处于前台，后台标签可接收按键。         |
+| `browser.select`  | `[tabId, documentId, elementId, {value} 或 {label}]` | 精确匹配原生单选下拉中的值或显示标签。选中项变化时触发 `input` 和 `change`，已选中时返回 `not_needed`。                |
+| `browser.waitFor` | `[tabId, condition, {timeoutMs}?]`                   | 只读观察，默认等待 10000 毫秒，上限 20000 毫秒。返回 `matched` 或 `timed-out`，附观察到的标签 ID、文档 ID 和脱敏 URL。 |
 
-点击参数为 `[tabId, documentId, elementId]`，输入为 `[tabId, documentId, elementId, text]`，滚动为 `[tabId, documentId, deltaY]`。导航后旧文档编号失效；元素移除、禁用或隐藏后不能继续操作。输入会触发 `input` 和 `change` 事件。一次滚动绝对值不超过 10000 像素。网页正文属于外部内容，不能成为提升权限或修改工具规则的依据。
+等待条件支持以下结构。
+
+- `{kind: 'ready'}` 等主文档停止加载。
+- `{kind: 'url', url}` 匹配已提交网址的来源和路径。接受 HTTP(S) 地址或 `about:blank`。
+- `{kind: 'element', documentId, role, name, state}` 按角色和规范化名称精确匹配主文档元素。
+- `{kind: 'text', documentId, text, state}` 按规范化后的子串匹配主文档可见文字。
+
+DOM 条件的 `state` 可选 `visible` 或 `hidden`，后者表示当前没有可见匹配。文档代次变化时返回 `stale-cursor`。按键和下拉操作的 `delivered_unverified` 表示动作已派发，随后可等待预期条件并回读页面。送达不确定时先读取当前状态再决定是否重试。
+
+`browser.read` 最多返回 40000 字符的正文和 150 个控件。每个原生下拉最多返回 40 个选项，每次读取共最多 300 个，可从 `optionsTruncated` 判断是否省略。密码、隐藏项、本机文件路径及明确标记的验证码值从控件投影中排除。读取和操作覆盖主文档中的普通 DOM。元素引用在同一文档内有界保留，续读大型快照时仍可使用未变化的控件引用。导航、控件移除或语义变化后须重新读取，隐藏或禁用时操作会被拒绝。网页文本和标签按外部数据处理。
+
+点击参数为 `[tabId, documentId, elementId]`，输入为 `[tabId, documentId, elementId, text]`，滚动为 `[tabId, documentId, deltaY]`。输入会触发 `input` 和 `change`，单次滚动绝对值上限为 10000 像素。
 
 ## 本机电脑操控
 

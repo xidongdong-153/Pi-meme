@@ -88,7 +88,7 @@ export function systemReadInputSchema(name: string): SystemOperation['inputSchem
         limit: integer(100, 1),
       }),
     ])
-  if (['images.get', 'images.read', 'browser.read', 'browser.screenshot'].includes(name)) return tuple([text()], 1)
+  if (['images.get', 'images.read', 'browser.screenshot'].includes(name)) return tuple([text()], 1)
   if (name === 'visualizations.read') return tuple([visualizationRefSchema, session], 1)
   if (name === 'files.list') return tuple([text(4096, 0), workspace])
   if (['files.read', 'files.preview'].includes(name)) return tuple([text(4096), workspace], 1)

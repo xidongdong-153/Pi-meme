@@ -1,3 +1,4 @@
+import { browserInteractionFeature } from '@pi-meme/contracts/browser-agent'
 import { validateVisualizationState } from '@pi-meme/contracts/visualize'
 import type { ContextWindowApi, ContextWindowTarget } from '@pi-meme/contracts/context-window'
 import { readSessionOperation } from './session-read-operations'
@@ -1317,6 +1318,7 @@ export async function createAppControl(options: Options) {
       fileOperations: ['preview', 'search', 'write'],
       features: [
         'system-tools',
+        browserInteractionFeature,
         'computer-use',
         ...(options.visualizations ? (['visualize', 'visualize-runtime'] as const) : []),
         ...(options.imageLibrary ? (['image-library', 'image-library-upload'] as const) : []),

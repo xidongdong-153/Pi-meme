@@ -38,6 +38,7 @@ import type {
   SettingsSnapshot,
   Theme,
 } from '@pi-meme/contracts/settings'
+import { browserInteractionFeature, browserInteractionOperations } from '@pi-meme/contracts/browser-agent'
 import type { SystemClientIdentity, SystemClientRegistration } from '@pi-meme/contracts/system-tools'
 import { visualizationClientOperationDefinitions } from '@pi-meme/contracts/visualize'
 import { SystemReadError } from '@pi-meme/contracts/system-read'
@@ -1262,8 +1263,19 @@ export class HostClient {
             assertActive,
             confirmPending: async () => {
               assertActive()
-              if (!(await this.rpc('system:pending', [request.id, identity], null)))
-                throw new SystemReadError('cancelled', '本轮电脑操作已取消')
+              const browser = request.operation.startsWith('browser.')
+              // Older Hosts can still route legacy browser actions without supporting the pending check.
+              if (browser && !registration?.features?.includes(browserInteractionFeature)) return
+              const deadline = browser
+                ? AbortSignal.timeout(Math.min(30_000, Math.max(1, request.deadline - Date.now())))
+                : undefined
+              const signal =
+                deadline && registration ? AbortSignal.any([deadline, registration.controller.signal]) : deadline
+              const pending = await this.rpc('system:pending', [request.id, identity], null, signal).catch((cause) => {
+                assertActive()
+                throw cause
+              })
+              if (!pending) throw new SystemReadError('cancelled', browser ? '网页操作已取消' : '本轮电脑操作已取消')
               assertActive()
             },
           })
@@ -1375,7 +1387,8 @@ export class HostClient {
           const operations = (this.systemClient?.operations ?? []).filter(
             (name) =>
               (!visualizationOperations.has(name) || features.includes('visualize-runtime')) &&
-              (!name.startsWith('computer.') || features.includes('computer-use')),
+              (!name.startsWith('computer.') || features.includes('computer-use')) &&
+              (!browserInteractionOperations.has(name) || features.includes(browserInteractionFeature)),
           )
           const confirmed = registration.confirmedOperations
           if (confirmed?.length === operations.length && operations.every((name, index) => name === confirmed[index]))

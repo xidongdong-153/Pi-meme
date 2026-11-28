@@ -2,17 +2,85 @@ import { computerOperations, desktopComputer } from '@pi-meme/contracts/computer
 import { useEffect, useRef } from 'react'
 import type { DesktopBridge } from '@pi-meme/contracts/desktop'
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
+import {
+  browserAgentOperations,
+  browserWaitDefaultMs,
+  type BrowserWaitObservation,
+  type BrowserWaitResult,
+} from '@pi-meme/contracts/browser-agent'
 import { migrateAppearance, resolvedMode, resolveTheme } from '@pi-meme/settings/shared/appearance'
 import { clientReadDefinitions, clientReadList, systemMetadataUrl } from '@pi-meme/contracts/system-client-reads'
 import type { SystemClientRequest, SystemClientExecutionContext } from '@pi-meme/contracts/system-tools'
 import type { Theme, AppearancePatch } from '@pi-meme/contracts/settings'
 import type { AppearanceController } from '@pi-meme/settings/ui/appearance-provider'
-import { readRevision, SystemReadError, type ReadErrorCode } from '@pi-meme/contracts/system-read'
+import {
+  readRevision,
+  SystemReadError,
+  type ReadErrorCode,
+  type SystemReadErrorDetails,
+} from '@pi-meme/contracts/system-read'
 import { visualizationClientOperationDefinitions } from '@pi-meme/contracts/visualize'
 
 const visualizationClientOperations = new Set(
   visualizationClientOperationDefinitions.map((definition) => definition.name),
 )
+
+const browserWrites = new Set([
+  'browser.open',
+  'browser.navigate',
+  'browser.close',
+  'browser.click',
+  'browser.input',
+  'browser.scroll',
+  ...browserAgentOperations.filter(({ write }) => write).map(({ name }) => name),
+])
+
+async function callBrowser(
+  agent: NonNullable<BrowserPlatform['agent']>,
+  owner: string,
+  request: SystemClientRequest,
+  deadline = request.deadline,
+) {
+  const result = await agent(owner, request.operation.slice(8), request.args, deadline)
+  if (result && typeof result === 'object' && 'type' in result && result.type === 'browser-agent-read-error') {
+    const failure = result as {
+      type: 'browser-agent-read-error'
+      errorCode: ReadErrorCode
+      error: string
+      errorDetails?: SystemReadErrorDetails
+    }
+    throw new SystemReadError(failure.errorCode, failure.error, failure.errorDetails)
+  }
+  return result
+}
+
+async function waitForBrowser(
+  agent: NonNullable<BrowserPlatform['agent']>,
+  owner: string,
+  request: SystemClientRequest,
+  context: SystemClientExecutionContext,
+): Promise<BrowserWaitResult> {
+  const timeoutMs = (request.args[2] as { timeoutMs?: number } | undefined)?.timeoutMs ?? browserWaitDefaultMs
+  const deadline = Math.min(Date.now() + timeoutMs, request.deadline - 1_500)
+  const probeDeadline = deadline + 500
+  let latest: BrowserWaitObservation | undefined
+  for (;;) {
+    await context.confirmPending()
+    try {
+      latest = (await callBrowser(agent, owner, request, probeDeadline)) as BrowserWaitObservation
+    } catch (cause) {
+      if (!latest || !(cause instanceof SystemReadError) || cause.code !== 'timeout' || Date.now() < deadline)
+        throw cause
+    }
+    context.assertActive()
+    const remaining = deadline - Date.now()
+    if (latest.matched || remaining <= 0) {
+      const { matched, ...observation } = latest
+      return { ...observation, status: matched ? 'matched' : 'timed-out' }
+    }
+    await new Promise((resolve) => setTimeout(resolve, Math.min(250, remaining)))
+  }
+}
 
 export function useSystemClient(
   bridge: DesktopBridge,
@@ -30,6 +98,7 @@ export function useSystemClient(
   const client = useRef<ReturnType<NonNullable<DesktopBridge['registerSystemClient']>>>(undefined)
   const hasComputer = Boolean(computer)
   const hasBrowser = Boolean(browser?.agent)
+  const hasBrowserInteraction = hasBrowser && browser?.agentInteraction === true
   const hasRead = Boolean(readSnapshot)
   const hasVisualization = Boolean(handleVisualization)
   const supportsProjectApps = Boolean(
@@ -61,6 +130,7 @@ export function useSystemClient(
     return () => window.removeEventListener('pi-meme:sessions-deleted', remove)
   }, [browser, hostId])
   useEffect(() => {
+    const browserWritesByTab = new Map<string, Promise<unknown>>()
     const registration = bridge.registerSystemClient?.(
       async (request, context) => {
         const { browser, computer, hostId, appearanceBridge, readSnapshot, handleVisualization } = latest.current
@@ -86,14 +156,25 @@ export function useSystemClient(
           return handleVisualization(request, context)
         }
         if (request.operation.startsWith('browser.')) {
-          if (!browser?.agent) throw new Error('当前客户端不支持 Desktop 网页操作')
+          const agent = browser?.agent
+          if (!agent) throw new SystemReadError('not-supported', '当前客户端不支持 Desktop 网页操作')
           const owner = JSON.stringify([request.session.hostId, request.session.sessionId])
-          const result = await browser.agent(owner, request.operation.slice(8), request.args)
-          if (result && typeof result === 'object' && 'type' in result && result.type === 'browser-agent-read-error') {
-            const failure = result as { type: 'browser-agent-read-error'; errorCode: ReadErrorCode; error: string }
-            throw new SystemReadError(failure.errorCode, failure.error)
+          if (request.operation === 'browser.waitFor') return waitForBrowser(agent, owner, request, context)
+          if (!browserWrites.has(request.operation)) return callBrowser(agent, owner, request)
+          const write = async () => {
+            await context.confirmPending()
+            return callBrowser(agent, owner, request)
           }
-          return result
+          if (request.operation === 'browser.open') return write()
+          const key = JSON.stringify([owner, request.args[0]])
+          const previous = browserWritesByTab.get(key)
+          const pending = previous ? previous.then(write, write) : write()
+          browserWritesByTab.set(key, pending)
+          try {
+            return await pending
+          } finally {
+            if (browserWritesByTab.get(key) === pending) browserWritesByTab.delete(key)
+          }
         }
         if (
           request.operation !== 'appearance.get' &&
@@ -202,7 +283,9 @@ export function useSystemClient(
       ...(hasBrowser
         ? [
             'browser.list',
-            'browser.read',
+            ...browserAgentOperations
+              .filter(({ name }) => name === 'browser.read' || hasBrowserInteraction)
+              .map(({ name }) => name),
             'browser.screenshot',
             'browser.open',
             'browser.navigate',
@@ -213,5 +296,5 @@ export function useSystemClient(
           ]
         : []),
     ])
-  }, [bridge, hasBrowser, hasComputer, hasRead, hasVisualization, supportsProjectApps])
+  }, [bridge, hasBrowser, hasBrowserInteraction, hasComputer, hasRead, hasVisualization, supportsProjectApps])
 }

@@ -1,3 +1,4 @@
+import { browserAgentOperations } from '@pi-meme/contracts/browser-agent'
 import { computerOperations } from '@pi-meme/contracts/computer-use'
 import type { HostApi, ProjectRef, SessionRef, WorkspaceRef, MutationOptions } from '@pi-meme/contracts/app-host'
 import type { SystemOperation, SystemToolRequest, SystemOperationAvailability } from '@pi-meme/contracts/system-tools'
@@ -506,7 +507,6 @@ export function createSystemOperations(context: SystemOperationContext) {
       true,
     ],
     ['browser.list', '列出当前会话的 Desktop 网页', '[]', false],
-    ['browser.read', '读取网页可见文字和可操作元素', '[tabId]', false],
     ['browser.screenshot', '截取网页', '[tabId]', false],
     ['browser.open', '在所属会话打开网页', '[url]', true],
     ['browser.navigate', '导航已有网页', '[tabId,url]', true],
@@ -593,6 +593,22 @@ export function createSystemOperations(context: SystemOperationContext) {
       definition: { domain: definition.name.split('.')[0], ...definition },
       run: (args) =>
         definition.scope === 'client' ? context.client(definition.name, args) : context.read(definition.name, args),
+    })
+  }
+  for (const definition of browserAgentOperations) {
+    operations.set(definition.name, {
+      definition,
+      run: (args) => {
+        if (definition.write) {
+          validateReadArguments(definition.inputSchema, args)
+          if (!context.clientAvailable(definition.name))
+            throw new SystemReadError(
+              context.clientUnavailableReason?.() ?? 'disconnected',
+              '发起客户端不支持此网页操作或已断开',
+            )
+        }
+        return context.client(definition.name, args)
+      },
     })
   }
   for (const definition of computerOperations) {

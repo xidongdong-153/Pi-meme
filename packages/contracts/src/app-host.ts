@@ -96,6 +96,7 @@ export type AppHostCapabilities = {
     | 'terminal'
     | 'terminal-list'
     | 'system-tools'
+    | 'browser-interaction'
     | 'git'
     | 'git-availability'
     | 'git-branch-switch-in-place'

@@ -43,11 +43,12 @@ export function createSystemTools(
               throw new Error('工作台写操作需要普通模式和完全权限')
             const input = parameters as { operation: string; args: unknown[] }
             const computer = typeof input.operation === 'string' && input.operation.startsWith('computer.')
+            const browser = typeof input.operation === 'string' && input.operation.startsWith('browser.')
             let result: unknown
             try {
               result = await request({ ...input, write, callId }, signal)
             } catch (cause) {
-              if (write && !computer) throw cause
+              if (write && !computer && !(browser && cause instanceof SystemReadError)) throw cause
               const error =
                 cause instanceof SystemReadError
                   ? { code: cause.code, message: cause.message, details: cause.details }
