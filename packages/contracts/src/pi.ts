@@ -283,7 +283,12 @@ export type PiGenerationMetrics = {
   /** 流式期间没有输出用量时，按内容字节数估算；结束后以模型用量校准。 */
   estimated: boolean
 }
-export type PiRunInterval = { startedAt: number; endedAt?: number }
+export type PiRunInterval = {
+  startedAt: number
+  endedAt?: number
+  /** Worker 确认的原生用户轮次。null 表示本次运行尚未绑定，旧快照可能缺少此字段。 */
+  userEntryId?: string | null
+}
 export type PiPauseInterval = { startedAt: number; endedAt?: number }
 /** 最新失败轮次的恢复入口；由 Host 校验是否仍可执行。 */
 export type PiRecoveryState = { entryId: string; mode: TaskMode }
@@ -295,10 +300,20 @@ export type PiRetryState = {
   errorMessage: string
 }
 
+/** Host 接纳发送后进入 submitting，Worker 开始执行后进入 running，结算后回到 idle。 */
+export type SessionExecutionPhase = 'idle' | 'submitting' | 'running'
+
+export function sessionExecutionPhase(
+  state: Pick<PiState, 'executionPhase' | 'isStreaming' | 'isCompacting' | 'retry'>,
+): SessionExecutionPhase {
+  return state.executionPhase ?? (state.isStreaming || state.isCompacting || state.retry ? 'running' : 'idle')
+}
+
 export type PiState = Pick<
   RpcSessionState,
   'isStreaming' | 'isCompacting' | 'sessionName' | 'steeringMode' | 'followUpMode' | 'pendingMessageCount'
 > & {
+  executionPhase?: SessionExecutionPhase
   isPaused?: boolean
   queuePaused?: boolean
   stopped?: boolean
@@ -352,6 +367,7 @@ type PiCoreEvent =
         >
       >
     > & { runIntervals?: PiRunInterval[]; source?: PiUiSource })
+  | { type: 'execution_phase'; phase: SessionExecutionPhase }
   | { type: 'agent_settled'; aborted?: boolean; runIntervals?: PiRunInterval[]; recovery?: PiRecoveryState }
   | { type: 'recovery_start'; removedMessageTimestamps: number[] }
   | {
@@ -370,6 +386,8 @@ type PiCoreEvent =
   | { type: 'service_tier_update'; modelServiceTiers?: ModelServiceTiers }
   | { type: 'composer_hint'; text?: string }
 export type PiEvent = PiCoreEvent & {
+  /** Worker 回传触发本轮的 Host 提交序号；原生队列或旧 Worker 可省略。 */
+  hostSubmission?: number
   generationMetrics?: PiGenerationMetrics
   /** Host 发布时刻，回放流式事件时保留原始计时边界。 */
   emittedAt?: number

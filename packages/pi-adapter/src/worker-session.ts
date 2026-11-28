@@ -24,6 +24,7 @@ import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 import type { PluginRuntimeRequest } from '@pi-meme/contracts/plugin-call'
 import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
 import type { PromptTemplate } from '@earendil-works/pi-coding-agent'
+import type { HostWorkerMessage, SessionWorkerData, WorkerCommand, WorkerReply } from './worker-protocol'
 
 export type WorkerAdmission = { goalRun?: GoalRun; taskProgressEnabled: boolean }
 
@@ -70,15 +71,6 @@ export type WorkerOptions = {
 }
 type Notify = ConstructorParameters<typeof SdkSession>[1]
 type Pending = { resolve: (value: unknown) => void; reject: (cause: Error) => void }
-type WorkerReply = {
-  id?: number
-  result?: unknown
-  error?: string
-  notify?: keyof Notify
-  value?: unknown
-  connection: Connection
-  active: { sessionFile?: string; sessionId?: string }
-}
 
 /** Worker 只在第一次 SDK 操作时创建；每个 Worker 拥有独立 SDK 缓存与全局状态。 */
 export function createWorkerSession(
@@ -144,7 +136,7 @@ export function createWorkerSession(
           capabilities,
           access,
           taskMode,
-        },
+        } satisfies SessionWorkerData,
         env: serviceProcessEnvironment(),
         execArgv: entry.endsWith('.ts') ? ['--import', 'tsx'] : [],
       })
@@ -154,8 +146,9 @@ export function createWorkerSession(
       throw cause
     }
     const current = worker
+    const send = (message: HostWorkerMessage) => current.postMessage(message)
     const unwatch = mcpCredentials
-      ? options.watchMcpCredentials?.((key, value) => current.postMessage({ mcpCredential: { key, value } }))
+      ? options.watchMcpCredentials?.((key, value) => send({ mcpCredential: { key, value } }))
       : undefined
     let exited = false
     const mcpLocks = new Map<string, () => void | Promise<void>>()
@@ -328,8 +321,7 @@ export function createWorkerSession(
               return options.collaboration(request, controller.signal)
             })
             .then((result) => {
-              if (worker === current && !controller.signal.aborted)
-                current.postMessage({ hostReply: request.id, result })
+              if (worker === current && !controller.signal.aborted) send({ hostReply: request.id, result })
             })
             .catch((cause: unknown) => {
               if (worker === current && !controller.signal.aborted) {
@@ -339,7 +331,7 @@ export function createWorkerSession(
                   request.kind === 'system' && typeof operation === 'string' && operation.startsWith('computer.')
                 const structured = read || computer
                 const failure = cause instanceof SystemReadError ? cause : undefined
-                current.postMessage({
+                send({
                   hostReply: request.id,
                   error: structured
                     ? (failure?.message ?? (read ? '读取失败；未返回内部错误正文' : '电脑操作失败，请先回读界面'))
@@ -365,16 +357,16 @@ export function createWorkerSession(
                 throw new Error('会话不能修改此凭据')
               const stored = options.credentials.get(mutation.key)
               if (mcp && stored !== mutation.previous) {
-                current.postMessage({ mcpCredential: { key: mutation.key, value: stored } })
+                send({ mcpCredential: { key: mutation.key, value: stored } })
               } else {
                 if (mutation.value === undefined) options.credentials.delete(mutation.key)
                 else options.credentials.set(mutation.key, mutation.value)
                 if (mcp) options.notifyMcpCredential?.(mutation.key, mutation.value)
                 await options.credentials.flush?.()
               }
-              current.postMessage({ credentialReply: mutation.id })
+              send({ credentialReply: mutation.id })
             })
-            .catch((cause: unknown) => current.postMessage({ credentialReply: mutation.id, error: String(cause) }))
+            .catch((cause: unknown) => send({ credentialReply: mutation.id, error: String(cause) }))
           return
         }
         if (worker !== current) return
@@ -405,7 +397,7 @@ export function createWorkerSession(
     if (pauseRevision >= 0) {
       const id = ++serial
       pending.set(id, { resolve: () => {}, reject: (cause) => fail(new Error(String(cause))) })
-      current.postMessage({ id, method: 'setPaused', args: [paused, pauseRevision] })
+      send({ id, method: 'setPaused', args: [paused, pauseRevision] })
     }
     return current
   }
@@ -422,7 +414,7 @@ export function createWorkerSession(
       const id = ++serial
       pending.set(id, { resolve, reject })
       void ensure()
-        .then((current) => current.postMessage({ id, method, args }))
+        .then((current) => current.postMessage({ id, method, args } satisfies WorkerCommand))
         .catch((cause: unknown) => {
           pending.delete(id)
           reject(cause)

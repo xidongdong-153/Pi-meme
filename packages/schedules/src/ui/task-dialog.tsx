@@ -8,7 +8,7 @@ import type {
   ScheduledTaskInput,
   ScheduleRule,
 } from '@pi-meme/contracts/schedules'
-import { agentAccessChoices } from '@pi-meme/contracts/agent-access'
+import { agentAccessChoices } from '@pi-meme/ui/lib/agent-access-choices'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { Input } from '@pi-meme/ui/components/ui/input'

@@ -2341,19 +2341,22 @@ export class HostCollaborationBridge {
     })
     for (const listener of this.listeners) listener()
   }
-  async inputRequestsBySession() {
-    await this.ready
-    const requests = new Map<string, string[]>()
-    for (const record of this.records.values()) {
-      if (!record.interactions.length) continue
-      const root = this.roots.get(record.summary.rootSessionKey)
-      const keys = [record.summary.rootSessionKey, ...(root?.summary.sessionFile ? [root.summary.sessionFile] : [])]
-      const ids = record.interactions.map((interaction) =>
-        JSON.stringify([interaction.sessionKey, interaction.executionGeneration, interaction.request.id]),
-      )
-      for (const key of keys) requests.set(key, [...(requests.get(key) ?? []), ...ids])
+  activityBySession() {
+    const activity = new Map<string, { runningChild: boolean; inputRequestIds: string[] }>()
+    for (const { summary, interactions } of this.records.values()) {
+      const runningChild =
+        summary.depth > 0 && !summary.isPaused && (summary.status === 'running' || summary.status === 'starting')
+      if (!interactions.length && !runningChild) continue
+      const key = summary.rootSessionKey
+      const current = activity.get(key) ?? { runningChild: false, inputRequestIds: [] }
+      current.runningChild ||= runningChild
+      for (const { sessionKey, executionGeneration, request } of interactions)
+        current.inputRequestIds.push(JSON.stringify([sessionKey, executionGeneration, request.id]))
+      activity.set(key, current)
+      const file = this.roots.get(key)?.summary.sessionFile
+      if (file) activity.set(file, current)
     }
-    return requests
+    return activity
   }
   async getChildSessions() {
     await this.ready

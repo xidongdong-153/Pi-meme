@@ -43,9 +43,13 @@ export class AgentAccessStore {
     return this.key(sessionFile)
   }
 
-  async get(sessionFile: string): Promise<AgentAccessMode> {
+  async savedMode(sessionFile: string): Promise<AgentAccessMode | undefined> {
     await this.load()
-    return this.records[await this.key(sessionFile)] ?? defaultAccessMode
+    return this.records[await this.key(sessionFile)]
+  }
+
+  async get(sessionFile: string): Promise<AgentAccessMode> {
+    return (await this.savedMode(sessionFile)) ?? defaultAccessMode
   }
 
   async remove(keysOrFiles: string[]): Promise<string[]> {

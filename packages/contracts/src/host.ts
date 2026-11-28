@@ -9,8 +9,10 @@ import type { SshConnectionPhase, SshConnectionStep } from './ssh-connections'
 export type ServiceRef = { id: string; hostId: string; local: boolean; address: string }
 export type ProjectRef = { serviceId: string; cwd: string }
 export type SessionRef = { serviceId: string; sessionPath: string; sessionId: string }
+export type ServiceConnectionStatus = 'connected' | 'disconnected' | 'connecting'
 export type HostService = ServiceRef & {
-  status: 'connected' | 'disconnected' | 'connecting'
+  /** 本机 Host 观察到的远端状态；SSH 取自隧道状态机。 */
+  status: ServiceConnectionStatus
   error?: string
   transport?: 'https' | 'ssh'
   name?: string
@@ -21,6 +23,12 @@ export type HostService = ServiceRef & {
   nextRetryAt?: string
   projects: DesktopProject[]
   sessions?: PiSessionsSnapshot
+}
+/** 客户端对服务的投影。本机服务没有上游 Host 状态，WebSocket 可达性仅对当前客户端有效。 */
+export type ClientService = Omit<HostService, 'status'> & {
+  status?: ServiceConnectionStatus
+  clientStatus: ServiceConnectionStatus
+  clientError?: string
 }
 export type HostServiceRegistration = { url: string; token?: string }
 
@@ -43,6 +51,40 @@ export type HostRpcResponse = {
   result?: unknown
   error?: { message: string; code: string }
 }
+function rpcIdentifier(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 128
+}
+
+export function isHostRpcRequest(value: unknown): value is HostRpcRequest {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const input = value as Partial<HostRpcRequest>
+  return (
+    rpcIdentifier(input.requestId) &&
+    rpcIdentifier(input.clientId) &&
+    typeof input.method === 'string' &&
+    input.method.length > 0 &&
+    Array.isArray(input.args) &&
+    (input.connectionId === undefined || rpcIdentifier(input.connectionId)) &&
+    (input.hostId === undefined || rpcIdentifier(input.hostId)) &&
+    (input.sessionId === undefined || typeof input.sessionId === 'string')
+  )
+}
+
+export function isHostRpcResponse(value: unknown): value is HostRpcResponse {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const reply = value as Partial<HostRpcResponse>
+  return (
+    rpcIdentifier(reply.requestId) &&
+    rpcIdentifier(reply.hostId) &&
+    (reply.error === undefined ||
+      (!('result' in reply) &&
+        reply.error !== null &&
+        typeof reply.error === 'object' &&
+        typeof reply.error.code === 'string' &&
+        typeof reply.error.message === 'string'))
+  )
+}
+
 export type HostEvent = { hostId: string } & (
   | { type: 'system-request'; value: import('./system-tools').SystemClientRequest }
   | { type: 'system-changed'; value?: undefined }

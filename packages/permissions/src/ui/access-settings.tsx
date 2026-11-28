@@ -1,10 +1,6 @@
 import { useState } from 'react'
-import {
-  agentAccessChoices,
-  defaultAccessMode,
-  isAgentAccessMode,
-  type AgentAccessMode,
-} from '@pi-meme/contracts/agent-access'
+import { agentAccessChoices } from '@pi-meme/ui/lib/agent-access-choices'
+import { defaultAccessMode, isAgentAccessMode, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@pi-meme/ui/components/ui/select'
 import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
 import { SettingsRow, settingsControlClassName } from '@pi-meme/ui/components/settings'

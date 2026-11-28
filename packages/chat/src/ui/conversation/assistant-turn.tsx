@@ -24,7 +24,7 @@ import { collectImageGenerations, type TurnImageGeneration } from '../model/turn
 import { TurnImageGallery } from './turn-image-gallery'
 import { RetainedDisclosure } from './retained-disclosure'
 import { TaskProgressCard } from './task-progress-card'
-import type { TaskProgress } from '@pi-meme/contracts/task-progress'
+import type { TaskProgressView } from '@pi-meme/contracts/task-progress'
 
 const emptyAgents: readonly AgentSummary[] = []
 export const AssistantTurnView = React.memo(AssistantTurnContent)
@@ -73,8 +73,7 @@ function AssistantTurnContent({
   reply,
   changes,
   imageGenerations,
-  progress,
-  interrupted,
+  taskProgress,
 }: {
   mobile?: boolean
   turn: Extract<TurnChunk, { type: 'assistant_turn' }>
@@ -93,8 +92,7 @@ function AssistantTurnContent({
   reply?: React.ReactNode
   changes?: React.ReactNode
   imageGenerations?: readonly TurnImageGeneration[]
-  progress?: TaskProgress
-  interrupted?: boolean
+  taskProgress?: readonly TaskProgressView[]
 }) {
   const generated = React.useMemo(
     () => imageGenerations ?? collectImageGenerations(turn.activities),
@@ -124,11 +122,12 @@ function AssistantTurnContent({
         turn.finalTextId,
       ),
     )
-    if (!progress) return base
+    if (!taskProgress?.length) return base
     // 运行中保持任务进度固定在轮次底部，避免“边说边调工具”时跨段移位与动画重启；结案后再落位到最终回复前。
     const index = turn.isLive ? -1 : base.findIndex((item) => item.type === 'text' && item.finalReply)
     const insertion = index < 0 ? base.length : index
-    return [...base.slice(0, insertion), { type: 'task_progress' as const, progress }, ...base.slice(insertion)]
+    const cards = taskProgress.map((progress) => ({ type: 'task_progress' as const, progress }))
+    return [...base.slice(0, insertion), ...cards, ...base.slice(insertion)]
   }, [
     turn.activities,
     turn.finalText,
@@ -137,7 +136,7 @@ function AssistantTurnContent({
     hideAgentOperations,
     turn.agentStatuses,
     turn.isLive,
-    progress,
+    taskProgress,
   ])
   const visualizationKeys = React.useMemo(
     () =>
@@ -222,17 +221,6 @@ function AssistantTurnContent({
                 <TaskProgressCard
                   key={segment.progress.taskId}
                   progress={segment.progress}
-                  live={turn.isLive}
-                  paused={isPaused}
-                  interrupted={
-                    !turn.isLive &&
-                    Boolean(
-                      interrupted ||
-                      turn.errorMessage ||
-                      turn.sourceMessages?.findLast((message) => message.role === 'assistant')?.stopReason ===
-                        'aborted',
-                    )
-                  }
                   onToggle={onActivityToggle}
                 />
               )

@@ -3,7 +3,7 @@ import type { SessionRef } from '@pi-meme/contracts/app-host'
 import type { HostServiceRegistry } from '@pi-meme/client/service-registry'
 import type { HostClient } from '@pi-meme/client/host-client'
 import type { ReactNode } from 'react'
-import type { HostService } from '@pi-meme/contracts/host'
+import type { ClientService } from '@pi-meme/contracts/host'
 import type {
   SshConnectionPhase,
   SshConnectionStep,
@@ -27,7 +27,7 @@ export type ServiceController = ReturnType<typeof useAppSession> & {
 export type ServiceUI = {
   serviceId: string
   active: boolean
-  services: HostService[]
+  services: ClientService[]
   clientReads?: { ssh: { capabilities: () => Promise<SshCapabilities>; list: () => Promise<SshConnection[]> } }
   imageSources?: ImageLibrarySource[]
   onImageSession?: (serviceId: string, session: SessionRef) => Promise<void>
@@ -58,7 +58,7 @@ export function serviceAddress(address: string) {
   }
 }
 
-export function serviceLabel(service: Pick<HostService, 'name' | 'local' | 'address'>) {
+export function serviceLabel(service: Pick<ClientService, 'name' | 'local' | 'address'>) {
   return service.local ? '此计算机' : service.name || serviceAddress(service.address)
 }
 
@@ -84,15 +84,18 @@ export function sshConnectionStatus(connection: { phase: SshConnectionPhase; ste
     : phase
 }
 
-export function serviceStatus(service: HostService) {
+export function serviceStatus(service: ClientService) {
+  if (service.status === 'connected' && service.clientStatus !== 'connected')
+    return service.clientStatus === 'connecting' ? '远端已连接 · 当前客户端连接中' : '远端已连接 · 当前客户端未连接'
   if (service.transport === 'ssh') {
     if (service.enabled === false) return '已暂停'
     if (service.phase) return sshConnectionStatus({ phase: service.phase, step: service.step })
   }
-  return service.status === 'connected' ? '已连接' : service.status === 'connecting' ? '连接中' : '未连接'
+  const status = service.status ?? service.clientStatus
+  return status === 'connected' ? '已连接' : status === 'connecting' ? '连接中' : '未连接'
 }
 
-export function servicePaused(service: HostService) {
+export function servicePaused(service: ClientService) {
   return service.transport === 'ssh' && service.enabled === false
 }
 

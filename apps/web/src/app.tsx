@@ -61,7 +61,8 @@ function ServiceFixture() {
       hostId: id,
       local: id === 'local',
       address: id === 'local' ? window.location.origin : `https://${id}.example.com:8443`,
-      status: 'connected' as const,
+      status: id === 'local' ? undefined : ('connected' as const),
+      clientStatus: 'connected' as const,
       projects: [{ cwd: '/same', name: '同名项目', lastSelectedAt: '' }],
     }))
     const clients = new Map(

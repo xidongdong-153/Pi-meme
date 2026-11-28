@@ -93,6 +93,8 @@ export type Connection = {
   status: 'idle' | 'connecting' | 'ready' | 'disconnected'
   error?: string
   accessMode?: AgentAccessMode
+  /** 当前 sessionKey 下 Host 已确认的权限与任务模式修订。 */
+  accessRevision?: number
   accessChanging?: boolean
   editPhase?: 'stopping' | 'sending'
   restrictedAccessSupported?: boolean
@@ -330,7 +332,7 @@ export interface ChatBridge {
   clearQueue: (sessionKey: string) => Promise<PiQueuedMessages>
   setSteeringMode: (sessionKey: string, mode: PiState['steeringMode']) => Promise<PiState>
   setFollowUpMode: (sessionKey: string, mode: PiState['followUpMode']) => Promise<PiState>
-  setAccessMode: (sessionKey: string, mode: AgentAccessMode) => Promise<void>
+  setAccessMode: (sessionKey: string, mode: AgentAccessMode, expectedRevision?: number) => Promise<void>
   getProjectFiles: (cwd: string, query: string) => Promise<ProjectFile[]>
   getCommands: () => Promise<PiSlashCommand[]>
   abort: (sessionKey: string) => Promise<void>
@@ -394,7 +396,7 @@ export interface SettingsBridge {
   getInstructions: () => Promise<InstructionsSnapshot>
   saveInstruction: (input: SaveInstruction) => Promise<SaveInstructionResult>
   getUsageStats: () => Promise<UsageStatsSnapshot>
-  getSettings: () => Promise<SettingsSnapshot>
+  getSettings: (signal?: AbortSignal) => Promise<SettingsSnapshot>
   reloadSettings: () => Promise<SettingsSnapshot>
   onAppearanceChanged: (listener: () => void) => () => void
   migrateLegacyAppearance: (expectedRevision: string, signal?: AbortSignal) => Promise<AppearanceMigrationResult | null>

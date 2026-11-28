@@ -1,4 +1,12 @@
 export type SshConnectionPhase = 'paused' | 'connecting' | 'connected' | 'retrying' | 'action-required'
+export const sshServiceStatus = {
+  paused: 'disconnected',
+  connecting: 'connecting',
+  connected: 'connected',
+  retrying: 'disconnected',
+  'action-required': 'disconnected',
+} as const satisfies Record<SshConnectionPhase, import('./host').ServiceConnectionStatus>
+
 export type SshConnectionStep = 'checking' | 'installing' | 'starting' | 'authenticating'
 
 export type SshConnectionInput = {

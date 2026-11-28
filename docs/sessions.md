@@ -303,7 +303,9 @@ flowchart LR
 
 正常续做时，模型从原生 `update_plan` 调用读取步骤，从成功结果读取 `taskId`。主会话也可以用 `taskProgress.list` 查回当前分支已保存的清单。发生压缩时，如果保留的调用和结果不足以还原当时最后一次成功更新，Worker 会在压缩摘要后补入那份清单。此后工具更新追加在对话末尾，重新打开会话时仍按原压缩点恢复。
 
-成功的原生工具结果保存完整清单。对话按当前分支汇总每个任务的最新结果，在最近更新的轮次显示一张卡片。任务完成后自动折叠，中断时保留最后成功提交的步骤。刷新、恢复、编辑与分叉使用各自保留的历史。
+成功的原生工具结果保存完整清单。同一 `toolCallId` 在同一用户轮次重放相同清单时复用原回执，参数冲突会报错。对话汇总当前分支每个任务的最新成功结果，在对应轮次显示卡片。任务完成后自动折叠，中断时保留最后成功提交的步骤。刷新、恢复、编辑与分叉使用各自保留的历史。
+
+`taskProgress.list` 和卡片共享 `phase`、`completed` 与可选的 `focusStepId`。阶段包括 `running`、`paused`、`interrupted`、`blocked`、`completed` 和 `historical`。点击继续后，Worker 将本次运行区间关联到原生用户条目。另发一条无关消息时，上个任务保留自己的步骤和阶段。列表翻页使用包含任务投影的修订，途中状态变动时从首页重新读取。[共享任务投影](../packages/contracts/src/task-progress.ts) · [Host 读取入口](../packages/host/src/session-read-operations.ts)
 
 ## 持久目标 Goal
 

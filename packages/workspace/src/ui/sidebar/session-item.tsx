@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { Clock, Folder, GitFork, Globe, Laptop, Loader2, MessageCircle, Pin, PinOff } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
-import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
+import { sessionActivityPhase, type PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { formatSessionTitle } from './session-title'
 import { SidebarTitle } from './sidebar-title'
 import type { SidebarDragProps } from './sidebar-controls'
@@ -81,7 +81,8 @@ export function SessionItem({
     if (!isActive) prefetchTimer.current = setTimeout(() => onPrefetchSession?.(session.path), 120)
   }
   const needsInput = (session.inputUnread ?? session.needsInput) && (!source || source.connected)
-  const isRunning = session.running && !session.isPaused && !session.needsInput && (!source || source.connected)
+  const phase = sessionActivityPhase(session)
+  const isRunning = (phase === 'running' || phase === 'submitting') && (!source || source.connected)
   const hasRightMeta = Boolean(isRunning || session.scheduledTask || (source && variant !== 'project'))
   const title = formatSessionTitle(session)
   const target: MenuTarget = { kind: 'session', session, source, projectName }

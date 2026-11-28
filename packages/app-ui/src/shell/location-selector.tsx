@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { ArrowLeft, Globe, Monitor } from 'lucide-react'
-import type { HostService } from '@pi-meme/contracts/host'
+import type { ClientService } from '@pi-meme/contracts/host'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
@@ -16,7 +16,7 @@ export function LocationSelector({
   onSelect,
   onError,
 }: {
-  services: HostService[]
+  services: ClientService[]
   serviceId: string
   disabledReason?: string
   onSelect: (id: string, input: SelectWorkspace) => Promise<boolean>
@@ -27,7 +27,7 @@ export function LocationSelector({
   const [selectedService, setSelectedService] = useState<string>()
   const searchRef = useRef<HTMLInputElement>(null)
   const targetService = services.find((service) => service.id === selectedService)
-  const [pending, setPending] = useState<{ service: HostService; input: SelectWorkspace; name: string }>()
+  const [pending, setPending] = useState<{ service: ClientService; input: SelectWorkspace; name: string }>()
   const [busy, setBusy] = useState(false)
   const current = services.find((service) => service.id === serviceId)
   const label = current?.local
@@ -110,7 +110,7 @@ export function LocationSelector({
                     <button
                       key={project.kind === 'project' ? project.cwd : 'standalone'}
                       type="button"
-                      disabled={targetService.status !== 'connected'}
+                      disabled={targetService.clientStatus !== 'connected'}
                       onClick={() => {
                         setPending({
                           service: targetService,
@@ -144,7 +144,7 @@ export function LocationSelector({
                         <Globe className="size-3.5 shrink-0 text-primary" />
                       )}
                       <span className="min-w-0 flex-1 truncate">{serviceLabel(service)}</span>
-                      {service.status !== 'connected' && (
+                      {service.clientStatus !== 'connected' && (
                         <span className="shrink-0 text-muted-foreground">{serviceStatus(service)}</span>
                       )}
                     </button>

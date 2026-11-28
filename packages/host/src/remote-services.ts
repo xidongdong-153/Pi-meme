@@ -2,11 +2,11 @@ import { createHash } from 'node:crypto'
 import { readFile, writeFile, rename, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import WebSocket from 'ws'
-import type { HostService, HostRpcResponse } from '@pi-meme/contracts/host'
+import { isHostRpcRequest, isHostRpcResponse, type HostService } from '@pi-meme/contracts/host'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import type { ConnectionCredentialStore } from './connection-credentials'
 import { sessionCookieName } from './transport-auth'
-import type { SshConnection } from '@pi-meme/contracts/ssh-connections'
+import { sshServiceStatus, type SshConnection } from '@pi-meme/contracts/ssh-connections'
 import { SshConnections, type SshConnectionOptions } from './ssh-connections'
 import { SshError } from './ssh-tunnels'
 import { responseBody } from './response-body'
@@ -73,7 +73,6 @@ export class RemoteServices {
   private sshChanged(connection: SshConnection, endpoint?: string, cookie?: string) {
     if (!endpoint) {
       this.disconnect(connection.id)
-      this.authenticating.delete(connection.id)
     }
     if (connection.hostId) {
       const old =
@@ -92,12 +91,7 @@ export class RemoteServices {
         errorCode: connection.errorCode,
         nextRetryAt: connection.nextRetryAt,
         error: connection.error,
-        status:
-          connection.phase === 'connected'
-            ? 'connected'
-            : connection.phase === 'connecting'
-              ? 'connecting'
-              : 'disconnected',
+        status: sshServiceStatus[connection.phase],
         projects: old?.projects ?? [],
         sessions: old?.sessions,
       }
@@ -113,6 +107,23 @@ export class RemoteServices {
     return state.transport === 'ssh' ? this.ssh.endpoint(state.id) : state.address
   }
   private closing = false
+  private readonly shutdown = new AbortController()
+  private readonly registrations = new Map<string, Promise<unknown>>()
+  private mutateRegistration<T>(id: string, action: () => Promise<T>) {
+    const previous = this.registrations.get(id)
+    const pending = this.track(async () => {
+      await previous?.catch(() => {})
+      this.shutdown.signal.throwIfAborted()
+      return action()
+    })
+    this.registrations.set(id, pending)
+    void pending
+      .finally(() => {
+        if (this.registrations.get(id) === pending) this.registrations.delete(id)
+      })
+      .catch(() => {})
+    return pending
+  }
   private readonly operations = new Set<Promise<unknown>>()
   private track<T>(action: () => Promise<T>): Promise<T> {
     if (this.closing) return Promise.reject(new Error('本机服务正在退出，远程服务操作未接纳'))
@@ -131,6 +142,8 @@ export class RemoteServices {
     this.closing = true
     this.ssh.dispose()
   }
+  private readonly lifetimes = new Map<string, AbortController>()
+  private readonly summaryReads = new WeakMap<HostService, Map<string, symbol>>()
   private readonly cookies = new Map<string, string>()
   private readonly authenticating = new Map<string, Promise<void>>()
   private writing = Promise.resolve()
@@ -140,7 +153,18 @@ export class RemoteServices {
     if (this.states.get(state.id) !== state) throw new Error('远程服务登记已变化')
     if (state.transport === 'ssh') this.endpoint(state)
   }
+  private lifetime(id: string) {
+    let controller = this.lifetimes.get(id)
+    if (!controller) {
+      controller = new AbortController()
+      this.lifetimes.set(id, controller)
+    }
+    return controller.signal
+  }
   private disconnect(id: string) {
+    this.lifetimes.get(id)?.abort(new Error('远程服务连接已变化'))
+    this.lifetimes.delete(id)
+    this.authenticating.delete(id)
     this.cookies.delete(id)
     for (const socket of this.sockets.get(id) ?? []) socket.terminate()
     this.sockets.delete(id)
@@ -163,7 +187,6 @@ export class RemoteServices {
         removed: (id) => {
           this.disconnect(id)
           this.states.delete(id)
-          this.authenticating.delete(id)
           void this.save().catch(() => {})
           this.changed()
         },
@@ -199,7 +222,7 @@ export class RemoteServices {
     this.cached = cached
     for (const saved of this.connections.list()) {
       const id = this.id(saved.url)
-      const old = cached.find((service) => service.id === id)
+      const old = cached.find((service) => service.id === id && service.hostId === saved.hostId)
       this.states.set(id, {
         id,
         hostId: saved.hostId,
@@ -268,25 +291,26 @@ export class RemoteServices {
     if (!cookie) throw new SshError('host-session', '远程服务未返回认证会话')
     return { hostId: value.hostId, cookie }
   }
-  register(url: string, token?: string) {
-    return this.track(() => this.registerService(url, token))
-  }
-  private async registerService(url: string, token?: string) {
+  async register(url: string, token?: string) {
     const address = new URL(url)
     if (address.protocol !== 'https:' || address.username || address.password)
       throw new Error('远程服务必须使用 HTTPS，地址不能包含凭据')
-    const saved = this.connections.read(address.origin)
+    const id = this.id(address.origin)
+    return this.mutateRegistration(id, () => this.registerService(id, address.origin, token))
+  }
+  private async registerService(id: string, url: string, token?: string) {
+    const saved = this.connections.read(url)
     const credential = token || saved?.token
     if (!credential) throw new Error('请输入远程服务访问令牌')
-    const result = await this.login(address.origin, credential, saved?.hostId)
-    await this.connections.save({ url: address.origin, token: credential, hostId: result.hostId })
-    const id = this.id(address.origin)
+    const result = await this.login(url, credential, saved?.hostId, false, this.shutdown.signal)
+    this.shutdown.signal.throwIfAborted()
+    await this.connections.save({ url, token: credential, hostId: result.hostId })
+    this.shutdown.signal.throwIfAborted()
     const old = this.states.get(id)
     this.disconnect(id)
-    this.authenticating.delete(id)
     this.states.set(id, {
       id,
-      address: address.origin,
+      address: url,
       hostId: result.hostId,
       local: false,
       transport: 'https',
@@ -295,8 +319,9 @@ export class RemoteServices {
       sessions: old?.sessions,
     })
     this.cookies.set(id, result.cookie)
+    this.changed()
     await this.save()
-    return this.get(id)
+    return { ...this.get(id) }
   }
   async authenticate(id: string) {
     if (this.closing) throw new Error('本机服务正在退出')
@@ -305,18 +330,25 @@ export class RemoteServices {
     if (this.cookies.has(id)) return
     let pending = this.authenticating.get(id)
     if (!pending) {
+      const signal = this.lifetime(id)
+      this.httpsStatus(state, 'connecting')
       pending = (async () => {
         const token =
           state.transport === 'ssh' ? this.connections.readSsh(id) : this.connections.read(state.address)?.token
         if (!token) throw new Error('远程服务凭据不存在')
-        const result = await this.login(endpoint, token, state.hostId, state.transport === 'ssh')
+        const result = await this.login(endpoint, token, state.hostId, state.transport === 'ssh', signal)
+        signal.throwIfAborted()
         this.assertCurrent(state)
         this.cookies.set(id, result.cookie)
-        state.status = 'connected'
-        delete state.error
-      })().finally(() => {
-        if (this.authenticating.get(id) === pending) this.authenticating.delete(id)
-      })
+        this.httpsStatus(state, 'connected')
+      })()
+        .catch((cause) => {
+          if (!signal.aborted) this.failed(id, cause, state)
+          throw cause
+        })
+        .finally(() => {
+          if (this.authenticating.get(id) === pending) this.authenticating.delete(id)
+        })
       this.authenticating.set(id, pending)
     }
     await pending
@@ -327,22 +359,18 @@ export class RemoteServices {
   private async retryService(id: string) {
     if (this.ssh.has(id)) throw new Error('SSH 连接请使用 SSH 管理入口重试')
     const state = this.get(id)
-    this.cookies.delete(id)
-    try {
-      await this.authenticate(id)
-    } catch (cause) {
-      this.failed(id, cause, state)
-      throw cause
-    }
-    return this.get(id)
+    if (!this.authenticating.has(id)) this.cookies.delete(id)
+    await this.authenticate(id)
+    this.assertCurrent(state)
+    return { ...state }
   }
   remove(id: string) {
-    return this.track(() => this.removeService(id))
+    return this.mutateRegistration(id, () => this.removeService(id))
   }
-  removeSavedConnection(url: string) {
-    return this.track(async () => {
-      const service = [...this.states.values()].find((service) => service.address === new URL(url).origin)
-      if (service) await this.removeService(service.id)
+  async removeSavedConnection(url: string) {
+    const id = this.id(new URL(url).origin)
+    return this.mutateRegistration(id, async () => {
+      if (this.states.has(id)) await this.removeService(id)
       else await this.connections.remove(url)
     })
   }
@@ -351,17 +379,24 @@ export class RemoteServices {
     const state = this.get(id)
     await this.connections.remove(state.address)
     this.states.delete(id)
-    this.authenticating.delete(id)
     this.disconnect(id)
+    this.changed()
     await this.save()
+  }
+  private httpsStatus(state: HostService, status: HostService['status'], error?: string) {
+    if (state.transport === 'ssh' || this.states.get(state.id) !== state) return
+    if (state.status === status && state.error === error) return
+    state.status = status
+    state.error = error
+    this.changed()
   }
   private failed(id: string, cause: unknown, expected?: HostService) {
     const state = this.states.get(id)
     if (state && (!expected || state === expected)) {
-      state.status = 'disconnected'
-      state.error = cause instanceof Error ? cause.message : String(cause)
-      if (state.error.includes('身份已变化')) this.disconnect(id)
+      const error = cause instanceof Error ? cause.message : String(cause)
+      if (error.includes('身份已变化')) this.disconnect(id)
       if (state.transport === 'ssh') this.ssh.connectionFailed(id, cause)
+      else this.httpsStatus(state, 'disconnected', error)
     }
   }
   uploadAttachment(
@@ -385,36 +420,41 @@ export class RemoteServices {
     return this.track(async () => {
       const state = this.get(id)
       if (metadata.get('hostId') !== state.hostId) throw new Error('服务身份不匹配')
+      const lifetime = this.lifetime(id)
+      const active = signal ? AbortSignal.any([lifetime, signal]) : lifetime
       try {
-        signal?.throwIfAborted()
+        active.throwIfAborted()
         await this.authenticate(id)
         this.assertCurrent(state)
-        signal?.throwIfAborted()
+        active.throwIfAborted()
+        const cookie = this.cookies.get(id)!
         const endpoint = this.endpoint(state)
         const url = new URL(pathname, endpoint)
         url.search = metadata.toString()
         const init: RequestInit & { duplex: 'half' } = {
           method: 'POST',
           redirect: 'error',
-          headers: { Cookie: this.cookies.get(id)!, Origin: endpoint, 'Content-Type': 'application/octet-stream' },
+          headers: { Cookie: cookie, Origin: endpoint, 'Content-Type': 'application/octet-stream' },
           body,
           duplex: 'half',
-          signal,
+          signal: active,
         }
         const response = await fetch(url, init)
         this.assertCurrent(state)
         if (response.status === 401) {
           // 流不能重放；只续期认证，让持有原始 Blob 的客户端重建请求体。
-          signal?.throwIfAborted()
-          this.cookies.delete(id)
+          active.throwIfAborted()
+          if (this.cookies.get(id) === cookie) this.cookies.delete(id)
           await this.authenticate(id)
           this.assertCurrent(state)
         }
         const data = await responseBody(response, 64 * 1024)
         this.assertCurrent(state)
-        if (response.ok && JSON.parse(data.toString()).hostId !== state.hostId) {
-          this.disconnect(id)
-          throw new SshError('host-identity', '远程服务身份已变化')
+        active.throwIfAborted()
+        if (response.ok) {
+          if (JSON.parse(data.toString()).hostId !== state.hostId)
+            throw new SshError('host-identity', '远程服务身份已变化')
+          this.httpsStatus(state, 'connected')
         }
         return {
           status: response.status,
@@ -422,40 +462,53 @@ export class RemoteServices {
           data,
         }
       } catch (cause) {
-        if (!signal?.aborted) this.failed(id, cause, state)
+        if (!active.aborted) this.failed(id, cause, state)
         throw cause
       }
     })
   }
-  request(id: string, pathname: string, method: string, body?: string) {
-    return this.track(() => this.proxyRequest(id, pathname, method, body))
+  request(id: string, pathname: string, method: string, body?: string, signal?: AbortSignal) {
+    return this.track(() => this.proxyRequest(id, pathname, method, body, signal))
   }
-  private async proxyRequest(id: string, pathname: string, method: string, body?: string) {
+  private async proxyRequest(id: string, pathname: string, method: string, body?: string, signal?: AbortSignal) {
     const state = this.get(id)
     const post = ['/api/auth', '/api/rpc', '/api/control', '/api/update/check'].includes(pathname)
     const get = pathname === '/api/update' || pathname.startsWith('/api/plugins/')
     if (!post && !get) throw new Error('远程代理接口无效')
     if (post && method !== 'POST') throw new Error('远程代理请求方法无效')
     if (get && method !== 'GET') throw new Error('远程资源请求方法无效')
+    let rpc: import('@pi-meme/contracts/host').HostRpcRequest | undefined
     if (pathname === '/api/rpc') {
-      const rpc = JSON.parse(body ?? '{}') as { method?: unknown }
+      const input: unknown = JSON.parse(body ?? '{}')
+      if (!isHostRpcRequest(input)) throw new Error('远程 RPC 请求参数无效')
+      rpc = input
       if (
-        typeof rpc.method === 'string' &&
-        (rpc.method.startsWith('host:ssh:') ||
-          ['host:services:retry', 'host:services:remove', 'host:connections:remove'].includes(rpc.method))
+        rpc.method.startsWith('host:ssh:') ||
+        ['host:services:retry', 'host:services:remove', 'host:connections:remove'].includes(rpc.method)
       )
         throw new Error('远程代理不允许转发连接管理请求')
     }
+    const lifetime = this.lifetime(id)
+    const active = signal ? AbortSignal.any([lifetime, signal]) : lifetime
+    const summary = rpc?.method === 'workspace:projects' || rpc?.method === 'pi:sessions' ? rpc.method : undefined
+    const generation = Symbol(rpc?.requestId)
+    if (summary) {
+      const reads = this.summaryReads.get(state) ?? new Map<string, symbol>()
+      reads.set(summary, generation)
+      this.summaryReads.set(state, reads)
+    }
     try {
+      active.throwIfAborted()
       await this.authenticate(id)
+      active.throwIfAborted()
       this.assertCurrent(state)
       const endpoint = this.endpoint(state)
-      const send = () =>
+      const send = (cookie: string) =>
         fetch(new URL(pathname, endpoint), {
-          signal: AbortSignal.timeout(30000),
+          signal: AbortSignal.any([active, AbortSignal.timeout(30000)]),
           method,
           redirect: 'error',
-          headers: { Cookie: this.cookies.get(id)!, Origin: endpoint, 'Content-Type': 'application/json' },
+          headers: { Cookie: cookie, Origin: endpoint, 'Content-Type': 'application/json' },
           body,
         })
       if (pathname === '/api/auth')
@@ -464,33 +517,41 @@ export class RemoteServices {
           contentType: 'application/json',
           data: Buffer.from(JSON.stringify({ hostId: state.hostId })),
         }
-      let response = await send()
+      const cookie = this.cookies.get(id)!
+      let response = await send(cookie)
+      active.throwIfAborted()
       this.assertCurrent(state)
       if (response.status === 401) {
-        this.cookies.delete(id)
+        if (this.cookies.get(id) === cookie) this.cookies.delete(id)
         await this.authenticate(id)
+        active.throwIfAborted()
         this.assertCurrent(state)
-        response = await send()
+        response = await send(this.cookies.get(id)!)
       }
       this.assertCurrent(state)
       const update = pathname === '/api/update' || pathname === '/api/update/check'
       let data = await responseBody(response, update ? 256 * 1024 : 48 * 1024 * 1024)
       this.assertCurrent(state)
+      active.throwIfAborted()
       if (response.ok && (pathname === '/api/rpc' || update)) {
-        const envelope = JSON.parse(data.toString()) as HostRpcResponse
-        if (envelope.hostId !== state.hostId) {
-          this.disconnect(id)
+        const envelope: unknown = JSON.parse(data.toString())
+        if (!record(envelope) || envelope.hostId !== state.hostId)
           throw new SshError('host-identity', '远程服务身份已变化')
+        if (update) {
+          this.httpsStatus(state, 'connected')
+          return { status: response.status, contentType: 'application/json', data }
         }
-        if (update) return { status: response.status, contentType: 'application/json', data }
-        const request = JSON.parse(body!) as { method: string }
-        if (!envelope.error && request.method === 'workspace:projects') {
+        if (!isHostRpcResponse(envelope) || !rpc || envelope.requestId !== rpc.requestId)
+          throw new Error('远程服务返回的 RPC 回执格式或请求标识无效')
+        active.throwIfAborted()
+        const currentSummary = summary && this.summaryReads.get(state)?.get(summary) === generation
+        if (!envelope.error && rpc.method === 'workspace:projects') {
           if (!projects(envelope.result)) throw new Error('远程项目摘要格式无效')
-          state.projects = envelope.result
+          if (currentSummary) state.projects = envelope.result
         }
-        if (!envelope.error && request.method === 'pi:sessions') {
+        if (!envelope.error && rpc.method === 'pi:sessions') {
           if (!sessions(envelope.result)) throw new Error('远程会话摘要格式无效')
-          state.sessions = envelope.result
+          if (currentSummary) state.sessions = envelope.result
         }
         const rewriteDescriptors = (value: unknown) => {
           if (!Array.isArray(value)) return value
@@ -506,7 +567,7 @@ export class RemoteServices {
             return result
           })
         }
-        if (request.method === 'plugins:list' || request.method === 'plugins:session')
+        if (rpc.method === 'plugins:list' || rpc.method === 'plugins:session')
           envelope.result = rewriteDescriptors(envelope.result)
         if (envelope.result && typeof envelope.result === 'object' && 'uiPlugins' in envelope.result)
           envelope.result = { ...envelope.result, uiPlugins: rewriteDescriptors(envelope.result.uiPlugins) }
@@ -525,15 +586,17 @@ export class RemoteServices {
               theme.background.url = `/api/services/${id}${theme.background.url}`
         }
         data = Buffer.from(JSON.stringify(envelope))
-        if (!envelope.error && ['workspace:projects', 'pi:sessions'].includes(request.method)) await this.save()
+        if (!envelope.error && currentSummary) await this.save()
       }
+      active.throwIfAborted()
+      if (response.ok) this.httpsStatus(state, 'connected')
       return {
         status: response.status === 401 ? 403 : response.status,
         contentType: response.headers.get('content-type') ?? 'application/octet-stream',
         data,
       }
     } catch (cause) {
-      this.failed(id, cause, state)
+      if (!active.aborted) this.failed(id, cause, state)
       throw cause
     }
   }
@@ -550,8 +613,9 @@ export class RemoteServices {
     const connect = (renewed: boolean) => {
       this.assertCurrent(state)
       if (downstream.readyState !== WebSocket.OPEN) return
+      const cookie = this.cookies.get(id)!
       const upstream = new WebSocket(url, {
-        headers: { Cookie: this.cookies.get(id)!, Origin: endpoint },
+        headers: { Cookie: cookie, Origin: endpoint },
         followRedirects: false,
         handshakeTimeout: 15000,
         maxPayload: 48 * 1024 * 1024,
@@ -561,6 +625,7 @@ export class RemoteServices {
       this.sockets.set(id, active)
       let renewing = false
       const close = () => upstream.close()
+      upstream.once('open', () => this.httpsStatus(state, 'connected'))
       downstream.once('close', close)
       upstream.on('unexpected-response', (_request, response) => {
         response.resume()
@@ -571,7 +636,7 @@ export class RemoteServices {
         }
         if (response.statusCode === 401 && !renewed) {
           renewing = true
-          this.cookies.delete(id)
+          if (this.cookies.get(id) === cookie) this.cookies.delete(id)
           upstream.terminate()
           void this.authenticate(id)
             .then(() => connect(true))
@@ -585,7 +650,7 @@ export class RemoteServices {
         }
       })
       upstream.on('error', (cause) => {
-        if (!renewing) {
+        if (!renewing && downstream.readyState === WebSocket.OPEN) {
           this.failed(id, cause, state)
           downstream.close(1011, '远程服务连接失败')
         }
@@ -620,6 +685,7 @@ export class RemoteServices {
   }
   dispose() {
     this.closing = true
+    this.shutdown.abort(new Error('本机服务正在退出'))
     this.ssh.dispose()
     for (const id of this.states.keys()) this.disconnect(id)
     this.states.clear()

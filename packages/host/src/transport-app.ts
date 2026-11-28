@@ -8,7 +8,7 @@ import { upgradeWebSocket, type HttpBindings } from '@hono/node-server'
 import { WebSocket } from 'ws'
 import { maxImagePreviewBytes, type HostControlRequest, type EventSubscription } from '@pi-meme/contracts/app-host'
 import { MAX_CHAT_ATTACHMENT_BYTES } from '@pi-meme/contracts/chat-attachments'
-import type { HostRpcRequest } from '@pi-meme/contracts/host'
+import { isHostRpcRequest, type HostRpcRequest } from '@pi-meme/contracts/host'
 import type { SshConnectionInput } from '@pi-meme/contracts/ssh-connections'
 import { discoverSshCandidates } from './ssh-config'
 import { sshUnavailableReason } from './ssh-tunnels'
@@ -93,6 +93,63 @@ function serviceRegistrationError(cause: unknown) {
   return cause.message.replace(/https?:\/\/\S+/g, '[服务地址]')
 }
 
+async function connectionAction(
+  { method, args }: HostRpcRequest,
+  remotes: RemoteServices,
+  canManage: boolean,
+  host: TransportServices['host'],
+) {
+  const [value, enabled] = args
+  switch (method) {
+    case 'host:ssh:capabilities': {
+      const available = canManage && (await remotes.ssh.available())
+      return {
+        canManage,
+        available,
+        reason: !canManage ? '请在本机打开应用后管理 SSH 连接' : !available ? sshUnavailableReason() : undefined,
+      }
+    }
+    case 'host:ssh:list':
+      return remotes.ssh.list()
+    case 'host:ssh:discover':
+      return discoverSshCandidates()
+    case 'host:ssh:save':
+      return remotes.ssh.save(value as SshConnectionInput)
+    case 'host:ssh:enabled': {
+      if (typeof value !== 'string' || typeof enabled !== 'boolean') throw new Error('SSH 启停参数无效')
+      return remotes.ssh.setEnabled(value, enabled)
+    }
+    case 'host:ssh:retry':
+    case 'host:ssh:remove': {
+      if (typeof value !== 'string') throw new Error('SSH 连接标识无效')
+      return method === 'host:ssh:retry' ? remotes.ssh.retry(value) : remotes.ssh.remove(value)
+    }
+    case 'host:connections:list':
+      return host.connections.list()
+    case 'host:connections:remove': {
+      if (typeof value !== 'string') throw new Error('服务地址无效')
+      return remotes.removeSavedConnection(value)
+    }
+    case 'host:services:list':
+      return remotes.list()
+    case 'host:services:register': {
+      const input = value as { url?: unknown; token?: unknown } | undefined
+      if (typeof input?.url !== 'string' || (input.token !== undefined && typeof input.token !== 'string'))
+        throw new Error('远程服务登记参数无效')
+      return remotes.register(input.url, input.token).catch((cause: unknown) => {
+        throw new Error(serviceRegistrationError(cause))
+      })
+    }
+    case 'host:services:retry':
+    case 'host:services:remove': {
+      if (typeof value !== 'string') throw new Error('服务标识无效')
+      return method === 'host:services:retry' ? remotes.retry(value) : remotes.remove(value)
+    }
+    default:
+      throw new Error('连接管理接口不存在')
+  }
+}
+
 function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: TransportServices) {
   const loadLinkPreview = createLinkPreviewLoader()
   app.use('/api/rpc', compress())
@@ -131,25 +188,14 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
     return reply(200, await host.control.dispatch((await jsonBody(c.req.raw)) as HostControlRequest))
   })
   app.post('/api/rpc', async (c) => {
-    const value = (await jsonBody(c.req.raw, true)) as HostRpcRequest
+    const value = await jsonBody(c.req.raw, true)
+    if (!isHostRpcRequest(value)) throw new Error('请求参数无效')
     if (
       (['host:import-keychain', 'host:credential-import-status'].includes(value.method) ||
         value.method.startsWith('browser:')) &&
       !auth.localRequest(c.env.incoming)
     )
       return reply(403, { error: '旧凭据只能在本机服务导入' })
-    if (
-      !value ||
-      typeof value.method !== 'string' ||
-      typeof value.clientId !== 'string' ||
-      !value.clientId ||
-      value.clientId.length > 128 ||
-      typeof value.requestId !== 'string' ||
-      !value.requestId ||
-      value.requestId.length > 128 ||
-      !Array.isArray(value.args)
-    )
-      throw new Error('请求参数无效')
     if (value.hostId && value.hostId !== host.hostId) throw new Error('请求服务身份不匹配')
     if (value.method === 'host:running-session-count') {
       if (!auth.localRequest(c.env.incoming)) return reply(403, { error: '退出状态只允许在本机读取' })
@@ -171,86 +217,18 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
         result: await loadLinkPreview(value.args[0]),
       })
     }
-    if (value.method.startsWith('host:ssh:')) {
+    const ssh = value.method.startsWith('host:ssh:')
+    const savedConnection = value.method === 'host:connections:list' || value.method === 'host:connections:remove'
+    let transportAction: (() => Promise<unknown>) | undefined
+    if (ssh || savedConnection || value.method.startsWith('host:services:')) {
       const canManage = auth.localRequest(c.env.incoming)
-      let result: unknown
-      if (value.method === 'host:ssh:capabilities') {
-        const available = canManage && (await remotes.ssh.available())
-        result = {
-          canManage,
-          available,
-          reason: !canManage ? '请在本机打开应用后管理 SSH 连接' : !available ? sshUnavailableReason() : undefined,
-        }
-      } else {
-        if (!canManage) return reply(403, { error: '请在本机打开应用后管理 SSH 连接' })
-        switch (value.method) {
-          case 'host:ssh:list':
-            result = remotes.ssh.list()
-            break
-          case 'host:ssh:discover':
-            result = await discoverSshCandidates()
-            break
-          case 'host:ssh:save':
-            result = await remotes.ssh.save(value.args[0] as SshConnectionInput)
-            break
-          case 'host:ssh:enabled':
-            if (typeof value.args[0] !== 'string' || typeof value.args[1] !== 'boolean')
-              throw new Error('SSH 启停参数无效')
-            result = await remotes.ssh.setEnabled(value.args[0], value.args[1])
-            break
-          case 'host:ssh:retry':
-          case 'host:ssh:remove':
-            if (typeof value.args[0] !== 'string') throw new Error('SSH 连接标识无效')
-            result = value.method.endsWith(':retry')
-              ? await remotes.ssh.retry(value.args[0])
-              : await remotes.ssh.remove(value.args[0])
-            break
-          default:
-            throw new Error('SSH 管理接口不存在')
-        }
-      }
-      return reply(200, { requestId: value.requestId, hostId: host.hostId, result })
-    }
-    if (value.method === 'host:connections:list' || value.method === 'host:connections:remove') {
-      if (!auth.localRequest(c.env.incoming)) return reply(403, { error: '本机连接记录只能在本机管理' })
-      let result: unknown
-      if (value.method === 'host:connections:list') result = host.connections.list()
-      else {
-        const url = value.args[0]
-        if (typeof url !== 'string') throw new Error('服务地址无效')
-        await remotes.removeSavedConnection(url)
-      }
-      return reply(200, { requestId: value.requestId, hostId: host.hostId, result })
-    }
-    if (value.method.startsWith('host:services:')) {
-      let result: unknown
-      switch (value.method) {
-        case 'host:services:list':
-          result = remotes.list()
-          break
-        case 'host:services:register': {
-          const input = value.args[0] as { url?: unknown; token?: unknown }
-          if (typeof input?.url !== 'string' || (input.token !== undefined && typeof input.token !== 'string'))
-            throw new Error('远程服务登记参数无效')
-          result = await remotes.register(input.url, input.token).catch((cause: unknown) => {
-            throw new Error(serviceRegistrationError(cause))
-          })
-          break
-        }
-        case 'host:services:retry':
-        case 'host:services:remove':
-          if (typeof value.args[0] !== 'string') throw new Error('服务标识无效')
-          result = value.method.endsWith(':retry')
-            ? await remotes.retry(value.args[0])
-            : await remotes.remove(value.args[0])
-          break
-        default:
-          throw new Error('服务管理接口不存在')
-      }
-      return reply(200, { requestId: value.requestId, hostId: host.hostId, result })
+      if (!canManage && ssh && value.method !== 'host:ssh:capabilities')
+        return reply(403, { error: '请在本机打开应用后管理 SSH 连接' })
+      if (!canManage && savedConnection) return reply(403, { error: '本机连接记录只能在本机管理' })
+      transportAction = () => connectionAction(value, remotes, canManage, host)
     }
     const start = performance.now()
-    const result = await host.rpc(value)
+    const result = await host.rpc(value, { signal: c.req.raw.signal, transportAction })
     return reply(200, result, { 'Server-Timing': `host;dur=${(performance.now() - start).toFixed(1)}` })
   })
   app.get('/api/snapshot', async (c) => {
@@ -258,7 +236,7 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
     const url = c.get('url')
     const result = await host.rpc({
       requestId: randomBytes(16).toString('hex'),
-      clientId: url.searchParams.get('clientId') ?? '',
+      clientId: url.searchParams.get('clientId') || 'legacy-snapshot',
       sessionId: url.searchParams.get('sessionId') ?? undefined,
       method: 'pi:snapshot',
       args: [],
@@ -364,6 +342,7 @@ function registerResources(app: Hono<TransportEnv>, { host, remotes }: Transport
           remote[2],
           c.req.method,
           c.req.method === 'POST' ? JSON.stringify(await jsonBody(c.req.raw, true)) : undefined,
+          c.req.raw.signal,
         )
     return new Response(new Uint8Array(upstream.data), {
       status: upstream.status,

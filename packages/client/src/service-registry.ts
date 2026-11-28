@@ -1,4 +1,4 @@
-import type { HostService, HostServiceRegistration, PlatformAdapter } from '@pi-meme/contracts/host'
+import type { ClientService, HostService, HostServiceRegistration, PlatformAdapter } from '@pi-meme/contracts/host'
 import type {
   SshCandidate,
   SshCapabilities,
@@ -15,27 +15,71 @@ export type ServiceRegistryOptions = {
   createSocket?: ClientOptions['createSocket']
 }
 
+/** 同一读取共用结果。收到变更后中止旧读取，等待者一起取得最新一轮结果。 */
+class ServiceRefresh {
+  private controller?: AbortController
+  private pending?: Promise<void>
+  private requested = false
+
+  constructor(private readonly read: (signal: AbortSignal) => Promise<void>) {}
+
+  run(invalidated = false): Promise<void> {
+    if (this.pending && !invalidated) return this.pending
+    this.requested = true
+    this.controller?.abort()
+    return (this.pending ??= Promise.resolve().then(async () => {
+      try {
+        while (this.requested) {
+          this.requested = false
+          const controller = new AbortController()
+          this.controller = controller
+          try {
+            await this.read(controller.signal)
+          } catch (cause) {
+            if (!controller.signal.aborted) throw cause
+          }
+        }
+      } finally {
+        this.controller = undefined
+        this.pending = undefined
+      }
+    }))
+  }
+
+  cancel() {
+    this.requested = false
+    this.controller?.abort()
+  }
+}
+
 export class HostServiceRegistry {
   private readonly clients = new Map<string, HostClient>()
-  private readonly states = new Map<string, HostService>()
+  private readonly states = new Map<string, ClientService>()
   private readonly disposers = new Map<string, Array<() => void>>()
   private readonly listeners = new Set<() => void>()
-  private readonly refreshes = new Map<string, symbol>()
-  private readonly pendingRefreshes = new Map<string, Promise<void>>()
+  private readonly refreshes = new Map<string, ServiceRefresh>()
   private readonly dirtyServices = new Set<string>()
   private readonly onVisible = () => {
     if (typeof document !== 'undefined' && !document.hidden)
-      for (const id of this.dirtyServices) void this.refresh(id).catch(() => {})
+      for (const id of this.dirtyServices) void this.refresh(id, true).catch(() => {})
   }
-  private serviceRefresh?: Promise<void>
-  private serviceRefreshRequested = false
+  private readonly directory = new ServiceRefresh(async (signal) => {
+    const previousSummaries = new Map([...this.states].map(([id, state]) => [id, state.sessions]))
+    const states = await this.local.rpc<HostService[]>('host:services:list', [], null, signal)
+    signal.throwIfAborted()
+    const current = new Set(states.map((state) => state.id))
+    for (const id of this.states.keys()) if (id !== this.localServiceId && !current.has(id)) this.drop(id)
+    const reconnect = states.filter((state) => this.accept(state, previousSummaries.get(state.id)))
+    this.publish()
+    if (this.initialized) for (const state of reconnect) void this.refresh(state.id, true).catch(() => {})
+  })
   private initialized = false
   private closed = false
   readonly localServiceId = 'local'
   readonly ssh = {
-    capabilities: () => this.local.rpc<SshCapabilities>('host:ssh:capabilities', [], null),
-    list: () => this.local.rpc<SshConnection[]>('host:ssh:list', [], null),
-    discover: () => this.local.rpc<SshCandidate[]>('host:ssh:discover', [], null),
+    capabilities: (signal?: AbortSignal) => this.local.rpc<SshCapabilities>('host:ssh:capabilities', [], null, signal),
+    list: (signal?: AbortSignal) => this.local.rpc<SshConnection[]>('host:ssh:list', [], null, signal),
+    discover: (signal?: AbortSignal) => this.local.rpc<SshCandidate[]>('host:ssh:discover', [], null, signal),
     save: (input: SshConnectionInput) => this.changeSsh<SshConnection>('save', [input]),
     setEnabled: (id: string, enabled: boolean) => this.changeSsh<SshConnection>('enabled', [id, enabled]),
     retry: (id: string) => this.changeSsh<SshConnection>('retry', [id]),
@@ -50,14 +94,14 @@ export class HostServiceRegistry {
     this.clients.set(this.localServiceId, local)
     this.disposers.set(this.localServiceId, [
       local.bridge.onSessionsChanged(() => {
-        void this.refresh(this.localServiceId).catch(() => {})
+        void this.refresh(this.localServiceId, true).catch(() => {})
       }),
       local.onServicesChanged(() => {
-        void this.refreshServices().catch(() => {})
+        void this.directory.run(true).catch(() => {})
       }),
       local.onTransportConnection((connected) => {
         this.transportChanged(this.localServiceId, connected)
-        if (connected) void this.refreshServices().catch(() => {})
+        if (connected) void this.directory.run(true).catch(() => {})
       }),
     ])
     this.states.set(this.localServiceId, {
@@ -65,12 +109,12 @@ export class HostServiceRegistry {
       hostId: local.hostId,
       address: local.hostAddress,
       local: true,
-      status: local.transportConnected ? 'connected' : 'disconnected',
+      clientStatus: local.transportConnected ? 'connected' : 'disconnected',
       projects: [],
     })
   }
   list() {
-    return [...this.states.values()]
+    return [...this.states.values()].map((state) => ({ ...state }))
   }
   get(id: string) {
     const client = this.clients.get(id)
@@ -86,105 +130,80 @@ export class HostServiceRegistry {
   private publish() {
     for (const callback of this.listeners) callback()
   }
-  private canConnect(state: HostService) {
+  private canConnect(state: ClientService) {
     return state.transport !== 'ssh' || (state.enabled === true && state.phase === 'connected')
   }
   private transportChanged(id: string, connected: boolean) {
     const state = this.states.get(id)
-    if (this.closed || !state || !this.canConnect(state)) return
-    state.status = connected ? 'connected' : 'disconnected'
-    if (connected) delete state.error
-    else state.error = '服务连接已断开，正在重连'
+    if (this.closed || !state) return
+    state.clientStatus = connected ? 'connected' : 'disconnected'
+    state.clientError = connected || !this.canConnect(state) ? undefined : '当前客户端连接已断开，正在重连'
     this.publish()
   }
-  private accept(state: HostService) {
-    const existing = this.states.get(state.id)
-    const wasConnectable = existing ? this.canConnect(existing) : false
-    const fresh = !this.clients.has(state.id)
-    if (existing) {
-      Object.assign(existing, state, {
-        error: state.error,
-        errorCode: state.errorCode,
-        nextRetryAt: state.nextRetryAt,
-      })
-      state = existing
+  private accept(host: HostService, previousSummary: HostService['sessions']) {
+    const id = host.id
+    const previous = this.states.get(id)
+    if (previous && (previous.hostId !== host.hostId || previous.address !== host.address)) this.drop(id)
+    const fresh = !this.clients.has(id)
+    const state: ClientService = {
+      ...host,
+      clientStatus: previous && !fresh ? previous.clientStatus : 'disconnected',
+      clientError: previous && !fresh ? previous.clientError : undefined,
     }
-    this.states.set(state.id, state)
+    if (!fresh && previous && previous.sessions !== previousSummary) {
+      state.projects = previous.projects
+      state.sessions = previous.sessions
+    }
+    this.states.set(id, state)
     if (fresh) {
       const client = new HostClient({
         ...this.options,
         connection: { url: state.address, hostId: state.hostId, local: false, token: '' },
-        endpoint: { baseUrl: this.options.baseUrl, apiPrefix: `/api/services/${state.id}`, authenticate: true },
+        endpoint: { baseUrl: this.options.baseUrl, apiPrefix: `/api/services/${id}`, authenticate: true },
         platform: undefined,
       })
-      this.clients.set(state.id, client)
-      const disposers = [
+      this.clients.set(id, client)
+      this.disposers.set(id, [
         client.onTransportConnection((connected) => {
-          this.transportChanged(state.id, connected)
-          if (!connected && state.transport === 'ssh' && this.canConnect(state))
-            void this.refreshServices().catch(() => {})
+          this.transportChanged(id, connected)
+          if (!connected && this.states.get(id)?.phase === 'connected') void this.directory.run().catch(() => {})
         }),
         client.bridge.onError((error) => {
-          if (state.transport === 'ssh') {
-            if (this.canConnect(state)) void this.refreshServices().catch(() => {})
-            return
-          }
-          state.error = error.message
+          const current = this.states.get(id)
+          if (!current || !this.canConnect(current)) return
+          current.clientError = error.message
           this.publish()
         }),
-        client.bridge.onSessionsChanged(() => {
-          if (this.canConnect(state)) void this.refresh(state.id).catch(() => {})
-        }),
-      ]
-      this.disposers.set(state.id, disposers)
+        client.bridge.onSessionsChanged(() => void this.refresh(id, true).catch(() => {})),
+      ])
     }
     if (!this.canConnect(state)) {
-      this.refreshes.delete(state.id)
-      this.get(state.id).suspend(state.error ?? '远程连接当前不可用，请恢复连接或处理连接问题')
-    } else {
-      state.status = this.get(state.id).transportConnected ? 'connected' : 'disconnected'
+      this.refreshes.get(id)?.cancel()
+      this.get(id).suspend(state.error ?? '远程连接当前不可用，请恢复连接或处理连接问题')
+      state.clientStatus = 'disconnected'
+      delete state.clientError
+      return false
     }
-    return this.canConnect(state) && (fresh || !wasConnectable)
+    return fresh || !previous || !this.canConnect(previous)
   }
   private drop(id: string) {
+    this.refreshes.get(id)?.cancel()
+    this.refreshes.delete(id)
+    this.dirtyServices.delete(id)
     for (const dispose of this.disposers.get(id) ?? []) dispose()
     this.disposers.delete(id)
     this.clients.get(id)?.close()
     this.clients.delete(id)
     this.states.delete(id)
-    this.refreshes.delete(id)
-  }
-  private refreshServices() {
-    if (this.closed) return Promise.resolve()
-    this.serviceRefreshRequested = true
-    if (this.serviceRefresh) return this.serviceRefresh
-    const pending = (async () => {
-      while (this.serviceRefreshRequested && !this.closed) {
-        this.serviceRefreshRequested = false
-        const states = await this.local.rpc<HostService[]>('host:services:list', [], null)
-        if (this.closed) return
-        if (this.serviceRefreshRequested) continue
-        const current = new Set(states.map((state) => state.id))
-        for (const id of this.states.keys()) if (id !== this.localServiceId && !current.has(id)) this.drop(id)
-        const reconnect: string[] = []
-        for (const state of states) if (this.accept(state)) reconnect.push(state.id)
-        this.publish()
-        if (this.initialized) for (const id of reconnect) void this.refresh(id).catch(() => {})
-      }
-    })().finally(() => {
-      if (this.serviceRefresh === pending) this.serviceRefresh = undefined
-    })
-    this.serviceRefresh = pending
-    return pending
   }
   private async changeSsh<T>(method: 'save' | 'enabled' | 'retry' | 'remove', args: unknown[]) {
     const result = await this.local.rpc<T>(`host:ssh:${method}`, args, null)
-    if (method === 'remove' && typeof args[0] === 'string') this.drop(args[0])
-    await this.refreshServices()
+    if (!this.closed) await this.directory.run(true)
     return result
   }
   async initialize() {
-    await this.refreshServices()
+    if (this.closed) return
+    await this.directory.run()
     this.initialized = true
     await Promise.allSettled(
       this.list()
@@ -193,20 +212,25 @@ export class HostServiceRegistry {
     )
   }
   async register(input: HostServiceRegistration) {
-    const state = await this.local.rpc<HostService>('host:services:register', [input], null)
-    this.accept(state)
-    this.publish()
-    await this.refresh(state.id)
-    return this.states.get(state.id)!
+    const result = await this.local.rpc<HostService>('host:services:register', [input], null)
+    await this.directory.run(true)
+    await this.refresh(result.id)
+    const current = this.states.get(result.id)
+    if (!current) throw new Error('服务已移除')
+    return { ...current }
   }
   async retry(id: string) {
-    if (this.states.get(id)?.transport === 'ssh') {
+    const state = this.states.get(id)
+    if (state?.status === 'connected' && state.clientStatus !== 'connected') {
+      await this.refresh(id)
+      return
+    }
+    if (state?.transport === 'ssh') {
       await this.ssh.retry(id)
       return
     }
-    const state = await this.local.rpc<HostService>('host:services:retry', [id], null)
-    this.accept(state)
-    this.publish()
+    await this.local.rpc<HostService>('host:services:retry', [id], null)
+    await this.directory.run(true)
     await this.refresh(id)
   }
   async remove(id: string) {
@@ -216,90 +240,63 @@ export class HostServiceRegistry {
       return
     }
     await this.local.rpc('host:services:remove', [id], null)
-    this.drop(id)
-    this.publish()
+    await this.directory.run(true)
   }
-  refresh(id: string): Promise<void> {
+  refresh(id: string, invalidated = false): Promise<void> {
     if (this.closed) return Promise.resolve()
-    this.dirtyServices.add(id)
-    if (typeof document !== 'undefined' && document.hidden) return Promise.resolve()
-    const pending = this.pendingRefreshes.get(id)
-    if (pending) return pending
-    const task = (async () => {
-      do {
-        if (typeof document !== 'undefined' && document.hidden) break
-        this.dirtyServices.delete(id)
-        try {
-          await this.refreshOnce(id)
-        } catch (cause) {
-          if (!this.dirtyServices.has(id) || this.closed) throw cause
-        }
-      } while (!this.closed && this.dirtyServices.has(id))
-    })().finally(() => {
-      this.pendingRefreshes.delete(id)
-    })
-    this.pendingRefreshes.set(id, task)
-    return task
+    if (typeof document !== 'undefined' && document.hidden) {
+      this.dirtyServices.add(id)
+      this.refreshes.get(id)?.cancel()
+      return Promise.resolve()
+    }
+    this.dirtyServices.delete(id)
+    let refresh = this.refreshes.get(id)
+    if (!refresh) {
+      refresh = new ServiceRefresh((signal) => this.refreshOnce(id, signal))
+      this.refreshes.set(id, refresh)
+    }
+    return refresh.run(invalidated)
   }
-  private async refreshOnce(id: string) {
+  private async refreshOnce(id: string, signal: AbortSignal) {
     const state = this.states.get(id)
     if (!state) throw new Error('服务不存在')
     if (!this.canConnect(state)) return
     const client = this.get(id)
-    const refresh = Symbol(id)
-    this.refreshes.set(id, refresh)
-    const isCurrent = () => !this.closed && this.refreshes.get(id) === refresh && this.canConnect(state)
-    if (state.transport !== 'ssh' && state.status !== 'connected') {
-      state.status = 'connecting'
+    if (!client.transportConnected) {
+      state.clientStatus = 'connecting'
       this.publish()
     }
-    let changed = false
     try {
       if (state.transport === 'ssh') await client.resume()
       else await client.connect()
-      if (!isCurrent()) return
-      const [projects, sessions] = await Promise.all([client.bridge.getProjects(), client.bridge.getSessions()])
-      if (!isCurrent()) return
-      if (JSON.stringify(state.projects) !== JSON.stringify(projects)) {
-        state.projects = projects
-        changed = true
-      }
-      if (state.sessions !== sessions) {
-        state.sessions = sessions
-        changed = true
-      }
-      if (state.hostId !== client.hostId) {
-        state.hostId = client.hostId
-        changed = true
-      }
-      if (state.transport !== 'ssh') {
-        const status = client.transportConnected ? 'connected' : 'disconnected'
-        changed ||= state.status !== status || (client.transportConnected && state.error !== undefined)
-        state.status = status
-        if (client.transportConnected) delete state.error
-      }
+      signal.throwIfAborted()
+      const [projects, sessions] = await Promise.all([
+        client.rpc<HostService['projects']>('workspace:projects', [], undefined, signal),
+        client.rpc<NonNullable<HostService['sessions']>>('pi:sessions', [], undefined, signal),
+      ])
+      signal.throwIfAborted()
+      const current = this.states.get(id)!
+      current.projects = projects
+      current.sessions = sessions
+      if (current.local) current.hostId = client.hostId
+      current.clientStatus = client.transportConnected ? 'connected' : 'disconnected'
+      if (client.transportConnected) delete current.clientError
+      this.publish()
     } catch (cause) {
-      if (isCurrent() && state.transport !== 'ssh') {
-        changed = true
-        state.status = client.transportConnected ? 'connected' : 'disconnected'
-        state.error = cause instanceof Error ? cause.message : String(cause)
+      if (!signal.aborted) {
+        const current = this.states.get(id)!
+        current.clientStatus = client.transportConnected ? 'connected' : 'disconnected'
+        current.clientError = cause instanceof Error ? cause.message : String(cause)
+        this.publish()
       }
       throw cause
-    } finally {
-      if (isCurrent()) {
-        this.refreshes.delete(id)
-        if (changed) this.publish()
-      }
     }
   }
   close() {
     this.closed = true
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onVisible)
-    this.dirtyServices.clear()
-    for (const disposers of this.disposers.values()) for (const dispose of disposers) dispose()
-    this.disposers.clear()
-    this.refreshes.clear()
-    for (const client of this.clients.values()) client.close()
+    this.directory.cancel()
+    for (const id of this.states.keys()) this.drop(id)
     this.listeners.clear()
   }
 }

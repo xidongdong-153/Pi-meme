@@ -51,7 +51,7 @@ import path from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { validateExtensionUIResponse } from '@pi-meme/contracts/user-input'
-import type { HostEvent, HostRpcRequest } from '@pi-meme/contracts/host'
+import { isHostRpcRequest, type HostEvent, type HostRpcRequest } from '@pi-meme/contracts/host'
 import type {
   DesktopEvent,
   Connection,
@@ -66,7 +66,12 @@ import {
   type AgentAccessMode,
 } from '@pi-meme/contracts/agent-access'
 import type { PiModel, SessionThinkingLevel } from '@pi-meme/contracts/pi'
-import type { SelectWorkspace, PiSessionsSnapshot, PiSessionSummary } from '@pi-meme/contracts/sessions'
+import {
+  projectSessionActivity,
+  type SelectWorkspace,
+  type PiSessionsSnapshot,
+  type PiSessionSummary,
+} from '@pi-meme/contracts/sessions'
 import { PiSessionPool, type ClientView, type RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import { AgentAccessStore } from '@pi-meme/pi-runtime/access-store'
 import {
@@ -160,6 +165,11 @@ const reads = new Set([
   'system:pending',
   'pi:connection',
   'host:session-ref',
+  'host:ssh:capabilities',
+  'host:ssh:list',
+  'host:ssh:discover',
+  'host:services:list',
+  'host:connections:list',
   'pi:snapshot',
   'pi:prompt-result',
   'temporary-session:get',
@@ -1616,6 +1626,7 @@ export async function createHost(options: HostOptions = {}) {
     })
     const bindRoot = async (key: string) => collaboration.bindRoot(pi.readSessionBinding(key))
     pi.configureCollaboration({
+      activityBySession: () => collaboration.activityBySession(),
       pause: async (key) => {
         endComputerRun(key)
         await bindRoot(key)
@@ -1868,31 +1879,32 @@ export async function createHost(options: HostOptions = {}) {
         binding ? collaboration.bindRoot(binding) : undefined,
       ])
       const savedMode = key ? await collaboration.getSessionMode(key) : undefined
-      const mode =
-        key && binding && savedMode
-          ? pi.restoreSessionMode(key, savedMode, { mode: binding.state.mode, revision: binding.modeRevision })
-          : binding?.state.mode
+      if (key && binding && savedMode)
+        pi.restoreSessionMode(key, savedMode, { mode: binding.state.mode, revision: binding.modeRevision })
       const [appSession, coordinated] = await Promise.all([
         key ? appControl?.sessionForRuntime(key) : undefined,
         key ? collaboration.snapshot(key) : {},
       ])
+      const attention =
+        appSession && !appSession.temporary ? await sessionAttention.forSnapshot(appSession, value) : undefined
+      const policy = key ? pi.readSessionBinding(key) : undefined
       return {
         ...value,
         appSession,
-        sessionAttention:
-          appSession && !appSession.temporary ? await sessionAttention.forSnapshot(appSession, value) : undefined,
+        sessionAttention: attention,
         goalsSupported: true,
         promptReceiptsSupported: true,
         goal: appSession ? goals.get(appSession) : undefined,
         connection: {
           ...value.connection,
+          ...(policy ? { accessMode: policy.accessMode, accessRevision: policy.modeRevision } : {}),
           sourceProjectCwd: projects.sourceProjectCwd(value.connection.cwd),
           restrictedPluginRuntimeSupported: pluginSandboxCapability.supported,
           restrictedPluginRuntimeReason: pluginSandboxCapability.reason,
         },
         state: {
           ...value.state,
-          ...(mode ? { mode } : {}),
+          ...(policy ? { mode: policy.state.mode } : {}),
           resourceSnapshot: key ? workerSnapshots.get(key) : undefined,
         },
         ...coordinated,
@@ -1903,20 +1915,14 @@ export async function createHost(options: HostOptions = {}) {
       enrichSnapshot(await pi.snapshot(window))
     const readSessionsSnapshot = sessions.getSnapshot.bind(sessions)
     sessions.getSnapshot = async (...args): Promise<PiSessionsSnapshot> => {
-      const [raw, children, inputRequests] = await Promise.all([
-        readSessionsSnapshot(...args),
-        collaboration.getChildSessions(),
-        collaboration.inputRequestsBySession(),
-      ])
-      const attention = (session: PiSessionsSnapshot['recents'][number]) => {
-        const inputRequestIds = [
-          ...new Set([
-            ...(session.inputRequestIds ?? []),
-            ...(inputRequests.get(session.id) ?? []),
-            ...(inputRequests.get(session.path) ?? []),
-          ]),
-        ]
-        return { ...session, needsInput: Boolean(session.needsInput || inputRequestIds.length), inputRequestIds }
+      const [raw, children] = await Promise.all([readSessionsSnapshot(...args), collaboration.getChildSessions()])
+      const activities = collaboration.activityBySession()
+      const attention = (session: PiSessionSummary) => {
+        const activity = activities.get(session.id) ?? activities.get(session.path)
+        return {
+          ...session,
+          ...projectSessionActivity('idle', false, Boolean(activity?.runningChild), activity?.inputRequestIds ?? []),
+        }
       }
       const value = {
         ...raw,
@@ -3143,23 +3149,21 @@ export async function createHost(options: HostOptions = {}) {
           if (!closing) scheduleClientRelease(clientId)
         }
       },
-      async rpc(request: HostRpcRequest) {
+      async rpc(
+        request: HostRpcRequest,
+        { signal, transportAction }: { signal?: AbortSignal; transportAction?: () => unknown } = {},
+      ) {
         if (closing) throw new Error('服务正在退出，操作未接纳')
-        if (
-          !request ||
-          typeof request.requestId !== 'string' ||
-          request.requestId.length > 128 ||
-          typeof request.clientId !== 'string' ||
-          request.clientId.length > 128 ||
-          !Array.isArray(request.args) ||
-          typeof request.method !== 'string'
-        )
-          throw new Error('请求参数无效')
+        if (!isHostRpcRequest(request)) throw new Error('请求参数无效')
         if (request.hostId && request.hostId !== hostId) throw new Error('服务身份不匹配')
+        signal?.throwIfAborted()
+        const readSignal = reads.has(request.method) ? signal : undefined
         clientRequests.set(request.clientId, (clientRequests.get(request.clientId) ?? 0) + 1)
         const pending = registry.run(
           request,
           async () => {
+            readSignal?.throwIfAborted()
+            if (transportAction) return transportAction()
             if (request.method === 'system:register') {
               const registration = request.args[0] as SystemClientRegistration | undefined
               const connected = [...(listeners.get(request.clientId) ?? [])].some(
@@ -3213,6 +3217,7 @@ export async function createHost(options: HostOptions = {}) {
               }
             }
             const view = await client(request.clientId)
+            readSignal?.throwIfAborted()
             if (closing) throw new Error('服务正在退出，操作未执行')
             if (request.method === 'pi:prompt') {
               const options = request.args[4]
@@ -3304,7 +3309,11 @@ export async function createHost(options: HostOptions = {}) {
                     ),
                   )
                 }
-                if (request.method === 'pi:set-service-tier' && key && !isTempTarget)
+                if (
+                  key &&
+                  !isTempTarget &&
+                  ['pi:set-service-tier', 'pi:access-mode', 'pi:session-mode'].includes(request.method)
+                )
                   await appControl!.sessionForRuntime(key)
                 if (deletion) {
                   const outcome = result as WorkspaceDeletionResult
@@ -3396,7 +3405,9 @@ export async function createHost(options: HostOptions = {}) {
         )
         inflight.add(pending)
         try {
-          return await pending
+          const response = await pending
+          readSignal?.throwIfAborted()
+          return response
         } finally {
           inflight.delete(pending)
           const count = (clientRequests.get(request.clientId) ?? 1) - 1

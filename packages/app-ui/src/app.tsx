@@ -434,11 +434,11 @@ function AppContent({
   }, [fileStore, chat.hasUnstoredDraft])
   const active = serviceUI?.active ?? true
   const currentService = serviceUI?.services.find((service) => service.id === serviceUI.serviceId)
-  const remoteOffline = Boolean(currentService && !currentService.local && currentService.status !== 'connected')
+  const remoteOffline = Boolean(currentService && !currentService.local && currentService.clientStatus !== 'connected')
   const scheduleState = useSchedules(
     host,
     currentService
-      ? currentService.status === 'connected'
+      ? currentService.clientStatus === 'connected'
       : chat.connection.status !== 'disconnected' && chat.connection.status !== 'connecting',
   )
   const cwd = chat.connection.cwd
@@ -1534,7 +1534,7 @@ function AppContent({
         {currentService && !currentService.local && (
           <div role="status" className="flex min-w-0 items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground">
             <Globe aria-hidden="true" className="size-3 shrink-0 text-primary" />
-            <TooltipHint content={currentService.error}>
+            <TooltipHint content={currentService.error ?? currentService.clientError}>
               <span className="min-w-0 flex-1 truncate">
                 远程 · {serviceLabel(currentService)} · {currentService.transport === 'ssh' ? 'SSH' : 'HTTPS'} ·{' '}
                 {serviceStatus(currentService)}
@@ -2555,7 +2555,7 @@ function AppContent({
     () =>
       new Set(
         (serviceUI?.services ?? [])
-          .filter((service) => !service.local && service.status !== 'connected')
+          .filter((service) => !service.local && service.clientStatus !== 'connected')
           .map((service) => service.id),
       ),
     [serviceUI?.services],
@@ -2581,7 +2581,7 @@ function AppContent({
           host={host}
           connected={
             currentService
-              ? currentService.status === 'connected'
+              ? currentService.clientStatus === 'connected'
               : chat.connection.status !== 'disconnected' && chat.connection.status !== 'connecting'
           }
           hostLabel={
@@ -2637,7 +2637,7 @@ function AppContent({
       hostLocal,
       hostLabel: currentService?.name || (hostAddress ? serviceAddress(hostAddress) : '当前服务'),
       hostConnected: currentService
-        ? currentService.status === 'connected'
+        ? currentService.clientStatus === 'connected'
         : chat.connection.status !== 'disconnected' && chat.connection.status !== 'connecting',
       error: settings.error,
       onDirty: setInstructionsDirty,

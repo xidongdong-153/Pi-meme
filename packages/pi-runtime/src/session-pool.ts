@@ -33,6 +33,7 @@ import type {
   PiSlashCommand,
   PiState,
   SessionThinkingLevel,
+  SessionExecutionPhase,
   ServiceTier,
 } from '@pi-meme/contracts/pi'
 import {
@@ -62,6 +63,7 @@ import type { SkillReference } from '@pi-meme/contracts/skills'
 import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 import {
   explicitSessionName,
+  projectSessionActivity,
   type SessionWindow,
   type PiSessionSummary,
   type WorkspaceKind,
@@ -157,9 +159,12 @@ type RuntimeSession = {
   extensionError?: DesktopError
   state: PiState
   queueModes?: Partial<Pick<PiState, 'steeringMode' | 'followUpMode'>>
-  running: boolean
-  pendingPrompt: boolean
-  settled: boolean
+  phase: SessionExecutionPhase
+  phaseRevision: number
+  readonly running: boolean
+  readonly pendingPrompt: boolean
+  snapshotRequest: number
+  acceptedSnapshot: number
   run: number
   touched: number
   created: string
@@ -204,6 +209,7 @@ export type ClientView = {
 }
 
 export type CollaborationLifecycle = {
+  activityBySession?: () => Map<string, { runningChild: boolean; inputRequestIds: string[] }>
   pause?: (sessionKey: string) => Promise<void>
   resume?: (sessionKey: string) => Promise<void>
   modeChanged?: (sessionKey: string, mode: TaskMode) => Promise<void>
@@ -358,7 +364,7 @@ export class PiSessionPool implements PiRuntime {
             await ready?.()
             if (unsettled(record)) continue
             if (!record.dormant && record.session.connection().status === 'ready') {
-              this.rememberSnapshot(record, await record.session.snapshot())
+              await this.captureSnapshot(record)
               if (unsettled(record)) continue
               try {
                 await record.session.assertResourceIdle()
@@ -688,8 +694,7 @@ export class PiSessionPool implements PiRuntime {
           await this.aborts.get(record.key)
           await this.collaboration?.stop(record.key)
           await record.session.stopAndWait()
-          record.running = false
-          record.pendingPrompt = false
+          this.setExecutionPhase(record, 'idle')
           record.state = {
             ...record.state,
             isStreaming: false,
@@ -870,6 +875,7 @@ export class PiSessionPool implements PiRuntime {
       workspaceKind: this.workspaceOptions?.kind(this.cwd) ?? 'project',
       sessionKey: this.active?.key,
       accessMode: this.active?.accessMode ?? this.defaultMode,
+      accessRevision: this.active ? (this.active.modeRevision ?? 0) : undefined,
       editPhase: this.edits.get(this.active?.key),
       accessChanging: this.active?.accessChanging || this.active?.stopping,
       restrictedAccessSupported: this.restrictedAccess?.supported ?? false,
@@ -982,9 +988,16 @@ export class PiSessionPool implements PiRuntime {
         followUpMode: this.defaults?.followUpMode ?? 'all',
         pendingMessageCount: 0,
       },
-      running: false,
-      pendingPrompt: false,
-      settled: true,
+      phase: 'idle',
+      phaseRevision: 0,
+      get running() {
+        return this.phase !== 'idle'
+      },
+      get pendingPrompt() {
+        return this.phase === 'submitting'
+      },
+      snapshotRequest: 0,
+      acceptedSnapshot: 0,
       run: 0,
       touched: Date.now(),
       created: history?.created ?? new Date().toISOString(),
@@ -1011,10 +1024,10 @@ export class PiSessionPool implements PiRuntime {
       cwd,
       {
         connection: (connection) => {
-          if (!this.sessions.has(key)) return
+          if (this.sessions.get(key) !== record || connection.generation < record.executionGeneration) return
+          record.executionGeneration = connection.generation
           if (connection.status === 'disconnected') {
             const running = record.running || record.pendingPrompt
-            record.pendingPrompt = false
             record.dormant = true
             record.extensions.clear()
             record.extensionError = undefined
@@ -1032,19 +1045,25 @@ export class PiSessionPool implements PiRuntime {
                   ),
                 },
               })
-            record.running = false
-          } else record.executionGeneration = connection.generation
+          }
           this.notify.connection(this.withSession(record.key, () => this.connection()))
           this.notify.sessionsChanged()
           if (record.session.connection().status === 'ready') this.prune()
           this.signalSettled()
         },
         event: (value) => {
-          record.executionGeneration = value.executionGeneration ?? value.generation
+          const generation = value.executionGeneration ?? value.generation
+          if (
+            this.sessions.get(key) !== record ||
+            generation !== record.session.connection().generation ||
+            generation < record.executionGeneration
+          )
+            return
+          record.executionGeneration = generation
           this.handleEvent(record, value)
         },
         error: (value) => {
-          if (!this.sessions.has(key)) return
+          if (this.sessions.get(key) !== record || value.generation !== record.session.connection().generation) return
           const error = { ...value, generation: this.generation, sessionKey: key }
           if (value.extension) record.extensionError = error
           this.notify.error(error)
@@ -1086,22 +1105,57 @@ export class PiSessionPool implements PiRuntime {
   }
   publishSessionEvent(sessionKey: string, event: DesktopEvent) {
     const record = this.sessions.get(sessionKey)
-    if (record) this.handleEvent(record, event)
+    if (record && (event.executionGeneration === undefined || event.executionGeneration >= record.executionGeneration))
+      this.handleEvent(record, {
+        ...event,
+        executionGeneration: event.executionGeneration ?? record.executionGeneration,
+      })
   }
-  private handleEvent(record: RuntimeSession, value: DesktopEvent) {
-    if (!this.sessions.has(record.key)) return
+  private runtimeState(record: RuntimeSession): PiState {
+    return { ...record.state, executionPhase: record.phase, isStreaming: record.running }
+  }
+  private setExecutionPhase(record: RuntimeSession, phase: SessionExecutionPhase) {
+    if (record.phase === phase) return
+    record.phase = phase
+    record.phaseRevision++
+    this.handleEvent(record, {
+      generation: record.executionGeneration,
+      event: { type: 'execution_phase', phase },
+    })
+    this.notify.sessionsChanged()
+  }
+  private handleEvent(record: RuntimeSession, value: DesktopEvent, completedTurn = true) {
+    if (this.sessions.get(record.key) !== record) return
     const event = value.event
+    if ('hostSubmission' in event && event.hostSubmission !== undefined && event.hostSubmission !== record.run) return
     if (event.type === 'service_tier_update')
       record.state = { ...record.state, modelServiceTiers: event.modelServiceTiers }
     if (event.type === 'session_saved') {
+      if (!record.temporary && record.sessionFile !== event.sessionFile) {
+        void this.accessStore.set(event.sessionFile, record.accessMode).catch((cause: unknown) =>
+          this.notify.error({
+            generation: this.generation,
+            sessionKey: record.key,
+            message: `无法保存会话权限：${String(cause)}`,
+          }),
+        )
+      }
       record.sessionFile = event.sessionFile
       markHistoryAppend(event.sessionFile)
       if (!record.temporary) this.notify.sessionsChanged({ paths: [event.sessionFile], kind: 'append' })
       return
     }
     if (event.type === 'agent_settled') {
-      if (record.settled) return
-      record.settled = true
+      if (!record.running) return
+      if (completedTurn) record.completedAt = new Date().toISOString()
+      this.setExecutionPhase(record, 'idle')
+    } else if (
+      event.type === 'agent_start' ||
+      event.type === 'compaction_start' ||
+      event.type === 'auto_retry_start' ||
+      event.type === 'summarization_retry_scheduled'
+    ) {
+      this.setExecutionPhase(record, 'running')
     }
     let recordEvent: DesktopEvent = {
       ...value,
@@ -1114,17 +1168,12 @@ export class PiSessionPool implements PiRuntime {
     if (recordEvent.runId) record.executionRunId = recordEvent.runId
     if ('generationMetrics' in event) record.state = { ...record.state, generationMetrics: event.generationMetrics }
     for (const buffer of record.buffers) buffer.push(recordEvent)
-    if ((event.type === 'agent_start' || event.type === 'agent_settled') && event.runIntervals)
+    if (
+      (event.type === 'agent_start' || event.type === 'agent_settled' || event.type === 'message_end') &&
+      event.runIntervals
+    )
       record.state = { ...record.state, runIntervals: event.runIntervals }
-    if (event.type === 'agent_start') {
-      record.settled = false
-      record.running = true
-      record.pendingPrompt = false
-      this.signalSettled()
-    }
     if (event.type === 'agent_settled') {
-      if (record.running) record.completedAt = new Date().toISOString()
-      record.running = false
       record.state = { ...record.state, isStreaming: false, isCompacting: false, activeMode: undefined }
       void this.collaboration?.settled(record.key, { ...event, runId: recordEvent.runId })
       record.liveEvents = []
@@ -1376,11 +1425,7 @@ export class PiSessionPool implements PiRuntime {
     this.assertPathAvailable(sessionPath)
     if (this.changing) throw new Error('正在修改运行时配置，请稍后切换会话')
     const selection = ++this.selection
-    const existing = [...this.sessions.values()].find(
-      (record) =>
-        record.key === sessionPath ||
-        (record.sessionFile ?? record.session.getActiveSession().sessionFile) === sessionPath,
-    )
+    const existing = this.sessionForPath(sessionPath)
     if (existing) {
       this.assertWorkspaceAvailable(existing.cwd)
       this.assertPathAvailable(existing.key)
@@ -1396,23 +1441,26 @@ export class PiSessionPool implements PiRuntime {
         if (existing.dormant && existing.sessionFile) {
           const history = await readSessionHistory(existing.sessionFile, window)
           if (selection !== this.selection) return { cancelled: true }
-          if (!history.messagePage) existing.messages = history.messages.slice()
-          existing.totalMessages = history.totalMessages
-          existing.sessionEntries = history.sessionEntries
-          existing.branchAttachments = history.branchAttachments?.slice()
-          existing.name = history.sessionName
-          existing.state = {
-            ...existing.state,
-            modelServiceTiers: history.modelServiceTiers,
-            sessionName: history.sessionName,
-            skillUsages: history.skillUsages,
-            recovery: history.recovery,
+          if (existing.dormant && !existing.starting && !existing.running) {
+            if (!history.messagePage) existing.messages = history.messages.slice()
+            existing.totalMessages = history.totalMessages
+            existing.sessionEntries = history.sessionEntries
+            existing.branchAttachments = history.branchAttachments?.slice()
+            existing.name = history.sessionName
+            existing.state = {
+              ...existing.state,
+              modelServiceTiers: history.modelServiceTiers,
+              sessionName: history.sessionName,
+              skillUsages: history.skillUsages,
+              recovery: history.recovery,
+            }
+            this.restoreTaskControl(existing, history)
+            existing.stats = history.stats
           }
-          this.restoreTaskControl(existing, history)
-          existing.stats = history.stats
         }
         this.assertPathAvailable(existing.key)
         this.assertWorkspaceAvailable(existing.cwd)
+        if (this.sessions.get(existing.key) !== existing) return { cancelled: true }
         this.activate(existing)
       }
     } else {
@@ -1420,7 +1468,8 @@ export class PiSessionPool implements PiRuntime {
       const sessionTarget = await realpath(sessionPath).catch(() => '')
       if (!sessionRoot || !sessionTarget || !pathWithin(sessionRoot, sessionTarget))
         throw new Error('Desktop 只能打开应用内保存的会话')
-      const history = await readSessionHistory(sessionPath, window)
+      const savedPath = path.join(this.runtimePaths.sessionsDirectory, path.relative(sessionRoot, sessionTarget))
+      const history = await readSessionHistory(savedPath, window)
       if (selection !== this.selection) return { cancelled: true }
       if (this.workspaceOptions?.kind(history.cwd) === 'standalone') {
         try {
@@ -1431,7 +1480,16 @@ export class PiSessionPool implements PiRuntime {
         if (selection !== this.selection) return { cancelled: true }
       }
       this.assertPathAvailable(sessionPath)
-      this.create(history.cwd, sessionPath, history)
+      this.assertPathAvailable(sessionTarget)
+      this.assertPathAvailable(savedPath)
+      this.assertWorkspaceAvailable(history.cwd)
+      // Other client views can restore the same file while this view is reading its history.
+      // Reuse the owner found at publication time, keeping selection and pagination per view.
+      const restored = this.sessionForPath(savedPath) ?? this.sessionForPath(sessionTarget)
+      if (restored) {
+        this.assertPathAvailable(restored.key)
+        this.activate(restored)
+      } else this.create(history.cwd, savedPath, history)
     }
     return this.selectionResult(selection, window)
   }
@@ -1478,9 +1536,17 @@ export class PiSessionPool implements PiRuntime {
       : null
   }
   getRuntimeSessions(): PiSessionSummary[] {
+    const activities = this.collaboration?.activityBySession?.()
     return [...this.sessions.values()]
       .filter((record) => this.hasContent(record))
       .map((record) => {
+        const activity =
+          activities?.get(record.key) ?? (record.sessionFile ? activities?.get(record.sessionFile) : undefined)
+        const requests = new Set(activity?.inputRequestIds)
+        for (const [key, value] of record.extensions) {
+          if (key.startsWith('dialog:') && value.event.type === 'extension_ui_request')
+            requests.add(JSON.stringify([record.key, value.executionGeneration ?? value.generation, value.event.id]))
+        }
         return {
           id: record.key,
           path: this.recordPath(record),
@@ -1493,15 +1559,9 @@ export class PiSessionPool implements PiRuntime {
           modified: record.completedAt ?? record.created,
           completedAt: record.completedAt,
           messageCount: record.totalMessages ?? record.messages.length,
-          running: record.running,
-          needsInput: [...record.extensions.keys()].some((key) => key.startsWith('dialog:')),
-          inputRequestIds: [...record.extensions.values()].flatMap((value) =>
-            value.event.type === 'extension_ui_request' &&
-            ['select', 'confirm', 'input', 'editor', 'questions'].includes(value.event.method)
-              ? [JSON.stringify([record.key, value.executionGeneration ?? value.generation, value.event.id])]
-              : [],
-          ),
-          isPaused: Boolean(record.state.isPaused),
+          ...projectSessionActivity(record.phase, Boolean(record.state.isPaused), Boolean(activity?.runningChild), [
+            ...requests,
+          ]),
           error: record.error ?? record.session.connection().error,
           temporary: record.temporary ? true : undefined,
         }
@@ -1528,12 +1588,13 @@ export class PiSessionPool implements PiRuntime {
           : undefined
       await this.warmMetadata(record)
       const models = this.localAvailableModels ?? []
+      if (record !== this.active || generation !== this.generation) throw new Error('当前查看的会话已更换')
       return projectSessionDetails(
         projectSessionWindow(
           {
             connection: this.connection(),
             extensionError: record.extensionError ? { ...record.extensionError, generation } : undefined,
-            state: { ...record.state, isStreaming: record.running },
+            state: this.runtimeState(record),
             messages: history?.messages ?? record.messages,
             messagePage: history?.messagePage,
             historyRevision: history?.historyRevision,
@@ -1563,42 +1624,14 @@ export class PiSessionPool implements PiRuntime {
     const buffer: DesktopEvent[] = []
     record.buffers.add(buffer)
     try {
-      const snapshot = await record.session.snapshot(window)
+      const snapshot = await this.captureSnapshot(record, window)
       if (record !== this.active || generation !== this.generation) throw new Error('当前查看的会话已更换')
-      this.rememberSnapshot(record, snapshot)
-      if (record.sessionFile && !record.accessChanging && !record.temporary)
-        await this.accessStore.set(record.sessionFile, record.accessMode)
-      for (const value of buffer) {
-        if (value.event.type === 'message_end') this.rememberMessage(record, value.event.message)
-        if (value.event.type === 'service_tier_update') record.state.modelServiceTiers = value.event.modelServiceTiers
-        if (value.event.type === 'session_info_changed') {
-          record.name = value.event.name
-          record.state = { ...record.state, sessionName: value.event.name }
-        }
-        this.rememberRecoveryEvent(record, value.event)
-      }
-      if (!buffer.some((value) => value.event.type === 'agent_start' || value.event.type === 'agent_settled'))
-        record.running =
-          !record.settled || snapshot.state.isStreaming || snapshot.state.isCompacting || Boolean(record.state.retry)
+      if (!snapshot || record.dormant || snapshot.connection.generation !== record.executionGeneration)
+        return projection()
       return {
         ...snapshot,
         extensionError: record.extensionError ? { ...record.extensionError, generation } : undefined,
-        state: {
-          ...snapshot.state,
-          sessionName: record.name,
-          modelServiceTiers: record.state.modelServiceTiers,
-          mode: record.state.mode,
-          isPaused: record.state.isPaused,
-          queuePaused: record.state.queuePaused,
-          pauseRevision: record.state.pauseRevision,
-          pauseIntervals: record.state.pauseIntervals,
-          runIntervals: record.state.runIntervals,
-          retry: record.state.retry,
-          recovery: record.state.recovery,
-          compactionError: record.state.compactionError,
-          isStreaming: record.running,
-          isCompacting: record.running && snapshot.state.isCompacting,
-        },
+        state: this.runtimeState(record),
         connection: this.connection(),
         events: [...events, ...buffer].map((event) => ({ ...event, generation })),
         eventSequence: record.sequence,
@@ -1735,6 +1768,53 @@ export class PiSessionPool implements PiRuntime {
         })
     }
   }
+  private async captureSnapshot(record: RuntimeSession, window?: SessionWindow) {
+    const request = ++record.snapshotRequest
+    const generation = record.executionGeneration
+    const run = record.run
+    const buffer: DesktopEvent[] = []
+    record.buffers.add(buffer)
+    try {
+      const snapshot = await record.session.snapshot(window)
+      if (
+        this.sessions.get(record.key) !== record ||
+        generation !== record.executionGeneration ||
+        snapshot.connection.generation !== generation
+      )
+        throw new Error('会话执行代次已更换，请重新读取')
+      if (request < record.acceptedSnapshot || record.run !== run || record.dormant) return undefined
+      record.acceptedSnapshot = request
+      const state = record.state
+      this.rememberSnapshot(record, snapshot)
+      for (const { event } of buffer) {
+        if (event.type === 'message_end') this.rememberMessage(record, event.message)
+        if (event.type === 'service_tier_update') record.state.modelServiceTiers = event.modelServiceTiers
+        if (event.type === 'session_info_changed') {
+          record.name = event.name
+          record.state.sessionName = event.name
+        }
+        if (
+          (event.type === 'agent_start' || event.type === 'agent_settled' || event.type === 'message_end') &&
+          event.runIntervals
+        )
+          record.state.runIntervals = state.runIntervals
+        if (event.type === 'stop_update') record.state.stopped = state.stopped
+        if (event.type === 'compaction_start' || event.type === 'compaction_end' || event.type === 'agent_settled')
+          record.state.isCompacting = state.isCompacting
+        if (event.type === 'agent_settled') record.state.activeMode = state.activeMode
+        this.rememberRecoveryEvent(record, event)
+      }
+      if (
+        !buffer.some(({ event }) => event.type === 'execution_phase' || event.type === 'agent_settled') &&
+        record.phase === 'idle' &&
+        (snapshot.state.isStreaming || snapshot.state.isCompacting || snapshot.state.retry)
+      )
+        this.setExecutionPhase(record, 'running')
+      return snapshot
+    } finally {
+      record.buffers.delete(buffer)
+    }
+  }
   private rememberSnapshot(record: RuntimeSession, snapshot: Snapshot) {
     if (snapshot.stats) record.stats = snapshot.stats
     record.name = snapshot.state.sessionName
@@ -1810,8 +1890,7 @@ export class PiSessionPool implements PiRuntime {
       const followUpMode = record.queueModes?.followUpMode ?? preferences.followUpMode ?? record.state.followUpMode
       if (steeringMode !== preferences.steeringMode) await record.session.setSteeringMode(steeringMode)
       if (followUpMode !== preferences.followUpMode) await record.session.setFollowUpMode(followUpMode)
-      const snapshot = await record.session.snapshot()
-      this.rememberSnapshot(record, snapshot)
+      await this.captureSnapshot(record)
       if (record.sessionFile && !record.temporary) await this.accessStore.set(record.sessionFile, record.accessMode)
       if (!this.sessions.has(record.key)) return
       this.commands.set(`${record.cwd}:${record.accessMode}`, { value: await record.session.getCommands() })
@@ -1863,8 +1942,19 @@ export class PiSessionPool implements PiRuntime {
     if (record.accessChanging) throw new Error('正在更新 Agent 访问权限，请稍后操作')
     return record
   }
-  async setAccessMode(sessionKey: string, mode: AgentAccessMode) {
-    await this.setExecutionPolicy(sessionKey, { accessMode: mode })
+  async setAccessMode(sessionKey: string, mode: AgentAccessMode, expectedRevision?: number) {
+    await this.setExecutionPolicy(sessionKey, { accessMode: mode }, expectedRevision)
+  }
+
+  private commitExecutionPolicy(record: RuntimeSession, access: AgentAccessMode, mode: TaskMode) {
+    if (record.accessMode !== access || record.state.mode !== mode) {
+      this.commands.delete(`${record.cwd}:${record.accessMode}`)
+      this.commands.delete(`${record.cwd}:${access}`)
+      record.accessMode = access
+      record.state = { ...record.state, mode }
+      record.modeRevision = (record.modeRevision ?? 0) + 1
+    }
+    return record.modeRevision ?? 0
   }
 
   /** 仅供 Host 恢复已保存的选择；不授予执行能力，也不创建或配置运行时。 */
@@ -1880,6 +1970,11 @@ export class PiSessionPool implements PiRuntime {
     const revision = record.modeRevision ?? 0
     if (expectedRevision !== undefined && revision !== expectedRevision) return undefined
     await record.accessReady
+    // A catalog snapshot may predate the permission file's last successful commit.
+    const savedAccess =
+      record.sessionFile && !record.temporary && policy.accessMode !== undefined
+        ? await this.accessStore.savedMode(record.sessionFile)
+        : undefined
     if (this.target(sessionKey) !== record || (record.modeRevision ?? 0) !== revision) {
       if (expectedRevision !== undefined) return undefined
       throw new Error('会话权限或模式已变化，请重新读取')
@@ -1890,24 +1985,26 @@ export class PiSessionPool implements PiRuntime {
     if (!this.isSessionIdle(sessionKey, true) || record.session.connection().status !== 'disconnected')
       throw new Error('只能为未启动且空闲的会话恢复已保存的权限或模式')
     const previous = { accessMode: record.accessMode, mode: record.state.mode }
-    const access = policy.accessMode ?? previous.accessMode
+    const access = savedAccess ?? policy.accessMode ?? previous.accessMode
     const mode = policy.mode ?? previous.mode
-    if (previous.accessMode === access && previous.mode === mode) return { revision, previous }
-    this.commands.delete(`${record.cwd}:${record.accessMode}`)
-    this.commands.delete(`${record.cwd}:${access}`)
-    record.accessMode = access
-    record.state = { ...record.state, mode }
-    record.modeRevision = revision + 1
-    return { revision: record.modeRevision, previous }
+    return { revision: this.commitExecutionPolicy(record, access, mode), previous }
   }
 
-  async setExecutionPolicy(sessionKey: string, policy: { accessMode?: AgentAccessMode; mode?: TaskMode }) {
+  async setExecutionPolicy(
+    sessionKey: string,
+    policy: { accessMode?: AgentAccessMode; mode?: TaskMode },
+    expectedRevision?: number,
+  ) {
     if (policy.accessMode !== undefined && !isAgentAccessMode(policy.accessMode)) throw new Error('Agent 访问权限无效')
     if (policy.mode !== undefined && policy.mode !== 'default' && policy.mode !== 'plan')
       throw new Error('会话模式无效')
     const record = this.target(sessionKey)
     await record.accessReady
-    this.target(sessionKey)
+    if (
+      this.target(sessionKey) !== record ||
+      (expectedRevision !== undefined && expectedRevision !== (record.modeRevision ?? 0))
+    )
+      throw new Error('会话权限或模式已变化，请重新读取后操作')
     const access = policy.accessMode ?? record.accessMode
     const mode = policy.mode ?? record.state.mode
     this.assertExecutionAccess(access, mode)
@@ -1941,8 +2038,7 @@ export class PiSessionPool implements PiRuntime {
         }
       }
       await record.session.idle(async () => {
-        if (record.session.connection().status === 'ready')
-          this.rememberSnapshot(record, await record.session.snapshot())
+        if (record.session.connection().status === 'ready') await this.captureSnapshot(record)
         // 所有拒绝条件先检查，再释放旧权限下的运行时与连接。
         await record.session.stopAndWait()
         record.dormant = true
@@ -1958,15 +2054,11 @@ export class PiSessionPool implements PiRuntime {
             await this.accessStore.set(record.sessionFile, previousAccess)
           throw cause
         }
-        record.accessMode = access
-        record.state = { ...record.state, mode }
-        record.modeRevision = (record.modeRevision ?? 0) + 1
-        this.commands.delete(`${record.cwd}:${previousAccess}`)
-        this.commands.delete(`${record.cwd}:${access}`)
+        const revision = this.commitExecutionPolicy(record, access, mode)
         this.handleEvent(record, {
           generation: this.generation,
           executionGeneration: record.session.connection().generation,
-          event: { type: 'access_mode_changed', mode: access },
+          event: { type: 'access_mode_changed', mode: access, revision },
         })
       }, true)
     } finally {
@@ -2087,6 +2179,10 @@ export class PiSessionPool implements PiRuntime {
       this.changing = false
     }
   }
+  private assertSubmission(record: RuntimeSession, run: number) {
+    if (record.cancelledPrompt || record.run !== run || this.sessions.get(record.key) !== record)
+      throw new Error('消息发送已取消')
+  }
   async prompt(
     sessionKey: string,
     message: string,
@@ -2132,24 +2228,21 @@ export class PiSessionPool implements PiRuntime {
     if (record.running || record.pendingPrompt || record.stopping)
       throw new Error('当前会话正在运行或修改配置，请稍后发送')
     const run = ++record.run
-    record.settled = false
     record.cancelledPrompt = false
     record.error = undefined
-    record.pendingPrompt = true
-    record.running = true
     record.touched = Date.now()
     if (!goalControl && !recoveryEntryId && !record.restored && !builtinCommand(message))
       record.firstMessage ||= message
-    this.notify.sessionsChanged()
+    this.setExecutionPhase(record, 'submitting')
     try {
       await this.ensureRuntime(record, normalized.mode)
-      if (record.cancelledPrompt || !this.sessions.has(record.key)) throw new Error('消息发送已取消')
+      this.assertSubmission(record, run)
       await this.collaboration?.beforePrompt(sessionKey, { mode: normalized.mode, message })
-      if (record.cancelledPrompt || !this.sessions.has(record.key)) throw new Error('消息发送已取消')
+      this.assertSubmission(record, run)
       record.state.activeMode = normalized.mode
       let receipt: PromptReceipt | undefined
-      if (recoveryEntryId) await record.session.recover(recoveryEntryId)
-      else if (goalControl) await record.session.continueGoalTask(message, goalControl, options)
+      if (recoveryEntryId) await record.session.recover(recoveryEntryId, run)
+      else if (goalControl) await record.session.continueGoalTask(message, goalControl, options, run)
       else {
         const send = () =>
           record.session.prompt(
@@ -2161,6 +2254,8 @@ export class PiSessionPool implements PiRuntime {
             true,
             undefined,
             editEntryId,
+            undefined,
+            run,
           )
         const command = !options?.plan && builtinCommand(message)
         if (command && command.name === 'name' && command.args) {
@@ -2174,44 +2269,33 @@ export class PiSessionPool implements PiRuntime {
       await record.session.setSessionMode(record.state.mode)
       return receipt
     } catch (cause) {
-      if (!this.sessions.has(record.key)) throw cause
+      if (this.sessions.get(record.key) !== record || record.run !== run) throw cause
       // 失败只通知当前客户端。写进连接状态的话，之后每次刷新都会把同一条错误再显示出来。
       const message = String(cause)
       void this.collaboration?.failed(sessionKey, cause, record.executionRunId)
       this.notify.error({ generation: this.generation, sessionKey: record.key, message })
-      record.running = false
-      this.notify.sessionsChanged()
-      void record.session
-        .snapshot()
-        .then((snapshot) => {
-          if (!this.sessions.has(record.key) || run !== record.run) return
-          if (recoveryEntryId) this.rememberSnapshot(record, snapshot)
-          record.running = snapshot.state.isStreaming || snapshot.state.isCompacting
-          if (!record.running)
-            this.handleEvent(record, {
-              generation: this.generation,
-              executionGeneration: record.session.connection().generation,
-              event: { type: 'agent_settled', recovery: snapshot.state.recovery },
-            })
-          this.notify.sessionsChanged()
-        })
-        .catch(() => {
-          if (!this.sessions.has(record.key) || run !== record.run) return
-          if (record.session.connection().status === 'disconnected') {
-            record.running = false
-            record.dormant = true
-            this.handleEvent(record, {
-              generation: this.generation,
-              executionGeneration: record.session.connection().generation,
-              event: { type: 'agent_settled' },
-            })
+      const generation = record.executionGeneration
+      const revision = record.phaseRevision
+      const current = () =>
+        this.sessions.get(record.key) === record &&
+        run === record.run &&
+        generation === record.executionGeneration &&
+        revision === record.phaseRevision
+      const settle = (recovery?: PiState['recovery']) =>
+        this.handleEvent(record, { generation, event: { type: 'agent_settled', recovery } }, false)
+      if (record.running && record.session.connection().status === 'ready') {
+        try {
+          await this.captureSnapshot(record)
+          if (current()) {
+            if (record.state.isStreaming || record.state.isCompacting) this.setExecutionPhase(record, 'running')
+            else settle(record.state.recovery)
           }
-          this.notify.sessionsChanged()
-        })
+        } catch {
+          if (current()) settle()
+        }
+      } else if (record.running) settle()
       throw cause
     } finally {
-      record.pendingPrompt = false
-      if (record.settled) record.running = false
       this.signalSettled()
     }
   }
@@ -2294,8 +2378,9 @@ export class PiSessionPool implements PiRuntime {
         cwd: record.cwd,
         status: record.dormant ? 'idle' : record.session.connection().status,
         accessMode: record.accessMode,
+        accessRevision: record.modeRevision ?? 0,
       },
-      state: { ...record.state, isStreaming: record.running },
+      state: this.runtimeState(record),
       messages: record.messages,
       models: [],
       stats: record.stats,
@@ -2318,7 +2403,7 @@ export class PiSessionPool implements PiRuntime {
     return {
       sessionKey,
       cwd: record.cwd,
-      state: record.state,
+      state: this.runtimeState(record),
       accessMode: record.accessMode,
       sessionFile: record.sessionFile,
       sessionId: record.session.getActiveSession().sessionId ?? record.stats?.sessionId,
@@ -2330,7 +2415,7 @@ export class PiSessionPool implements PiRuntime {
     return {
       sessionKey,
       cwd: record.cwd,
-      state: { ...record.state },
+      state: this.runtimeState(record),
       accessMode: record.accessMode,
       sessionFile: record.sessionFile,
       sessionId: record.session.getActiveSession().sessionId ?? record.stats?.sessionId,
@@ -2345,7 +2430,7 @@ export class PiSessionPool implements PiRuntime {
     const record = this.sessions.get(sessionKey)
     if (!record) throw new Error('目标会话已关闭，请重新打开后发送')
     if (record.state.mode === expected.mode && (record.modeRevision ?? 0) === expected.revision)
-      record.state = { ...record.state, mode }
+      this.commitExecutionPolicy(record, record.accessMode, mode)
     return record.state.mode
   }
   async setSessionMode(sessionKey: string, mode: TaskMode) {
@@ -2365,12 +2450,12 @@ export class PiSessionPool implements PiRuntime {
   }
   private async abortSession(sessionKey: string) {
     const record = this.target(sessionKey)
+    if (record.pendingPrompt) record.cancelledPrompt = true
     record.stopping = true
     this.notify.connection(this.withSession(record.key, () => this.connection()))
     try {
       await this.collaboration?.stop(sessionKey)
       if (record.pendingPrompt && record.starting) {
-        record.cancelledPrompt = true
         await record.starting.catch(() => {})
         return
       }
@@ -2379,7 +2464,7 @@ export class PiSessionPool implements PiRuntime {
         this.handleEvent(record, {
           generation: this.generation,
           executionGeneration: record.session.connection().generation,
-          event: { type: 'agent_settled' },
+          event: { type: 'agent_settled', aborted: true },
         })
     } finally {
       record.stopping = false
@@ -2392,6 +2477,7 @@ export class PiSessionPool implements PiRuntime {
   }
   async stopTask(sessionKey: string) {
     const record = this.target(sessionKey)
+    if (record.pendingPrompt) record.cancelledPrompt = true
     record.stopping = true
     this.notify.connection(this.withSession(record.key, () => this.connection()))
     try {
@@ -2407,19 +2493,17 @@ export class PiSessionPool implements PiRuntime {
     this.assertNotEditing(sessionKey)
     const record = this.target(sessionKey)
     if (record.running || record.pendingPrompt || record.stopping) throw new Error('当前会话正在执行，请稍后重试')
-    record.pendingPrompt = true
-    record.running = true
-    record.settled = false
-    record.run += 1
-    this.notify.sessionsChanged()
+    const run = ++record.run
+    record.cancelledPrompt = false
+    this.setExecutionPhase(record, 'submitting')
     try {
       await this.ensureRuntime(record, record.state.mode)
-      await record.session.continueStopped(configuration)
+      this.assertSubmission(record, run)
+      await record.session.continueStopped(configuration, run)
     } catch (cause) {
-      record.running = false
+      if (record.run === run) this.setExecutionPhase(record, 'idle')
       throw cause
     } finally {
-      record.pendingPrompt = false
       this.notify.sessionsChanged()
       this.signalSettled()
     }
@@ -2721,7 +2805,7 @@ export class PiSessionPool implements PiRuntime {
     await Promise.all(
       retained.map(async (entry) => {
         if (entry.session.connection().status === 'ready') {
-          this.rememberSnapshot(entry, await entry.session.snapshot())
+          await this.captureSnapshot(entry)
         }
       }),
     )
@@ -2751,7 +2835,7 @@ export class PiSessionPool implements PiRuntime {
       await record.session.setSessionMode(record.state.mode)
       await record.session.setSteeringMode(record.state.steeringMode)
       await record.session.setFollowUpMode(record.state.followUpMode)
-      this.rememberSnapshot(record, await record.session.snapshot())
+      await this.captureSnapshot(record)
     })
     record.starting = starting
     this.notify.connection(this.connection())
@@ -2779,15 +2863,20 @@ export class PiSessionPool implements PiRuntime {
     validateExtensionDialogResponse(request as import('@pi-meme/contracts/pi').PiExtensionDialogRequest, response)
     const executionGeneration = saved.executionGeneration ?? saved.generation
     record.answers.add(id)
+    const owns = () =>
+      this.sessions.get(record.key) === record &&
+      record.executionGeneration === executionGeneration &&
+      record.extensions.get(`dialog:${id}`) === saved
     try {
       await record.session.respondExtensionUI(id, response)
+      if (!owns()) return
       this.handleEvent(record, {
         generation: this.generation,
         executionGeneration,
         event: { type: 'extension_ui_closed', id, reason: 'answered' },
       })
     } catch (cause) {
-      if (record.session.connection().status === 'disconnected' || /已取消|超时|过期/.test(String(cause)))
+      if (owns() && (record.session.connection().status === 'disconnected' || /已取消|超时|过期/.test(String(cause))))
         this.handleEvent(record, {
           generation: this.generation,
           executionGeneration,

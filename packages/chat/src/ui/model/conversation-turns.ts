@@ -1,3 +1,4 @@
+import { readTaskProgress } from '@pi-meme/contracts/task-progress'
 import { messageText } from './message-text'
 import { nestedTools, toolTreeIndex } from './nested-tools'
 import { retainTurns, sameItems } from './stable-turns'
@@ -296,6 +297,8 @@ export function groupConversationTurns(
     }
 
     if (msg.role === 'toolResult') {
+      // Older snapshots may lack source metadata on the user message. The committed tool result carries its native ID.
+      userEntryId ??= readTaskProgress(msg)?.userEntryId
       if (msg.timestamp) {
         turnEndTimestamp = Math.max(turnEndTimestamp || 0, msg.timestamp)
       }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CircleAlert, Copy, Folder, Globe, Loader2, Pin, PinOff, RefreshCw } from 'lucide-react'
-import type { HostService } from '@pi-meme/contracts/host'
+import type { ClientService } from '@pi-meme/contracts/host'
 import type { PiProjectGroup } from '@pi-meme/contracts/sessions'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { serviceLabel, servicePaused, serviceStatus, type ServiceRegistry } from './service-ui'
@@ -12,7 +12,7 @@ export function RemoteProjectDetails({
   registry,
   onTogglePin,
 }: {
-  service: HostService
+  service: ClientService
   project: PiProjectGroup
   pinned: boolean
   registry: ServiceRegistry
@@ -39,17 +39,16 @@ export function RemoteProjectDetails({
     setBusy(true)
     setError('')
     try {
-      if (service.transport === 'ssh') {
-        if (servicePaused(service)) await registry.ssh.setEnabled(service.id, true)
-        else await registry.ssh.retry(service.id)
-      } else await registry.retry(service.id)
+      if (servicePaused(service)) await registry.ssh.setEnabled(service.id, true)
+      else await registry.retry(service.id)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
       setBusy(false)
     }
   }
-  const offline = service.status !== 'connected'
+  const offline = service.clientStatus !== 'connected'
+  const canRetry = canManage || service.status === 'connected'
   return (
     <div className="space-y-2 text-xs">
       <div className="flex items-center gap-2">
@@ -75,12 +74,14 @@ export function RemoteProjectDetails({
         {offline && <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-destructive" />}
         <div className="min-w-0 flex-1 space-y-1">
           <p>{serviceStatus(service)}</p>
-          {service.error && <p className="break-words text-muted-foreground">{service.error}</p>}
+          {(service.error || service.clientError) && (
+            <p className="break-words text-muted-foreground">{service.error || service.clientError}</p>
+          )}
           {offline && (
             <p className="text-muted-foreground">列表和任务状态来自上次同步，远端任务不会随连接断开而停止。</p>
           )}
         </div>
-        {offline && canManage && (
+        {offline && canRetry && (
           <Button
             size="icon"
             variant="ghost"
@@ -92,7 +93,7 @@ export function RemoteProjectDetails({
           </Button>
         )}
       </div>
-      {offline && !canManage && <p className="text-muted-foreground">请在本机应用中管理连接。</p>}
+      {offline && !canRetry && <p className="text-muted-foreground">请在本机应用中管理连接。</p>}
       <div className="flex items-start gap-2 text-muted-foreground">
         <Folder className="mt-0.5 size-3.5 shrink-0" />
         <span className="min-w-0 flex-1 break-all">{project.cwd}</span>

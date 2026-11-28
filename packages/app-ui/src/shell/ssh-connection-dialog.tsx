@@ -35,30 +35,32 @@ export function SshConnectionDialog({
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const generation = useRef(0)
+  const discovering = useRef<AbortController | undefined>(undefined)
   const knownTargets = new Set([...profiles.map((profile) => profile.target), ...added])
 
   const discover = useCallback(async () => {
-    const current = ++generation.current
+    discovering.current?.abort()
+    const controller = new AbortController()
+    discovering.current = controller
     setLoading(true)
     setError('')
     try {
-      const result = await ssh.discover()
-      if (current !== generation.current) return
+      const result = await ssh.discover(controller.signal)
+      if (controller.signal.aborted) return
       setCandidates(result)
       const targets = new Set(result.map((candidate) => candidate.target))
       setSelection((previous) => new Set([...previous].filter((target) => targets.has(target))))
     } catch (cause) {
-      if (current === generation.current) setError(message(cause))
+      if (!controller.signal.aborted) setError(message(cause))
     } finally {
-      if (current === generation.current) setLoading(false)
+      if (!controller.signal.aborted) setLoading(false)
     }
   }, [ssh])
 
   useEffect(() => {
     if (!connection) void discover()
     return () => {
-      generation.current++
+      discovering.current?.abort()
     }
   }, [discover, connection])
 
@@ -180,7 +182,7 @@ export function SshConnectionDialog({
                   variant="ghost"
                   disabled={saving}
                   onClick={() => {
-                    generation.current++
+                    discovering.current?.abort()
                     setLoading(false)
                     setError('')
                     setStep('form')

@@ -1,9 +1,9 @@
 import type { MessageConfiguration, PlanDocument, PlanState, TaskMode } from '@pi-meme/contracts/plan'
 import { activePathIds } from '@pi-meme/contracts/session-tree'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
-import type { PiSessionSummary, SelectWorkspace } from '@pi-meme/contracts/sessions'
+import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
 import { transferDraft } from '@pi-meme/chat/ui/composer/transfer-draft'
-import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import type { AgentAccessEvent, AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   DesktopBridge,
@@ -36,6 +36,19 @@ import { SessionStreamEvents } from './stream-events'
 import { SnapshotSync } from './snapshot-sync'
 import { PluginSnapshotSync } from './plugin-snapshot-sync'
 import { ComposerDrafts, newChatDraftKey } from './composer-drafts'
+
+function projectAccess(connection: Connection, event: AgentAccessEvent): Connection {
+  if (connection.accessRevision !== undefined && (event.revision ?? -1) < connection.accessRevision) return connection
+  return { ...connection, accessMode: event.mode, accessRevision: event.revision }
+}
+
+function retainNewerAccess(next: Connection, current: Connection): Connection {
+  if (next.sessionKey !== current.sessionKey || next.generation !== current.generation || !current.accessMode)
+    return next
+  return (current.accessRevision ?? -1) > (next.accessRevision ?? -1)
+    ? { ...next, accessMode: current.accessMode, accessRevision: current.accessRevision }
+    : next
+}
 
 function modelIsAvailable(models: PiModel[], model?: PiModel) {
   return Boolean(model && models.some((entry) => entry.provider === model.provider && entry.id === model.id))
@@ -101,10 +114,8 @@ export function useAppSession(
   const [refreshToken, setRefreshToken] = useState(0)
   const currentRootAgentId = useRef<string | undefined>(undefined)
   const currentAgentTree = useRef<AgentSummary[]>([])
-  const [hasRunningSubagent, setHasRunningSubagent] = useState(false)
   const syncAgentTree = useCallback((agents: AgentSummary[]) => {
     currentAgentTree.current = agents
-    setHasRunningSubagent(agents.some((agent) => ['running', 'starting'].includes(agent.status) && !agent.isPaused))
   }, [])
   const [planState, setPlanState] = useState<PlanState>()
   const [planDocuments, setPlanDocuments] = useState<PlanDocument[]>([])
@@ -182,11 +193,13 @@ export function useAppSession(
             record.sequence > snapshot.eventSequence)
         ) {
           if (record.event.type === 'access_mode_changed')
-            snapshot = { ...snapshot, connection: { ...snapshot.connection, accessMode: record.event.mode } }
+            snapshot = { ...snapshot, connection: projectAccess(snapshot.connection, record.event) }
           if (record.event.type === 'session_info_changed')
             snapshot = { ...snapshot, state: { ...snapshot.state, sessionName: record.event.name } }
         }
       }
+      const confirmedConnection = retainNewerAccess(snapshot.connection, current.current)
+      if (confirmedConnection !== snapshot.connection) snapshot = { ...snapshot, connection: confirmedConnection }
       const retained = snapshot.connection.sessionKey && views.current.get(snapshot.connection.sessionKey)
       if (
         retained &&
@@ -250,7 +263,7 @@ export function useAppSession(
         setPlanDocuments(next.planState.document ? [next.planState.document] : [])
       }
       // 权威快照空闲时清除发送挂起标记，避免下一条消息被当成插话/排队。
-      if (!snapshot.state.isStreaming && !snapshot.state.isCompacting) chatRef.current?.clearPromptPending()
+      if (next && !next.running) chatRef.current?.clearIdlePrompt()
       const key = snapshot.connection.sessionKey
       if (key && next) {
         views.current.delete(key)
@@ -661,62 +674,6 @@ export function useAppSession(
       onAttention: receiveAttention,
     },
   )
-  const activePendingPrompt = chat.pendingPrompts.some((prompt) => prompt.sessionKey === connection.sessionKey)
-  const syncedSessions = useMemo(() => {
-    if (
-      !attentionSessions ||
-      switching ||
-      previewing ||
-      loading ||
-      (connection.status !== 'ready' && connection.status !== 'idle')
-    )
-      return attentionSessions
-    const viewedPath = connection.sessionFile ?? connection.sessionKey
-    if (!viewedPath) return attentionSessions
-    const liveRunning = Boolean(chat.chat.running || activePendingPrompt || hasRunningSubagent)
-    const livePaused = Boolean(chat.chat.paused && !liveRunning)
-    const matchesViewed = (entry: PiSessionSummary) =>
-      entry.path === viewedPath || Boolean(connection.sessionKey && entry.id === connection.sessionKey)
-    const patchList = (entries: PiSessionSummary[] | undefined) => {
-      if (!entries) return { entries, changed: false }
-      let changed = false
-      const next = entries.map((entry) => {
-        if (!matchesViewed(entry)) return entry
-        if (Boolean(entry.running) === liveRunning && Boolean(entry.isPaused) === livePaused) return entry
-        changed = true
-        return { ...entry, running: liveRunning, isPaused: livePaused }
-      })
-      return { entries: changed ? next : entries, changed }
-    }
-    const recents = patchList(attentionSessions.recents)
-    const standalone = patchList(attentionSessions.standaloneSessions)
-    let projectsChanged = false
-    const projects = attentionSessions.projects.map((project) => {
-      const patched = patchList(project.sessions)
-      if (!patched.changed) return project
-      projectsChanged = true
-      return { ...project, sessions: patched.entries! }
-    })
-    if (!recents.changed && !standalone.changed && !projectsChanged) return attentionSessions
-    return {
-      ...attentionSessions,
-      recents: recents.entries!,
-      standaloneSessions: standalone.entries,
-      projects: projectsChanged ? projects : attentionSessions.projects,
-    }
-  }, [
-    activePendingPrompt,
-    attentionSessions,
-    chat.chat.paused,
-    chat.chat.running,
-    connection.sessionFile,
-    connection.sessionKey,
-    connection.status,
-    hasRunningSubagent,
-    loading,
-    previewing,
-    switching,
-  ])
 
   useEffect(() => {
     mounted.current = true
@@ -739,6 +696,7 @@ export function useAppSession(
     const updateConnection = (next: Connection) => {
       if (!mounted.current || next.generation < current.current.generation) return
       const previous = current.current
+      next = retainNewerAccess(next, previous)
       current.current = next
       if (selection.current.current || preview.current) return
       setConnection(next)
@@ -811,7 +769,7 @@ export function useAppSession(
       const cached = record.sessionKey && views.current.get(record.sessionKey)
       if (cached && record.sequence !== undefined && record.sequence <= cached.sequence) return
       if (event.type === 'access_mode_changed' && cached && cached.snapshot.connection.generation === record.generation)
-        cached.snapshot = { ...cached.snapshot, connection: { ...cached.snapshot.connection, accessMode: event.mode } }
+        cached.snapshot = { ...cached.snapshot, connection: projectAccess(cached.snapshot.connection, event) }
       const visible =
         record.sessionKey === current.current.sessionKey &&
         record.generation === current.current.generation &&
@@ -848,9 +806,9 @@ export function useAppSession(
       if (selection.current.current || preview.current) return
       if (event.type === 'access_mode_changed') {
         if (record.sessionKey === current.current.sessionKey && record.generation === current.current.generation) {
-          current.current = { ...current.current, accessMode: event.mode }
+          current.current = projectAccess(current.current, event)
           if (displayed.current.sessionKey === record.sessionKey && displayed.current.generation === record.generation)
-            displayed.current = { ...displayed.current, accessMode: event.mode }
+            displayed.current = projectAccess(displayed.current, event)
           setConnection(current.current)
         }
         return
@@ -1681,7 +1639,7 @@ export function useAppSession(
         setCommands(next)
     },
     refreshUiPlugins,
-    sessions: syncedSessions,
+    sessions: attentionSessions,
     setReadVisible,
     sessionsLoading,
     refreshMenu: async () => {
@@ -1766,7 +1724,7 @@ export function useAppSession(
     setAccessMode: (mode: AgentAccessMode) =>
       action(async (key, owns) => {
         try {
-          await bridge.setAccessMode(key, mode)
+          await bridge.setAccessMode(key, mode, connection.accessRevision)
         } finally {
           if (owns()) await refresh()
         }

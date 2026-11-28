@@ -1,6 +1,6 @@
 import { createSystemTools } from './system-tools'
 import type { WorkerAdmission } from './worker-session'
-import { SystemReadError, type ReadErrorCode, type SystemReadErrorDetails } from '@pi-meme/contracts/system-read'
+import { SystemReadError } from '@pi-meme/contracts/system-read'
 import { projectBranchVisualizations } from '@pi-meme/contracts/visualize'
 import type { VisualizationRequest, VisualizationDocument } from '@pi-meme/contracts/visualize'
 import type { Goal, GoalRequest, GoalRun } from '@pi-meme/contracts/goal'
@@ -11,14 +11,20 @@ import { createAppAgent } from '@pi-meme/pi-runtime/sdk/app-agent'
 import { createRestrictedAgent } from '@pi-meme/pi-runtime/sdk/restricted-agent'
 import { createPluginServerClient } from '@pi-meme/plugin-sdk/rpc'
 import type { PluginRuntimeRequest, PluginUiRequest } from '@pi-meme/contracts/plugin-call'
-import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
+import {
+  validateWorkerCommand,
+  type HostWorkerMessage,
+  type SessionWorkerData,
+  type WorkerReply,
+} from './worker-protocol'
 import { parentPort, workerData } from 'node:worker_threads'
 import { randomUUID } from 'node:crypto'
 import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contracts/collaboration'
 import type { PlanDocument, PlanState, SavePlanInput } from '@pi-meme/contracts/plan'
-import type { InlineExtension, ExtensionAPI, PromptTemplate, ToolDefinition } from '@earendil-works/pi-coding-agent'
+import type { InlineExtension, ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-agent'
 import type { DesktopSettings } from '@pi-meme/contracts/settings'
-import { canUseExternalAgentTools, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import { canUseExternalAgentTools, isAgentAccessMode, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import { isTaskMode } from '@pi-meme/contracts/plan'
 import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 import { SdkSession, type RuntimePolicy } from '@pi-meme/pi-runtime/sdk/session'
 import { createPiRuntimePaths, createTemporaryRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
@@ -64,21 +70,9 @@ export type SessionWorkerContext = {
 }
 export type SessionWorkerFactory = (context: SessionWorkerContext) => InlineExtension[] | Promise<InlineExtension[]>
 export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> = {}) {
-  const data = workerData as {
-    cwd: string
-    root: string
-    temporaryRoot?: string
-    settings: DesktopSettings
-    agentEntries: AgentPluginEntry[]
-    credentials: Array<[string, string]>
-    access: AgentAccessMode
-    taskMode: import('@pi-meme/contracts/plan').TaskMode
-    capabilities: DesktopSettings
-    initialGeneration?: number
-    resourceSnapshot?: ResourceSnapshot
-    promptTemplates?: PromptTemplate[]
-  }
+  const data = workerData as SessionWorkerData
   if (!parentPort) throw new Error('会话入口只能由 Worker 启动')
+  if (!isAgentAccessMode(data.access) || !isTaskMode(data.taskMode)) throw new Error('Worker 执行权限或模式无效')
   const port = parentPort
   const basePaths = createPiRuntimePaths(data.root)
   const paths = data.temporaryRoot ? createTemporaryRuntimePaths(basePaths, data.temporaryRoot) : basePaths
@@ -111,8 +105,12 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
   }
   let taskProgressEnabled = data.settings.taskProgressEnabled !== false
   let session: SdkSession
-  function send(value: object): void {
-    return port.postMessage({ ...value, connection: session.connection(), active: session.getActiveSession() })
+  function send(value: Omit<WorkerReply, 'connection' | 'active'>): void {
+    return port.postMessage({
+      ...value,
+      connection: session.connection(),
+      active: session.getActiveSession(),
+    } satisfies WorkerReply)
   }
   const stream = createStreamCoalescer((value) => send({ notify: 'event', value }))
   const policy: RuntimePolicy = {
@@ -372,86 +370,73 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     session.configureAccess(data.access)
     await session.setSessionMode(data.taskMode)
   })()
-  port.on(
-    'message',
-    (request: {
-      id: number
-      method: string
-      args: unknown[]
-      credentialReply?: number
-      mcpCredential?: { key: string; value?: string }
-      hostReply?: string
-      result?: unknown
-      error?: string
-      errorCode?: ReadErrorCode
-      errorDetails?: SystemReadErrorDetails
-    }) => {
-      if (request.mcpCredential) {
-        const { key, value } = request.mcpCredential
-        if (key.startsWith('mcp-oauth:')) {
-          if (value === undefined) localDelete(key)
-          else localSet(key, value)
+  port.on('message', (request: HostWorkerMessage) => {
+    if ('mcpCredential' in request) {
+      const { key, value } = request.mcpCredential
+      if (key.startsWith('mcp-oauth:')) {
+        if (value === undefined) localDelete(key)
+        else localSet(key, value)
+      }
+      return
+    }
+    if ('hostReply' in request) {
+      const pending = pendingHost.get(request.hostReply)
+      pendingHost.delete(request.hostReply)
+      pending?.cleanup()
+      if (request.error)
+        pending?.reject(
+          request.errorCode
+            ? new SystemReadError(request.errorCode, request.error, request.errorDetails)
+            : new Error(request.error),
+        )
+      else pending?.resolve(request.result)
+      return
+    }
+    if ('credentialReply' in request) {
+      const pending = pendingCredentials.get(request.credentialReply)
+      pendingCredentials.delete(request.credentialReply)
+      if (request.error) pending?.reject(new Error(request.error))
+      else pending?.resolve()
+      return
+    }
+    void ready
+      .then(async () => {
+        validateWorkerCommand(request)
+        if (request.method === 'configureCapabilities') {
+          send({ id: request.id })
+          return
         }
-        return
-      }
-      if (request.hostReply) {
-        const pending = pendingHost.get(request.hostReply)
-        pendingHost.delete(request.hostReply)
-        pending?.cleanup()
-        if (request.error)
-          pending?.reject(
-            request.errorCode
-              ? new SystemReadError(request.errorCode, request.error, request.errorDetails)
-              : new Error(request.error),
-          )
-        else pending?.resolve(request.result)
-        return
-      }
-      if (request.credentialReply !== undefined) {
-        const pending = pendingCredentials.get(request.credentialReply)
-        pendingCredentials.delete(request.credentialReply)
-        if (request.error) pending?.reject(new Error(request.error))
-        else pending?.resolve()
-        return
-      }
-      void ready
-        .then(async () => {
-          if (request.method === 'configureCapabilities') {
-            send({ id: request.id })
-            return
+        if (request.method === 'pluginUiCancel') {
+          pluginUiControllers.get(String(request.args[0]))?.abort()
+          send({ id: request.id })
+          return
+        }
+        if (request.method === 'pluginUi') {
+          const input = request.args[0] as PluginUiRequest
+          const action = pluginUi.get(input.pluginId)
+          if (!action || !input.scopeId || pluginUiControllers.has(input.scopeId))
+            throw new Error('scope-expired: 插件交互已失效')
+          const controller = new AbortController()
+          pluginUiControllers.set(input.scopeId, controller)
+          try {
+            send({ id: request.id, result: await action({ ...input, signal: controller.signal }) })
+          } finally {
+            pluginUiControllers.delete(input.scopeId)
+            controller.abort()
           }
-          if (request.method === 'pluginUiCancel') {
-            pluginUiControllers.get(String(request.args[0]))?.abort()
-            send({ id: request.id })
-            return
-          }
-          if (request.method === 'pluginUi') {
-            const input = request.args[0] as PluginUiRequest
-            const action = pluginUi.get(input.pluginId)
-            if (!action || !input.scopeId || pluginUiControllers.has(input.scopeId))
-              throw new Error('scope-expired: 插件交互已失效')
-            const controller = new AbortController()
-            pluginUiControllers.set(input.scopeId, controller)
-            try {
-              send({ id: request.id, result: await action({ ...input, signal: controller.signal }) })
-            } finally {
-              pluginUiControllers.delete(input.scopeId)
-              controller.abort()
-            }
-            return
-          }
-          const method = Reflect.get(session, request.method) as unknown
-          if (typeof method !== 'function' || request.method.startsWith('_')) throw new Error('Worker 操作无效')
-          stream.flush()
-          const result: unknown = await Reflect.apply(method, session, request.args)
-          stream.flush()
-          await credentialWrites
-          send({ id: request.id, result })
-        })
-        .catch((cause: unknown) => {
-          stream.flush()
-          send({ id: request.id, error: cause instanceof Error ? cause.message : String(cause) })
-        })
-    },
-  )
+          return
+        }
+        const method = Reflect.get(session, request.method) as unknown
+        if (typeof method !== 'function' || request.method.startsWith('_')) throw new Error('Worker 操作无效')
+        stream.flush()
+        const result: unknown = await Reflect.apply(method, session, request.args)
+        stream.flush()
+        await credentialWrites
+        send({ id: request.id, result })
+      })
+      .catch((cause: unknown) => {
+        stream.flush()
+        send({ id: request.id, error: cause instanceof Error ? cause.message : String(cause) })
+      })
+  })
 }

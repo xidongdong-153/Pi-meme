@@ -6,6 +6,7 @@ import type {
   PiSessionEntries,
   PiSessionStats,
   SessionThinkingLevel,
+  SessionExecutionPhase,
 } from './pi'
 import type { ChatBranchAttachment } from './chat-attachments'
 import type { BranchSkillUsage } from './skills'
@@ -53,6 +54,35 @@ export type DesktopProject = {
   unavailable?: boolean
 }
 
+export type SessionActivityPhase = SessionExecutionPhase | 'waiting-input' | 'paused'
+
+/** 旧 Host 摘要缺少 phase 时，沿用它给出的运行、待答及暂停标志。 */
+export function sessionActivityPhase(
+  summary: Pick<PiSessionSummary, 'phase' | 'needsInput' | 'running' | 'isPaused'>,
+): SessionActivityPhase {
+  return (
+    summary.phase ??
+    (summary.needsInput ? 'waiting-input' : summary.isPaused ? 'paused' : summary.running ? 'running' : 'idle')
+  )
+}
+
+export function projectSessionActivity(
+  execution: SessionExecutionPhase,
+  paused: boolean,
+  runningChild: boolean,
+  inputRequestIds: string[],
+) {
+  const needsInput = inputRequestIds.length > 0
+  const phase: SessionActivityPhase = needsInput
+    ? 'waiting-input'
+    : runningChild
+      ? 'running'
+      : paused
+        ? 'paused'
+        : execution
+  return { phase, running: execution !== 'idle' || runningChild, isPaused: paused, needsInput, inputRequestIds }
+}
+
 export type PiSessionSummary = Pick<SessionInfo, 'id' | 'path' | 'cwd' | 'name' | 'messageCount'> &
   Partial<Pick<SessionInfo, 'firstMessage' | 'parentSessionPath'>> & {
     workspaceKind?: WorkspaceKind
@@ -62,6 +92,7 @@ export type PiSessionSummary = Pick<SessionInfo, 'id' | 'path' | 'cwd' | 'name' 
     completedAt?: string | null
     completionSource?: { id: string; revision: string }
     attention?: SessionAttention
+    phase?: SessionActivityPhase
     running?: boolean
     needsInput?: boolean
     /** 待答交互的真实来源、执行代次与请求 ID，用于向 Host 按次确认已查看。 */

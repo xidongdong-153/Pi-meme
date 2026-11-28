@@ -1,5 +1,5 @@
 import type { SessionRef } from '@pi-meme/contracts/app-host'
-import type { HostService, PlatformAdapter } from '@pi-meme/contracts/host'
+import type { ClientService, PlatformAdapter } from '@pi-meme/contracts/host'
 import type { SystemClientRequest } from '@pi-meme/contracts/system-tools'
 import type { ComposerView } from '@pi-meme/plugin-sdk/composer'
 import type { UiPanel } from '@pi-meme/plugin-sdk/ui'
@@ -26,7 +26,7 @@ export type SystemUiSources = {
   panels: readonly UiPanel[]
   panelSnapshot: { sessionId: string; layout: PanelLayoutState } | null
   shortcuts: ShortcutContextValue
-  services: readonly HostService[]
+  services: readonly ClientService[]
   ssh?: { capabilities: () => Promise<SshCapabilities>; list: () => Promise<SshConnection[]> }
   pages: readonly RegisteredPage[]
   navigation: readonly RegisteredNavigation[]
@@ -245,7 +245,8 @@ export async function readSystemUiSnapshot(source: SystemUiSources, request: Sys
       name: service.name,
       address: systemMetadataUrl(service.address),
       local: service.local,
-      status: service.status,
+      status: service.clientStatus,
+      hostStatus: service.status,
       transport: service.transport,
       enabled: service.enabled,
       phase: service.phase,

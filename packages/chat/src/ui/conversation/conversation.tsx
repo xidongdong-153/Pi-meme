@@ -30,7 +30,7 @@ import { TurnChangesCard } from './turn-changes'
 import { MarkdownFileSessionContext, MarkdownWorkingDirectoryContext } from '../content/markdown-link'
 import type { SessionRef } from '@pi-meme/contracts/app-host'
 import { groupTurnImageGenerations } from '../model/turn-image-generations'
-import { latestTaskProgress, type TaskProgress } from '@pi-meme/contracts/task-progress'
+import { projectTaskProgress } from '@pi-meme/contracts/task-progress'
 
 function noSubscription() {
   return () => {}
@@ -219,11 +219,32 @@ export const Conversation = React.memo(
     }, [chat, readOnly, agentOnly, agent, stableView, modelChanges, groupTurns, pendingPrompt, sessionKey])
     const outline = React.useMemo(() => (agentOnly ? [] : conversationOutline(turns)), [turns, agentOnly])
     const progressByUser = React.useMemo(() => {
-      const result = new Map<string, TaskProgress>()
-      for (const progress of latestTaskProgress(stableView.messages).values())
-        result.set(progress.userEntryId, progress)
-      return result
-    }, [stableView.messages])
+      const progress = projectTaskProgress(chat.messages, {
+        executionPhase: chat.executionPhase,
+        isStreaming: chat.running,
+        isCompacting: Boolean(chat.compacting?.active),
+        isPaused: chat.paused,
+        stopped: chat.stopped,
+        retry: chat.retry,
+        runIntervals: chat.runIntervals,
+      })
+      const byUser = new Map<string, typeof progress>()
+      for (const item of progress) {
+        const group = byUser.get(item.userEntryId)
+        if (group) group.push(item)
+        else byUser.set(item.userEntryId, [item])
+      }
+      return byUser
+    }, [
+      chat.messages,
+      chat.executionPhase,
+      chat.running,
+      chat.compacting,
+      chat.paused,
+      chat.stopped,
+      chat.retry,
+      chat.runIntervals,
+    ])
     const progressTurns = React.useMemo(() => {
       const owners = new Map<string, string>()
       if (progressByUser.size)
@@ -565,12 +586,11 @@ export const Conversation = React.memo(
                       turn={turn}
                       hideAgentOperations={!readOnly || agentOnly || turn.hideAgentOperations}
                       imageGenerations={imageGenerations.get(turn.key)}
-                      progress={
+                      taskProgress={
                         turn.userEntryId && progressTurns.get(turn.userEntryId) === turn.key
                           ? progressByUser.get(turn.userEntryId)
                           : undefined
                       }
-                      interrupted={Boolean(chat.stopped && turn === turns.at(-1))}
                       isFinalReply={finalReplyKeys.has(turn.key)}
                       isPaused={Boolean(chat.paused && turn.isLive)}
                       pauseIntervals={chat.pauseIntervals}

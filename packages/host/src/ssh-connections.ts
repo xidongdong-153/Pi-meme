@@ -115,6 +115,19 @@ export class SshConnections {
       nextRetryAt: state.nextRetryAt,
     }
   }
+  private transition(
+    state: Runtime,
+    phase: SshConnection['phase'],
+    details: Pick<SshConnection, 'step' | 'error' | 'errorCode' | 'nextRetryAt'> = {},
+    cookie?: string,
+  ) {
+    state.phase = phase
+    state.step = details.step
+    state.error = details.error
+    state.errorCode = details.errorCode
+    state.nextRetryAt = details.nextRetryAt
+    this.emit(state, cookie)
+  }
   private emit(state: Runtime, cookie?: string) {
     this.hooks.changed(this.public(state), state.phase === 'connected' ? state.tunnel?.endpoint : undefined, cookie)
   }
@@ -230,7 +243,6 @@ export class SshConnections {
         if (!old) this.states.delete(saved.id)
         throw cause
       }
-      if (!saved.enabled) state.phase = 'paused'
       if (!old) this.launch(state)
       else this.emit(state)
       return this.public(state)
@@ -251,12 +263,6 @@ export class SshConnections {
       await this.stop(state)
       state.attempt = 0
       if (enabled) this.launch(state)
-      else {
-        state.phase = 'paused'
-        delete state.error
-        delete state.errorCode
-        this.emit(state)
-      }
       return this.public(state)
     })
   }
@@ -264,6 +270,7 @@ export class SshConnections {
     return this.serialize(async () => {
       const state = this.get(id)
       if (!state.saved.enabled) throw new Error('SSH 连接已暂停，请先恢复连接')
+      if (state.phase === 'connecting' && state.pending) return this.public(state)
       await this.stop(state)
       state.attempt = 0
       this.launch(state)
@@ -298,14 +305,11 @@ export class SshConnections {
     state.generation++
     clearTimeout(state.timer)
     state.timer = undefined
-    delete state.nextRetryAt
-    delete state.step
     state.controller?.abort()
     state.controller = undefined
     const tunnel = state.tunnel
     state.tunnel = undefined
-    state.phase = 'paused'
-    this.emit(state)
+    this.transition(state, 'paused')
     if (tunnel) state.stopping = this.stopTunnel(tunnel)
     await state.stopping
     await state.pending
@@ -313,11 +317,6 @@ export class SshConnections {
   private launch(state: Runtime) {
     if (this.closing || !state.saved.enabled || this.states.get(state.saved.id) !== state) return
     clearTimeout(state.timer)
-    delete state.nextRetryAt
-    delete state.error
-    delete state.errorCode
-    state.phase = 'connecting'
-    state.step = 'checking'
     const generation = ++state.generation
     const controller = new AbortController()
     state.controller = controller
@@ -327,7 +326,7 @@ export class SshConnections {
       state.generation === generation &&
       this.states.get(state.saved.id) === state &&
       state.saved.enabled
-    this.emit(state)
+    this.transition(state, 'connecting', { step: 'checking' })
     const pending = (async () => {
       let tunnel: SshTunnel | undefined
       try {
@@ -335,8 +334,7 @@ export class SshConnections {
         if (!current()) return
         const prepared = await this.prepare(state.saved, controller.signal, (step) => {
           if (!current()) return
-          state.step = step
-          this.emit(state)
+          this.transition(state, 'connecting', { step })
         })
         if (!current()) return
         if (state.saved.hostId && prepared.hostId !== state.saved.hostId)
@@ -358,8 +356,7 @@ export class SshConnections {
           ended = true
           if (current()) this.failed(state, cause)
         })
-        state.step = 'authenticating'
-        this.emit(state)
+        this.transition(state, 'connecting', { step: 'authenticating' })
         const result = await this.hooks.login(
           { ...this.public(state), hostId: prepared.hostId },
           tunnel.endpoint,
@@ -372,10 +369,8 @@ export class SshConnections {
           throw new SshError('storage', '无法保存 SSH 连接身份，请检查本机服务存储')
         }
         if (!current() || ended) return
-        state.phase = 'connected'
-        delete state.step
         state.attempt = 0
-        this.emit(state, result.cookie)
+        this.transition(state, 'connected', {}, result.cookie)
       } catch (cause) {
         if (current()) this.failed(state, cause)
         if (tunnel) await this.stopTunnel(tunnel)
@@ -396,7 +391,6 @@ export class SshConnections {
   }
   private failed(state: Runtime, cause: unknown) {
     state.generation++
-    delete state.step
     state.controller?.abort()
     state.controller = undefined
     const tunnel = state.tunnel
@@ -406,18 +400,15 @@ export class SshConnections {
       cause instanceof SshError
         ? cause
         : new SshError('host-unavailable', 'SSH 连接准备或远程服务访问失败，请检查网络后重试', true)
-    state.errorCode = failure.code
-    state.error = failure.message
+    const details = { errorCode: failure.code, error: failure.message }
     if (failure.retryable && state.saved.enabled && !this.closing) {
       const wait =
         this.options.retryDelay?.(state.attempt++) ??
         Math.min(1000 * 2 ** Math.min(state.attempt++, 4), 15000) * (0.9 + Math.random() * 0.2)
-      state.phase = 'retrying'
-      state.nextRetryAt = new Date(Date.now() + wait).toISOString()
       state.timer = setTimeout(() => this.launch(state), wait)
       state.timer.unref()
-    } else state.phase = 'action-required'
-    this.emit(state)
+      this.transition(state, 'retrying', { ...details, nextRetryAt: new Date(Date.now() + wait).toISOString() })
+    } else this.transition(state, 'action-required', details)
   }
   assertIdle() {
     if (this.pending.size || this.stops.size || this.mutations) throw new Error('SSH 连接正在处理，请稍后再维护存储')

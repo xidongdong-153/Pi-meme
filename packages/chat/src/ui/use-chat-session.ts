@@ -190,7 +190,6 @@ export function useChatSession(options: ChatSessionOptions) {
   const [modeChange, setModeChange] = useState<{ key: string; generation: number } | null>(null)
   const modeRef = useRef<TaskMode>('default')
   const modes = useRef(new SessionMode())
-  const activeMode = useRef<TaskMode | undefined>(undefined)
   const [recoveredInputs, setRecoveredInputs] = useState<QueuedInput[]>([])
   const [editingEntryId, setEditingEntryId] = useState<string | null>(null)
   const [pendingConfiguration, setPendingConfiguration] = useState<MessageConfiguration>()
@@ -215,6 +214,7 @@ export function useChatSession(options: ChatSessionOptions) {
     ...(pluginMentions.length ? { pluginMentions, pluginAnchors } : {}),
   }
   const promptPending = useRef(false)
+  const sendingPrompt = useRef<symbol | null>(null)
   const recoveryPending = useRef<{ key: string; generation: number } | null>(null)
   const [recoveryRequest, setRecoveryRequest] = useState<{ key: string; generation: number } | null>(null)
   const optionsRef = useRef(options)
@@ -275,7 +275,6 @@ export function useChatSession(options: ChatSessionOptions) {
       const merged = kept ? { ...next, composerHint: kept } : next
       setChat(merged)
       outgoing.observe(key, merged.messages, snapshot.appSession?.sessionId)
-      activeMode.current = snapshot.state.activeMode
       const nextMode = modes.current.snapshot(
         key,
         snapshot.connection.generation,
@@ -331,6 +330,7 @@ export function useChatSession(options: ChatSessionOptions) {
   const reset = useCallback(() => {
     releaseQueueEdit()
     setChat(emptyChat)
+    sendingPrompt.current = null
     setDraft('')
     setSelectedSkills([])
     setPluginMentions([])
@@ -344,6 +344,7 @@ export function useChatSession(options: ChatSessionOptions) {
   }, [releaseQueueEdit])
 
   const clearPromptPending = useCallback(() => {
+    sendingPrompt.current = null
     promptPending.current = false
   }, [])
 
@@ -511,7 +512,8 @@ export function useChatSession(options: ChatSessionOptions) {
       onSendFailed,
     } = optionsRef.current
     await awaitPendingSwitch()
-    if (!chat.messages.length && !chat.live) {
+    const currentChat = chatStream.getSnapshot()
+    if (!currentChat.messages.length && !currentChat.live) {
       onError(freshSessionCommandError('compact'))
       return
     }
@@ -520,10 +522,10 @@ export function useChatSession(options: ChatSessionOptions) {
       !sessionKey ||
       isSwitching() ||
       promptPending.current ||
-      chat.running ||
-      Boolean(chat.compacting?.active) ||
-      chat.paused ||
-      chat.queuePaused ||
+      currentChat.running ||
+      Boolean(currentChat.compacting?.active) ||
+      currentChat.paused ||
+      currentChat.queuePaused ||
       editingEntryId !== null ||
       queueEdit.current !== null
     if (busy) {
@@ -536,28 +538,22 @@ export function useChatSession(options: ChatSessionOptions) {
     }
     const generation = currentGeneration()
     onError('')
+    const request = Symbol(sessionKey)
+    sendingPrompt.current = request
     promptPending.current = true
-    setChat((value) => ({ ...value, running: true, turnStarted: false }))
     try {
       await bridge.prompt(sessionKey, '/compact', [], [], { mode: modeRef.current })
     } catch (cause) {
       const sameSession =
         sessionKey === optionsRef.current.currentSessionKey() && generation === optionsRef.current.currentGeneration()
       if (!sameSession) return
-      promptPending.current = false
-      setChat((value) => ({ ...value, running: value.compacting?.active ? value.running : false }))
+      if (sendingPrompt.current === request) promptPending.current = false
       onError(String(cause))
       onSendFailed?.(sessionKey, latestComposer.current)
+    } finally {
+      if (sendingPrompt.current === request) sendingPrompt.current = null
     }
-  }, [
-    chat.compacting?.active,
-    chat.live,
-    chat.messages.length,
-    chat.paused,
-    chat.queuePaused,
-    chat.running,
-    editingEntryId,
-  ])
+  }, [chatStream, editingEntryId])
 
   const dispatchComposer = useCallback(
     async (
@@ -843,9 +839,10 @@ export function useChatSession(options: ChatSessionOptions) {
         composerStore.patch({ draft: '', selectedSkills: [], pluginMentions: [], attachments: [] })
       let accepted = false
       const clearedRevision = composerStore.getSnapshot().revision
-      if (!running) {
+      const request = running ? null : Symbol(sessionKey)
+      if (request) {
+        sendingPrompt.current = request
         promptPending.current = true
-        setChat((value) => ({ ...value, running: true, turnStarted: false, activeMode: messageMode }))
       }
       try {
         if (planAction && optionsRef.current.submitPlan) {
@@ -889,7 +886,6 @@ export function useChatSession(options: ChatSessionOptions) {
             ...(visualization ? { visualization } : {}),
           })
         else {
-          activeMode.current = messageMode
           const receipt = await bridge.prompt(
             sessionKey,
             message,
@@ -943,17 +939,15 @@ export function useChatSession(options: ChatSessionOptions) {
             setFailedDrafts((values) => [...values, { sessionKey: draftKey, composer: submittedDraft }])
         }
         if (sameSession) {
-          if (!running) {
+          if (request && sendingPrompt.current === request) {
             promptPending.current = false
-            if (planAction) {
-              if (optionsRef.current.refresh) await optionsRef.current.refresh().catch(() => {})
-              else setChat((value) => ({ ...value, running: false, activeMode: undefined }))
-            }
+            if (planAction) await optionsRef.current.refresh?.().catch(() => {})
           }
           onError(String(cause))
         }
         return false
       } finally {
+        if (sendingPrompt.current === request) sendingPrompt.current = null
         if (attachments.length > 0)
           setSendingAttachments((current) => current.filter((item) => !attachments.includes(item)))
         finishSend?.(accepted)
@@ -1462,7 +1456,9 @@ export function useChatSession(options: ChatSessionOptions) {
     setAttachments,
     queueMode,
     setQueueMode,
-    promptPending,
+    clearIdlePrompt: () => {
+      if (!sendingPrompt.current) promptPending.current = false
+    },
     loadSnapshot,
     captureModeRevision: () => modes.current.revision,
     applyEvent,

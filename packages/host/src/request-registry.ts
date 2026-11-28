@@ -5,7 +5,7 @@ import type { HostRpcRequest, HostRpcResponse } from '@pi-meme/contracts/host'
 import { pluginFailure } from '@pi-meme/contracts/plugin-call'
 
 export type RequestJournalEntry = {
-  k: string // sha256(clientId:requestId)
+  k: string // sha256 of the client/request identity
   i: string // sha256(input)
   t: string // ISO timestamp
 }
@@ -97,9 +97,8 @@ export class RequestRegistry {
     string,
     { inputHash: string; promptSession?: string; result: Promise<HostRpcResponse> }
   >()
-  private readonly expired = new Set<string>()
   private readonly completed: string[] = []
-  private readonly persistedKeys = new Set<string>()
+  private readonly persistedKeys = new Map<string, string>()
   private journalInitialized?: Promise<void>
   private brokenError?: Error
   private appendQueue: Promise<void> = Promise.resolve()
@@ -135,7 +134,7 @@ export class RequestRegistry {
         try {
           const entry = JSON.parse(line)
           validateRequestEntry(entry)
-          this.persistedKeys.add(entry.k)
+          this.persistedKeys.set(entry.k, entry.i)
         } catch (cause) {
           this.brokenError = new Error(`请求日志数据损坏（第 ${index + 1} 行）：${String(cause)}`)
           throw this.brokenError
@@ -160,7 +159,7 @@ export class RequestRegistry {
 
   private appendJournal(keyHash: string, inputHash: string): Promise<void> {
     if (!this.journalFile) {
-      this.persistedKeys.add(keyHash)
+      this.persistedKeys.set(keyHash, inputHash)
       return Promise.resolve()
     }
     const line = `${JSON.stringify({ k: keyHash, i: inputHash, t: new Date().toISOString() })}\n`
@@ -175,7 +174,7 @@ export class RequestRegistry {
         } finally {
           await handle.close()
         }
-        this.persistedKeys.add(keyHash)
+        this.persistedKeys.set(keyHash, inputHash)
       })
       .catch((cause) => {
         this.brokenError = new Error(`追加请求日志失败：${String(cause)}`)
@@ -186,12 +185,12 @@ export class RequestRegistry {
   }
 
   promptResult(clientId: string, sessionId: string, requestId: string) {
-    const record = this.requests.get(`${clientId}:${requestId}`)
+    const record = this.requests.get(JSON.stringify([clientId, requestId]))
     return record?.promptSession === sessionId ? record.result : undefined
   }
 
   run(request: HostRpcRequest, action: () => Promise<unknown>, retain = true): Promise<HostRpcResponse> {
-    const key = `${request.clientId}:${request.requestId}`
+    const key = JSON.stringify([request.clientId, request.requestId])
     const keyHash = createHash('sha256').update(key).digest('hex')
     const inputHash = createHash('sha256')
       .update(JSON.stringify([request.method, request.sessionId, request.args]))
@@ -223,22 +222,22 @@ export class RequestRegistry {
             const err = this.brokenError as Error
             return error('journal-corrupted', err.message)
           }
-          if (this.expired.has(key) || this.persistedKeys.has(keyHash)) {
+          // Older journals hashed the two IDs joined with a colon. Keep their admission markers valid.
+          const legacyHash = createHash('sha256').update(`${request.clientId}:${request.requestId}`).digest('hex')
+          const accepted = this.persistedKeys.get(keyHash) ?? this.persistedKeys.get(legacyHash)
+          if (accepted !== undefined) {
+            if (accepted !== inputHash) return error('request-conflict', '请求 ID 已用于其他操作')
             return error('request-expired', '请求已经接纳，结果已过期；操作没有重新执行')
           }
-          if (this.journalFile) {
-            try {
-              await this.appendJournal(keyHash, inputHash)
-            } catch {
-              const err = this.brokenError as Error | undefined
-              return error('journal-corrupted', err?.message ?? '写操作持久化登记失败，拒绝执行')
-            }
-          } else {
-            this.persistedKeys.add(keyHash)
+          try {
+            await this.appendJournal(keyHash, inputHash)
+          } catch {
+            const err = this.brokenError as Error | undefined
+            return error('journal-corrupted', err?.message ?? '写操作持久化登记失败，拒绝执行')
           }
         }
         const value = await action()
-        return { requestId: request.requestId, hostId: this.hostId, result: value }
+        return { requestId: request.requestId, hostId: this.hostId, result: retain ? structuredClone(value) : value }
       })
       .catch((cause: unknown) => {
         const failure = request.method.startsWith('plugins:')
@@ -254,10 +253,7 @@ export class RequestRegistry {
         this.completed.push(key)
         if (this.completed.length > this.capacity) {
           const oldest = this.completed.shift()
-          if (oldest !== undefined) {
-            this.requests.delete(oldest)
-            this.expired.add(oldest)
-          }
+          if (oldest !== undefined) this.requests.delete(oldest)
         }
       })
     }

@@ -99,6 +99,33 @@ Host 与 app-ui 是组合根。基础包和契约不得反向依赖业务实现�
 
 [check-package-boundaries.mjs](../scripts/check-package-boundaries.mjs) 检查静态导入、动态 `import()`、re-export、包依赖声明和 UI 边界。修改方式与命令见 [开发指南](development.md)。
 
+## 状态转移与唯一写入点
+
+每个窗口有自己的选中项、草稿和网络连接。打开同一份原生会话历史时，Host 按文件的规范路径复用运行时。两个窗口可以读取不同的消息页，但看到的是同一次执行、同一组待答请求和同一份会话权限。
+
+根会话的 `PiState.executionPhase` 随 Host 事件和快照发送。`submitting` 从 Host 接纳提交开始，涵盖 Worker 启动和消息投递。新执行、压缩或重试开始后进入 `running`。结算、取消或启动失败后回到 `idle`。[会话池](../packages/pi-runtime/src/session-pool.ts) · [执行阶段契约](../packages/contracts/src/pi.ts)
+
+```mermaid
+stateDiagram-v2
+  [*] --> idle
+  idle --> submitting: Host 接纳消息
+  submitting --> running: Worker 开始执行
+  submitting --> idle: 取消、失败或命令已完成
+  idle --> running: Worker 开始后台执行
+  running --> idle: 当前执行结算或断开
+```
+
+| 状态             | 唯一写入点                                                                                                                            | 对外投影                                                                                                                                                                                                                                                                        |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 根执行与会话摘要 | `PiSessionPool.setExecutionPhase` 接纳当前执行的变化。每次运行持有自己的序号                                                          | `projectSessionActivity` 组合根执行、子代理、暂停和待答请求，供侧栏、`sessions.list` 和 `sessions.get` 使用。待答提醒的已读状态另由 Host 查看服务保存。[会话摘要](../packages/contracts/src/sessions.ts)                                                                        |
+| 任务进度         | Worker 的 `update_plan` 把一次成功的完整清单提交为原生工具结果。`taskId` 标识任务，`userEntryId` 标识本次更新所属轮次                 | `projectTaskProgress` 用分支结果、运行区间和停止状态计算完成数与阶段。任务卡与 `taskProgress.list` 调用同一函数。[任务投影](../packages/contracts/src/task-progress.ts)                                                                                                         |
+| 会话权限         | `PiSessionPool.commitExecutionPolicy` 提交权限与任务模式。首次恢复从存储读取，修改前校验执行状态、沙箱和客户端提供的 `accessRevision` | 新版客户端按目标 `sessionKey` 和修订更新权限选择。Plan 的有效权限由共享规则计算。新会话默认值另由 `SettingsStore` 按变更字段保存。[权限规则](../packages/contracts/src/agent-access.ts) · [会话权限存储](../packages/pi-runtime/src/access-store.ts)                            |
+| 远端连接         | SSH 由 `SshConnections.transition` 推进，HTTPS 登记后由 `RemoteServices.httpsStatus` 更新。Host 发布 `status` 和 SSH `phase`          | `HostServiceRegistry` 单独记录本窗口的 `clientStatus`。一个窗口离线时，其他窗口仍能读取 Host 对远端的观察。[SSH 连接](../packages/host/src/ssh-connections.ts) · [远端服务](../packages/host/src/remote-services.ts) · [客户端连接](../packages/client/src/service-registry.ts) |
+
+接口同步从契约开始。HTTP 接收方先验证 RPC 信封，客户端在使用回执前检查 Host 和请求标识。Host 与 Worker 共用启动参数、命令和回执定义，接收端检查权限、任务模式与暂停修订。缺少新阶段字段的旧 Host 使用既有执行标志投影，历史会话沿用原生条目。[RPC 契约](../packages/contracts/src/host.ts) · [Worker 协议](../packages/pi-adapter/src/worker-protocol.ts)
+
+服务目录和设置的读取支持取消。新一轮刷新会中止旧读取，旧结果失去更新当前视图的资格。写操作在接纳前可取消，已接纳的写入由 Host 结算，断开客户端后仍可用原请求标识查询或重试。后台任务运行期间，停止和继续通过各自的业务操作完成。[内部 RPC 幂等边界](host-api.md#内置界面的-rpc-回执) · [对话任务进度](sessions.md#对话任务进度)
+
 ## 内置能力与系统工具
 
 [builtin-modules.ts](../packages/host/src/builtin-modules.ts) 静态装配内置服务模块；[平台选择](../packages/host/src/sandbox-platform.ts) 在 Windows、Linux 与 macOS 沙箱中选一个。内置 UI 由 app-ui 直接组合，不读取外部插件启用记录。

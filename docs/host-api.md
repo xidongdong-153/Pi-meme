@@ -205,6 +205,12 @@ sequenceDiagram
   H-->>C: 关键事件或 resync
 ```
 
+### 内置界面的 RPC 回执
+
+`POST /api/rpc` 使用 `(clientId, requestId)` 标识一次写入。重试时保留原来的方法、目标会话和参数。远端服务登记、SSH 启停、重试及移除也使用这一登记表。需要本机授权的操作在查找回执前检查来源。[传输入口](../packages/host/src/transport-app.ts)
+
+并发重试等待同一操作。Host 保留最近 512 个已完成写请求的回执，执行中的请求一直保留到结算。同 ID 改变输入会返回 `request-conflict`。缓存淘汰或 Host 重启后，持久日志仍能识别已接纳的请求；相同输入返回 `request-expired`，调用方应读回业务状态。Node 客户端的 `rpc` 接受可选 `requestId` 和 `signal`。取消本地等待后，已接纳写入仍使用原 ID 结算。[请求登记表](../packages/host/src/request-registry.ts) · [Node 客户端](../packages/client/src/node-host-client.ts)
+
 ## 提交与回执
 
 `SubmissionInput` 包含 `delivery`、非空 `text`，以及可选 `images`、`skills`、`mode`。模式为 `default` 或 `plan`，每次提交独立保存。

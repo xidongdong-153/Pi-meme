@@ -3,17 +3,27 @@ import type { InlineExtension, SessionEntry } from '@earendil-works/pi-coding-ag
 import { loadPiSdk, type PiSdk } from '@pi-meme/pi-runtime/sdk/load'
 import { Type } from 'typebox'
 import {
-  readTaskProgress,
+  completedTaskSteps,
+  taskProgressUpdates,
   taskStepStatuses,
   validateTaskSteps,
   type TaskProgress,
 } from '@pi-meme/contracts/task-progress'
 
-function latestProgress(branch: readonly SessionEntry[], matches?: (value: TaskProgress) => boolean) {
-  for (let index = branch.length - 1; index >= 0; index--) {
-    const entry = branch[index]!
-    const progress = entry.type === 'message' ? readTaskProgress(entry.message) : undefined
-    if (progress && (!matches || matches(progress))) return { entryId: entry.id, progress }
+function branchUpdates(branch: readonly SessionEntry[]) {
+  return taskProgressUpdates(branch, (entry) => (entry.type === 'message' ? entry.message : undefined))
+}
+
+function receipt(progress: TaskProgress) {
+  const completed = completedTaskSteps(progress.steps)
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify({ taskId: progress.taskId, completed, total: progress.steps.length }),
+      },
+    ],
+    details: progress,
   }
 }
 
@@ -37,11 +47,11 @@ function containsTaskId(text: string, taskId: string) {
 
 /** The branch ends at the compaction entry. Later turns must reproduce the same summary prefix. */
 function missingCompactedProgress(branch: SessionEntry[], sdk: PiSdk) {
-  const latest = latestProgress(branch)
+  const latest = [...branchUpdates(branch)].at(-1)
   if (!latest) return
   const { progress } = latest
   const kept = sdk.buildSessionProjection(branch).entries
-  const resultIndex = kept.findIndex(({ sourceEntry }) => sourceEntry.id === latest.entryId)
+  const resultIndex = kept.findIndex(({ sourceEntry }) => sourceEntry.id === latest.record.id)
   const result = kept[resultIndex]?.messages[0]
   if (
     result?.role !== 'toolResult' ||
@@ -72,10 +82,8 @@ export function taskProgressExtension(enabled: () => boolean): InlineExtension {
     name: 'pi-meme-task-progress',
     factory: async (pi) => {
       const sdk = await loadPiSdk()
-      let binding: Pick<TaskProgress, 'userEntryId' | 'taskId'> | undefined
       let checkpoint: { sessionId: string; entryId: string; progress?: TaskProgress } | undefined
       pi.on('before_agent_start', () => {
-        binding = undefined
         const active = pi.getActiveTools()
         const show = enabled()
         if (active.includes('update_plan') !== show)
@@ -136,29 +144,37 @@ export function taskProgressExtension(enabled: () => boolean): InlineExtension {
           },
           { additionalProperties: false },
         ),
-        execute: async (_id, input, signal, _update, ctx) => {
+        execute: async (id, input, signal, _update, ctx) => {
           signal?.throwIfAborted()
           if (!enabled()) throw new Error('本轮未启用任务进度')
           const steps = savedSteps(input.steps)
           const branch = ctx.sessionManager.getBranch()
           const userEntryId = branch.findLast((entry) => entry.type === 'message' && entry.message.role === 'user')?.id
           if (!userEntryId) throw new Error('当前分支没有可关联的用户消息')
-          const current =
-            binding?.userEntryId === userEntryId
-              ? binding
-              : latestProgress(branch, (p) => p.userEntryId === userEntryId)?.progress
+          const updates = [...branchUpdates(branch)]
+          const replay = updates.find(
+            (update) => update.toolCallId === id && update.progress.userEntryId === userEntryId,
+          )
+          if (replay) {
+            const previous = replay.progress
+            if (
+              (input.taskId !== undefined && previous.taskId !== input.taskId) ||
+              !isDeepStrictEqual(steps, previous.steps)
+            )
+              throw new Error('此工具调用 ID 已用于其他任务进度更新')
+            return receipt(previous)
+          }
+          const current = updates.findLast(({ progress }) => progress.userEntryId === userEntryId)?.progress
           if (current && input.taskId !== undefined && current.taskId !== input.taskId)
             throw new Error(`本轮已关联任务 ${current.taskId}，请沿用该任务`)
-          if (!current && input.taskId !== undefined && !latestProgress(branch, (p) => p.taskId === input.taskId))
+          if (
+            !current &&
+            input.taskId !== undefined &&
+            !updates.some(({ progress }) => progress.taskId === input.taskId)
+          )
             throw new Error('当前分支没有这份任务进度，请使用之前返回的 taskId，或省略以新建')
           const taskId = current?.taskId ?? input.taskId ?? userEntryId
-          const progress: TaskProgress = { taskId, userEntryId, steps }
-          binding = { taskId, userEntryId }
-          const completed = steps.filter((step) => step.status === 'completed').length
-          return {
-            content: [{ type: 'text', text: JSON.stringify({ taskId, completed, total: steps.length }) }],
-            details: progress,
-          }
+          return receipt({ taskId, userEntryId, steps })
         },
       })
     },

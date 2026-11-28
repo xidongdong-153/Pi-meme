@@ -98,8 +98,8 @@ export function mergeRuntimeSessions(
       created: saved?.created ?? session.created,
       completedAt: session.completedAt === undefined ? saved?.completedAt : session.completedAt,
       completionSource: session.completionSource ?? saved?.completionSource,
-      needsInput: Boolean(session.needsInput || saved?.needsInput),
-      inputRequestIds: [...new Set([...(saved?.inputRequestIds ?? []), ...(session.inputRequestIds ?? [])])],
+      needsInput: session.needsInput ?? saved?.needsInput,
+      inputRequestIds: session.inputRequestIds ?? saved?.inputRequestIds,
     })
   }
   const compare = compareCompletedSessions

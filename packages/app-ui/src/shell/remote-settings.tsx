@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { Globe, Loader2, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import type { HostService } from '@pi-meme/contracts/host'
+import type { ClientService } from '@pi-meme/contracts/host'
 import type { SshCapabilities, SshConnection } from '@pi-meme/contracts/ssh-connections'
 import type { ServiceRegistry } from './service-ui'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
@@ -28,7 +28,7 @@ export function RemoteSettings({
   registry,
   onRemove,
 }: {
-  services: HostService[]
+  services: ClientService[]
   registry: ServiceRegistry
   onRemove: (id: string) => Promise<void>
 }) {
@@ -85,7 +85,7 @@ function SshSettings({
   registry,
   onRemove,
 }: {
-  services: HostService[]
+  services: ClientService[]
   registry: ServiceRegistry
   onRemove: (id: string) => Promise<void>
 }) {
@@ -96,28 +96,30 @@ function SshSettings({
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [pending, setPending] = useState<Set<string>>(() => new Set())
   const pendingRef = useRef(new Set<string>())
-  const revision = useRef(0)
+  const reading = useRef<AbortController | undefined>(undefined)
   const [dialog, setDialog] = useState<{ connection?: SshConnection }>()
   const [removing, setRemoving] = useState<SshConnection>()
 
   const refresh = useCallback(async () => {
-    const current = ++revision.current
+    reading.current?.abort()
+    const controller = new AbortController()
+    reading.current = controller
     try {
-      const next = await registry.ssh.capabilities()
-      if (current !== revision.current) return
+      const next = await registry.ssh.capabilities(controller.signal)
+      if (controller.signal.aborted) return
       setCapabilities(next)
       if (!next.canManage) {
         setProfiles([])
         setLoadError('')
         return
       }
-      const list = await registry.ssh.list()
-      if (current !== revision.current) return
+      const list = await registry.ssh.list(controller.signal)
+      if (controller.signal.aborted) return
       setProfiles([...list])
       setProfilesReady(true)
       setLoadError('')
     } catch (cause) {
-      if (current === revision.current) setLoadError(errorMessage(cause))
+      if (!controller.signal.aborted) setLoadError(errorMessage(cause))
     }
   }, [registry])
 
@@ -125,7 +127,7 @@ function SshSettings({
     void refresh()
     const unsubscribe = registry.subscribe(() => void refresh())
     return () => {
-      revision.current++
+      reading.current?.abort()
       unsubscribe()
     }
   }, [registry, refresh])
@@ -359,7 +361,7 @@ function HttpsSettings({
   registry,
   onRemove,
 }: {
-  services: HostService[]
+  services: ClientService[]
   registry: ServiceRegistry
   onRemove: (id: string) => Promise<void>
 }) {
@@ -390,9 +392,7 @@ function HttpsSettings({
                 {serviceAddress(service.address)}
               </span>
               <span className="text-[11px] leading-relaxed text-muted-foreground">
-                <CrossfadeText reserve={['已连接', '连接中', '未连接']}>
-                  {service.status === 'connected' ? '已连接' : service.status === 'connecting' ? '连接中' : '未连接'}
-                </CrossfadeText>
+                <CrossfadeText reserve={['已连接', '连接中', '未连接']}>{serviceStatus(service)}</CrossfadeText>
               </span>
               <Button
                 className={settingsControlClassName}
@@ -413,7 +413,9 @@ function HttpsSettings({
                 移除
               </Button>
             </div>
-            {service.error && <p className="break-words text-xs text-destructive">{service.error}</p>}
+            {(service.error || service.clientError) && (
+              <p className="break-words text-xs text-destructive">{service.error || service.clientError}</p>
+            )}
           </section>
         ))}
       <Button

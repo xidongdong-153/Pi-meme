@@ -1,6 +1,6 @@
 import { Fragment, useState } from 'react'
 import { Plus, Search, SquarePen } from 'lucide-react'
-import type { HostService } from '@pi-meme/contracts/host'
+import type { ClientService } from '@pi-meme/contracts/host'
 import type { SidebarPreferences, SidebarPreferencesPatch } from '@pi-meme/contracts/settings'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -40,7 +40,7 @@ export function MultiServiceSidebar({
   onActivate,
   onSettings: _onSettings,
 }: {
-  services: HostService[]
+  services: ClientService[]
   registry: ServiceRegistry
   controllers: Map<string, ServiceController>
   activeId: string
@@ -66,15 +66,15 @@ export function MultiServiceSidebar({
   const manual = preferences.sortMode === 'manual'
   const activeService = servicesById.get(activeId)
   const activePaused = activeService ? servicePaused(activeService) : false
-  const sourceFor = (service: HostService, path: string) =>
+  const sourceFor = (service: ClientService, path: string) =>
     service.local
       ? undefined
       : {
           label: serviceLabel(service),
           description: `${serviceLabel(service)} · ${service.transport === 'ssh' ? 'SSH' : 'HTTPS'} · ${serviceStatus(service)}\n${path}`,
-          connected: service.status === 'connected',
+          connected: service.clientStatus === 'connected',
           disabledReason:
-            service.status !== 'connected'
+            service.clientStatus !== 'connected'
               ? servicePaused(service)
                 ? '连接已暂停，请先恢复连接'
                 : '远程未连接，请连接后操作'
@@ -126,7 +126,7 @@ export function MultiServiceSidebar({
             onSwitchSession={(path) => onActivate(serviceId, (chat) => chat.switchSession(path))}
             onTogglePin={(path) => void controller?.togglePin(path)}
             onPrefetchSession={(path) => {
-              if (service.status === 'connected') {
+              if (service.clientStatus === 'connected') {
                 const bridge = registry.get(serviceId).bridge
                 void bridge.prefetchSession(path).catch(() => {})
               }
@@ -204,7 +204,7 @@ export function MultiServiceSidebar({
             onTogglePin={(path) => void controller?.togglePin(path)}
             onSwitchSession={(path) => onActivate(serviceId, (chat) => chat.switchSession(path))}
             onPrefetchSession={(path) => {
-              if (service.status === 'connected') {
+              if (service.clientStatus === 'connected') {
                 const bridge = registry.get(serviceId).bridge
                 void bridge.prefetchSession(path).catch(() => {})
               }

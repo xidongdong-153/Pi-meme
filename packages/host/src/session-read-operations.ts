@@ -4,7 +4,7 @@ import type { Snapshot } from '@pi-meme/contracts/desktop'
 import type { SessionHistoryData } from '@pi-meme/contracts/sessions'
 import type { SystemOperation } from '@pi-meme/contracts/system-tools'
 import { projectUiMessage } from '@pi-meme/contracts/plugin-ui-message'
-import { latestTaskProgress } from '@pi-meme/contracts/task-progress'
+import { projectTaskProgress } from '@pi-meme/contracts/task-progress'
 import {
   readInteger,
   readPage,
@@ -47,7 +47,7 @@ const definitions = [
   ],
   ['agents.mailbox', '分页读取协作邮件，不消费邮件', '[{agentId?,...分页}?,SessionRef?]'],
   ['plans.history', '分页读取当前分支保存的计划版本', '[query?,SessionRef?]'],
-  ['taskProgress.list', '分页读取当前分支各任务最近成功保存的步骤清单', '[query?,SessionRef?]'],
+  ['taskProgress.list', '分页读取当前分支各任务的最近步骤清单、完成数和任务状态', '[query?,SessionRef?]'],
   ['plans.get', '按版本分片读取保存计划', '[{id,version,offset?,limit?,revision?},SessionRef?]'],
   ['git.turnChangeSummaries', '分页读取指定原生用户轮次的文件变更摘要', '[{entryIds,...分页},SessionRef?]'],
   [
@@ -324,6 +324,7 @@ function publicState(value: unknown): PublicRecord {
       'mode',
       'activeMode',
       'sessionName',
+      'executionPhase',
       'isStreaming',
       'isCompacting',
       'isPaused',
@@ -413,7 +414,7 @@ function publicAppSession(value: unknown): PublicRecord {
   const session = object(value)
   const configuration = object(session.configuration)
   return {
-    ...scalars(session, ['hostId', 'sessionId', 'cwd', 'createdAt', 'name', 'status', 'temporary', 'pinned']),
+    ...scalars(session, ['hostId', 'sessionId', 'cwd', 'createdAt', 'name', 'status', 'phase', 'temporary', 'pinned']),
     project: session.project === undefined ? undefined : scalars(object(session.project), ['hostId', 'projectId']),
     configuration: {
       ...scalars(configuration, ['thinkingLevel', 'serviceTier', 'accessMode', 'mode']),
@@ -566,6 +567,8 @@ function publicEvents(values: readonly unknown[]): PublicRecord[] {
         projected.argumentKeys = Object.keys(object(event.args)).filter(
           (key) => !/thinking|sealed|provider|raw|error|signature/i.test(key),
         )
+    } else if (type === 'execution_phase') {
+      projected = { type, ...scalars(event, ['phase']) }
     } else if (type === 'compaction_end') {
       projected = { type, ...scalars(event, ['aborted', 'willRetry']) }
       if (event.error !== undefined || event.errorMessage !== undefined) projected.error = { code: 'compaction-failed' }
@@ -724,7 +727,10 @@ export async function readSessionOperation(
     }
   }
   if (operation === 'sessions.events') return page(publicEvents(snapshot.events ?? []))
-  if (operation === 'taskProgress.list') return page([...latestTaskProgress(snapshot.messages).values()], revision)
+  if (operation === 'taskProgress.list') {
+    const tasks = projectTaskProgress(snapshot.messages, snapshot.state)
+    return page(tasks, readRevision([revision, tasks]))
+  }
   if (operation === 'sessions.stats')
     return {
       stats: publicStats(snapshot.stats),

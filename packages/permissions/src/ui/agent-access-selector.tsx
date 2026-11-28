@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Shield, ShieldAlert, ShieldCheck } from 'lucide-react'
 import type { TaskMode } from '@pi-meme/contracts/plan'
+import { agentAccessChoices } from '@pi-meme/ui/lib/agent-access-choices'
 import {
-  agentAccessChoices,
   defaultAccessMode,
   effectiveAgentAccess,
   isAgentAccessMode,

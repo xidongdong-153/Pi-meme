@@ -10,7 +10,7 @@ import type { GitEnvironment, GitSnapshot, GitFileChange, Snapshot, WorkspaceDel
 import type { GitReviewQuery, GitReviewSnapshot, GitReviewFileContent, GitReviewOptions } from './git-review'
 import type { ServiceTier, SessionThinkingLevel } from './pi'
 import type { MessageOptions, PlanDocument, TaskMode } from './plan'
-import type { SessionHistoryData } from './sessions'
+import type { SessionActivityPhase, SessionHistoryData } from './sessions'
 import type { SkillReference } from './skills'
 import type { UiMessage, UiMessagePage, UiMessagePageInput } from './plugin-ui-data'
 
@@ -42,6 +42,7 @@ export type AppSession = SessionRef & {
   sessionFile?: string
   configuration: SessionConfiguration
   status: 'idle' | 'running' | 'interrupted'
+  phase?: SessionActivityPhase
   temporary?: boolean
   ownerClientId?: string
   pinned?: boolean

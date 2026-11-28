@@ -25,6 +25,7 @@ import {
 } from '@pi-meme/contracts/pi'
 import { randomUUID, createHash } from 'node:crypto'
 import path from 'node:path'
+import { realpath } from 'node:fs/promises'
 import { projectUiMessage } from '@pi-meme/contracts/plugin-ui-message'
 import type {
   AppProject,
@@ -180,6 +181,24 @@ export async function createAppControl(options: Options) {
   const paths = options.controlPaths ?? createControlStorePaths(path.join(options.root, 'state/control'))
   const store = new ControlStore(paths, hostId)
   await store.init()
+  const configuredRoot = path.resolve(options.root) + path.sep
+  const physicalRoot = (await realpath(options.root)) + path.sep
+  const savedAliases = new Map<string, string>()
+  // Records from a previous launch can use an earlier spelling of the data directory.
+  for (const { sessionFile } of store.state.sessions) {
+    if (sessionFile && !sessionFile.startsWith(configuredRoot) && !sessionFile.startsWith(physicalRoot)) {
+      const physicalFile = await realpath(sessionFile).catch(() => undefined)
+      if (physicalFile?.startsWith(physicalRoot)) savedAliases.set(sessionFile, physicalFile)
+    }
+  }
+  function fileKey(file: string) {
+    return file.startsWith(configuredRoot)
+      ? physicalRoot + file.slice(configuredRoot.length)
+      : (savedAliases.get(file) ?? file)
+  }
+  function sameFile(first?: string, second?: string) {
+    return Boolean(first && second && (first === second || fileKey(first) === fileKey(second)))
+  }
   for (const session of store.state.sessions) {
     const pinKey = (session as ManagedSession).pinnedRuntimeKey
     if (pinKey !== undefined && (typeof pinKey !== 'string' || !pinKey.startsWith('runtime:') || pinKey.length > 128))
@@ -346,6 +365,21 @@ export async function createAppControl(options: Options) {
     }
     return project
   }
+  function catalogSession(key: string, file: string | undefined, create: () => Promise<AppSession>) {
+    const find = () =>
+      store.state.sessions.find(
+        (item) => runtime.get(item.sessionId)?.sessionKey === key || sameFile(item.sessionFile, file),
+      )
+    const known = find()
+    if (known) return Promise.resolve(known)
+    return serial(`catalog:${file ? fileKey(file) : key}`, async () => {
+      const existing = find()
+      if (existing) return existing
+      const next = await create()
+      await store.saveSession(next)
+      return next
+    })
+  }
   const sync = async (session: AppSession, view: ClientView, persist = true) => {
     options.lifecycle.registerPinAliases([
       view.sessionKey ?? '',
@@ -354,7 +388,10 @@ export async function createAppControl(options: Options) {
       `session:${session.sessionId}`,
     ])
     const context = pi.readSessionBinding(view.sessionKey!)
-    const nextFile = context.historySaved ? (context.sessionFile ?? session.sessionFile) : session.sessionFile
+    const nextFile =
+      context.historySaved && context.sessionFile && !sameFile(context.sessionFile, session.sessionFile)
+        ? context.sessionFile
+        : session.sessionFile
     const previousPinKey = (session as ManagedSession).pinnedRuntimeKey
     options.lifecycle.registerPinAliases([
       view.sessionKey!,
@@ -413,7 +450,8 @@ export async function createAppControl(options: Options) {
     session.name = nextName
     if (persist && changed) await store.saveSession(session)
   }
-  const busy = (key: string) => Boolean(pi.getRuntimeSessions().find((item) => item.id === key)?.running)
+  const busy = (key: string) => pi.hasSession(key) && pi.readSessionBinding(key).state.isStreaming
+  const treeBusy = (key: string) => Boolean(pi.getRuntimeSessions().find((item) => item.id === key)?.running)
   const configure = async (session: AppSession, view: ClientView, config: SessionConfiguration, restore = false) => {
     validateConfiguration(config)
     if (config.mode !== undefined && config.mode !== 'default' && config.mode !== 'plan')
@@ -591,9 +629,12 @@ export async function createAppControl(options: Options) {
         generation: 0,
         status: 'idle',
         sessionFile: session.sessionFile,
+        accessMode: session.configuration.accessMode,
       },
       state: live?.state ?? {
         mode: session.configuration.mode ?? 'default',
+        executionPhase: 'idle',
+        stopped: history.taskControl?.stopped,
         model: history.model,
         thinkingLevel: history.thinkingLevel,
         modelServiceTiers: history.modelServiceTiers,
@@ -755,7 +796,7 @@ export async function createAppControl(options: Options) {
           ...(saved.standaloneSessions ?? []),
           ...saved.recents,
           ...pi.getRuntimeSessions().filter((item) => !(item as { temporary?: boolean }).temporary),
-        ].map((summary) => [summary.path, summary]),
+        ].map((summary) => [fileKey(summary.path), summary]),
       ).values(),
     ].filter((summary) => !(summary as { temporary?: boolean }).temporary)
     for (const registered of await projects.list(summaries.map((item) => item.cwd))) {
@@ -766,35 +807,27 @@ export async function createAppControl(options: Options) {
       }
     }
     for (const summary of summaries) {
-      let session = store.state.sessions.find(
-        (item) => item.sessionFile === summary.path || runtime.get(item.sessionId)?.sessionKey === summary.id,
-      )
-      if (!session) {
+      const file = summary.path.startsWith('runtime:') ? undefined : summary.path
+      const session = await catalogSession(summary.id, file, async () => {
         const project = await projectFor(summary.cwd)
         const agentPlugins = await options.defaultAgentPlugins.getDefaultAgentPlugins()
-        session = store.state.sessions.find(
-          (item) => item.sessionFile === summary.path || runtime.get(item.sessionId)?.sessionKey === summary.id,
-        )
-        if (!session) {
-          session = {
-            hostId,
-            sessionId: randomUUID(),
-            project: project && { hostId, projectId: project.projectId },
-            cwd: summary.cwd,
-            createdAt: summary.created,
-            name: summary.name,
-            configuration: { agentPlugins },
-            status: summary.running ? 'running' : 'idle',
-          }
-          if (!summary.path.startsWith('runtime:')) session.sessionFile = summary.path
-          await store.saveSession(session)
+        return {
+          hostId,
+          sessionId: randomUUID(),
+          project: project && { hostId, projectId: project.projectId },
+          cwd: summary.cwd,
+          createdAt: summary.created,
+          name: summary.name,
+          configuration: { agentPlugins },
+          status: summary.running ? 'running' : 'idle',
+          sessionFile: file,
         }
-      }
+      })
       if (summary.name !== undefined && session.name !== summary.name) {
         session.name = summary.name
         await store.saveSession(session)
       }
-      if (!summary.path.startsWith('runtime:') && session.sessionFile !== summary.path) {
+      if (file && !sameFile(session.sessionFile, file)) {
         session.sessionFile = summary.path
         await store.saveSession(session)
       }
@@ -824,7 +857,7 @@ export async function createAppControl(options: Options) {
         continue
       }
       const prevStatus = session.status
-      if (busy(view.sessionKey!)) session.status = 'running'
+      if (treeBusy(view.sessionKey!)) session.status = 'running'
       else if (session.status === 'running' && !active.has(session.sessionId)) session.status = 'idle'
       if (session.status !== prevStatus) {
         await store.saveSession(session)
@@ -1189,15 +1222,30 @@ export async function createAppControl(options: Options) {
     ...structuredClone(project),
     pinned: options.lifecycle.getPinnedPaths().includes(project.cwd),
   })
-  function sessionProjection(session: AppSession): AppSession {
+  function runtimeSummaryIndex() {
+    return new Map(
+      pi
+        .getRuntimeSessions()
+        .flatMap((summary) => [[summary.id, summary] as const, [fileKey(summary.path), summary] as const]),
+    )
+  }
+  function projectSessions(sessions: AppSession[]) {
+    const summaries = runtimeSummaryIndex()
+    return sessions.map((session) => sessionProjection(session, summaries))
+  }
+  function sessionProjection(session: AppSession, summaries = runtimeSummaryIndex()): AppSession {
     const paths = options.lifecycle.getPinnedPaths()
     const key = runtime.get(session.sessionId)?.sessionKey
+    const summary =
+      summaries.get(key ?? '') ?? (session.sessionFile ? summaries.get(fileKey(session.sessionFile)) : undefined)
     const projected: ManagedSession = structuredClone(session)
     delete projected.pinnedRuntimeKey
     delete projected.managedDraft
     delete projected.draftServiceTiers
     return {
       ...projected,
+      phase: summary?.phase ?? 'idle',
+      status: summary?.running ? 'running' : projected.status === 'interrupted' ? 'interrupted' : 'idle',
       pinned: Boolean(
         paths.includes(`session:${session.sessionId}`) ||
         (session.sessionFile && paths.includes(session.sessionFile)) ||
@@ -1480,12 +1528,10 @@ export async function createAppControl(options: Options) {
       list: async (input = {}) => {
         record(input, ['project'], '会话筛选')
         if (input?.project) getProject(input.project)
-        return structuredClone(
-          store.state.sessions
-            .filter(
-              (item) => !item.temporary && (!input?.project || item.project?.projectId === input.project.projectId),
-            )
-            .map(sessionProjection),
+        return projectSessions(
+          store.state.sessions.filter(
+            (item) => !item.temporary && (!input?.project || item.project?.projectId === input.project.projectId),
+          ),
         )
       },
       get: async (ref) => sessionProjection(getSession(ref, clientId, contextReader)),
@@ -2440,6 +2486,7 @@ export async function createAppControl(options: Options) {
         }
         // 消息正文由 Pi JSONL 保存；控制日志只保留状态及关联信息。
         const fullStateEvents = new Set([
+          'execution_phase',
           'agent_start',
           'agent_settled',
           'pause_update',
@@ -2481,9 +2528,7 @@ export async function createAppControl(options: Options) {
   const peekSessionForRuntime = (key: string): AppSession => {
     const binding = pi.readSessionBinding(key)
     const session = store.state.sessions.find(
-      (item) =>
-        runtime.get(item.sessionId)?.sessionKey === key ||
-        Boolean(binding.sessionFile && item.sessionFile === binding.sessionFile),
+      (item) => runtime.get(item.sessionId)?.sessionKey === key || sameFile(item.sessionFile, binding.sessionFile),
     )
     if (!session) throw new SystemReadError('not-loaded', '执行会话尚未完成生命周期登记')
     return structuredClone(sessionProjection(session))
@@ -2524,9 +2569,9 @@ export async function createAppControl(options: Options) {
             return target
           },
           list: () =>
-            store.state.sessions
-              .filter((item) => !item.temporary || item.sessionId === reader.sessionId)
-              .map(sessionProjection),
+            projectSessions(
+              store.state.sessions.filter((item) => !item.temporary || item.sessionId === reader.sessionId),
+            ),
           history: readHistoryFor,
           snapshot: readSnapshot,
           entry: async (session, id) => {
@@ -2612,12 +2657,7 @@ export async function createAppControl(options: Options) {
       if (existing) return structuredClone(await existing)
       const pending = (async () => {
         const context = pi.readSessionBinding(key)
-        let session = store.state.sessions.find(
-          (item) =>
-            runtime.get(item.sessionId)?.sessionKey === key ||
-            (context.sessionFile && item.sessionFile === context.sessionFile),
-        )
-        if (!session) {
+        const session = await catalogSession(key, context.historySaved ? context.sessionFile : undefined, async () => {
           const isTemporary = Boolean(
             (context as { temporary?: boolean }).temporary ||
             pi.getRuntimeHistory(key)?.temporary ||
@@ -2625,26 +2665,18 @@ export async function createAppControl(options: Options) {
           )
           const project = await projectFor(context.cwd)
           const agentPlugins = await options.defaultAgentPlugins.getDefaultAgentPlugins()
-          session = store.state.sessions.find(
-            (item) =>
-              runtime.get(item.sessionId)?.sessionKey === key ||
-              (context.sessionFile && item.sessionFile === context.sessionFile),
-          )
-          if (!session) {
-            session = {
-              hostId,
-              sessionId: randomUUID(),
-              project: project && { hostId, projectId: project.projectId },
-              cwd: context.cwd,
-              createdAt: pi.getRuntimeHistory(key)?.created ?? new Date().toISOString(),
-              sessionFile: context.historySaved ? context.sessionFile : undefined,
-              configuration: { agentPlugins },
-              status: busy(key) ? 'running' : 'idle',
-              temporary: isTemporary || undefined,
-            }
-            await store.saveSession(session)
+          return {
+            hostId,
+            sessionId: randomUUID(),
+            project: project && { hostId, projectId: project.projectId },
+            cwd: context.cwd,
+            createdAt: pi.getRuntimeHistory(key)?.created ?? new Date().toISOString(),
+            sessionFile: context.historySaved ? context.sessionFile : undefined,
+            configuration: { agentPlugins },
+            status: treeBusy(key) ? 'running' : 'idle',
+            temporary: isTemporary || undefined,
           }
-        }
+        })
         let view = runtime.get(session.sessionId)
         if (!view || view.sessionKey !== key) {
           if (view) pi.releaseClientView(view)
@@ -2654,7 +2686,7 @@ export async function createAppControl(options: Options) {
           runtime.set(session.sessionId, view)
         }
         await sync(session, view)
-        const status = busy(key)
+        const status = treeBusy(key)
           ? 'running'
           : session.status === 'running' && !active.has(session.sessionId)
             ? 'idle'
@@ -2677,7 +2709,7 @@ export async function createAppControl(options: Options) {
       // 分叉会先创建 Worker，再登记会话；此时还没有可读取的绑定。
       if (!session && pi.getRuntimeHistory(key)) {
         const sessionFile = pi.readSessionBinding(key).sessionFile
-        if (sessionFile) session = store.state.sessions.find((item) => item.sessionFile === sessionFile)
+        if (sessionFile) session = store.state.sessions.find((item) => sameFile(item.sessionFile, sessionFile))
       }
       return session?.configuration.agentPlugins
     },
@@ -2728,10 +2760,10 @@ export async function createAppControl(options: Options) {
     },
     async lookupSessionIds(paths: string[], keys: string[]): Promise<Record<string, string>> {
       const result: Record<string, string> = {}
+      const requested = new Map(paths.map((file) => [fileKey(file), file]))
       for (const session of store.state.sessions) {
-        if (session.sessionFile && paths.includes(session.sessionFile)) {
-          result[session.sessionFile] = session.sessionId
-        }
+        const file = session.sessionFile && requested.get(fileKey(session.sessionFile))
+        if (file) result[file] = session.sessionId
         const runtimeView = runtime.get(session.sessionId)
         if (runtimeView?.sessionKey && keys.includes(runtimeView.sessionKey)) {
           result[runtimeView.sessionKey] = session.sessionId
@@ -2744,13 +2776,13 @@ export async function createAppControl(options: Options) {
       deletedKeys: string[]
       deletedSessionIds?: string[]
     }): Promise<{ deletedSessionIds: string[] }> {
-      const deletedPaths = new Set(result.deletedPaths)
+      const deletedPaths = new Set(result.deletedPaths.map(fileKey))
       const deletedKeys = new Set(result.deletedKeys)
       const deletedSessionIdsInput = new Set(result.deletedSessionIds ?? [])
       const targetSessions = store.state.sessions.filter(
         (item) =>
           deletedSessionIdsInput.has(item.sessionId) ||
-          (item.sessionFile && deletedPaths.has(item.sessionFile)) ||
+          (item.sessionFile && deletedPaths.has(fileKey(item.sessionFile))) ||
           (runtime.has(item.sessionId) && deletedKeys.has(runtime.get(item.sessionId)!.sessionKey!)),
       )
 

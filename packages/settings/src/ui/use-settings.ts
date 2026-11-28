@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SettingsBridge } from '@pi-meme/contracts/desktop'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type {
-  DesktopSettings,
+  RuntimeSettingsPatch,
   GeneralSessionSettings,
   SettingsSnapshot,
   SubagentCatalogSnapshot,
@@ -50,7 +50,8 @@ export function useSettings(
   const [subagentFailed, setSubagentFailed] = useState<SubagentDefaultsPatch>({})
   const subagentWrites = useRef(Promise.resolve())
   const subagentLocks = useRef(new Set<keyof SubagentDefaults>())
-  const settingsReadRevision = useRef(0)
+  const settingsRead = useRef<AbortController | undefined>(undefined)
+  const settingsScope = useRef(0)
   const confirmed = useRef<SettingsSnapshot | null>(null)
   const [editorSettings, setEditorSettings] = useState<EditorSettings | null>(null)
   const confirmedEditor = useRef<EditorSettings | null>(null)
@@ -100,43 +101,43 @@ export function useSettings(
       }
     })
   }
-  const accept = useCallback(
-    (next: SettingsSnapshot) => {
-      confirmed.current = next
-      setSnapshot(next)
-      confirmedEditor.current = readEditorSettings(next)
-      if (!pendingEditor.current) setEditorSettings(confirmedEditor.current)
-    },
-    [enabled],
-  )
+  const accept = useCallback((next: SettingsSnapshot) => {
+    confirmed.current = next
+    setSnapshot(next)
+    confirmedEditor.current = readEditorSettings(next)
+    if (!pendingEditor.current) setEditorSettings(confirmedEditor.current)
+  }, [])
+  const refresh = useCallback(async () => {
+    if (!enabled) return
+    settingsRead.current?.abort()
+    const request = new AbortController()
+    settingsRead.current = request
+    try {
+      const next = await bridge.getSettings(request.signal)
+      if (!request.signal.aborted && bridge === bridgeRef.current) {
+        accept(next)
+        setError('')
+      }
+    } catch (cause) {
+      if (!request.signal.aborted && bridge === bridgeRef.current) setError(String(cause))
+    } finally {
+      if (settingsRead.current === request) settingsRead.current = undefined
+    }
+  }, [accept, enabled, bridge])
   useEffect(() => {
     if (!enabled) {
       setSnapshot(null)
       setSubagents(null)
       return
     }
-    let active = true
-    const refresh = () => {
-      const revision = ++settingsReadRevision.current
-      void bridge
-        .getSettings()
-        .then((next) => {
-          if (active && revision === settingsReadRevision.current) {
-            accept(next)
-            setError('')
-          }
-        })
-        .catch((cause) => {
-          if (active && revision === settingsReadRevision.current) setError(String(cause))
-        })
-    }
-    refresh()
+    void refresh()
     window.addEventListener('pi-meme:system-changed', refresh)
     return () => {
-      active = false
+      settingsScope.current++
+      settingsRead.current?.abort()
       window.removeEventListener('pi-meme:system-changed', refresh)
     }
-  }, [accept, enabled, bridge])
+  }, [enabled, refresh])
   useEffect(() => {
     if (!enabled || !subagentsEnabled) {
       setSubagents(null)
@@ -158,37 +159,35 @@ export function useSettings(
   async function action(work: () => Promise<SettingsSnapshot | void>) {
     if (!enabled || lock.current) return undefined
     lock.current = true
+    const scope = settingsScope.current
+    const targetBridge = bridgeRef.current
+    const owns = () => settingsScope.current === scope && targetBridge === bridgeRef.current
+    settingsRead.current?.abort()
     setSaving(true)
     setError('')
     try {
       const next = await work()
-      if (next) accept(next)
+      if (!owns()) return
+      if (next) {
+        settingsRead.current?.abort()
+        accept(next)
+        void refresh()
+      }
       return next
     } catch (cause) {
-      setError(String(cause))
+      if (owns()) setError(String(cause))
     } finally {
       lock.current = false
       setSaving(false)
     }
   }
-  function saveRuntime(value: DesktopSettings) {
+  function saveRuntime(patch: RuntimeSettingsPatch) {
+    const scope = settingsScope.current
     return action(async () => {
       try {
-        const runtime: Partial<DesktopSettings> = { ...value }
-        delete runtime.showComposerHint
-        delete runtime.showContextUsage
-        delete runtime.taskProgressEnabled
-        delete runtime.contextWindowArchive
-        delete runtime.appearance
-        delete runtime.appearanceStorage
-        delete runtime.themeId
-        return await bridgeRef.current.saveSettings(runtime)
+        return await bridge.saveSettings(patch)
       } catch (cause) {
-        try {
-          accept(await bridgeRef.current.getSettings())
-        } catch {
-          // 保留原始保存或重连错误。
-        }
+        if (bridge === bridgeRef.current && settingsScope.current === scope) await refresh()
         throw cause
       }
     })
@@ -233,21 +232,6 @@ export function useSettings(
     })
     return editorWrites.current
   }
-  const refresh = useCallback(async () => {
-    if (!enabled) return
-    const readRevision = ++settingsReadRevision.current
-    const targetBridge = bridgeRef.current
-    try {
-      const next = await targetBridge.getSettings()
-      if (targetBridge === bridgeRef.current && readRevision === settingsReadRevision.current) {
-        accept(next)
-        setError('')
-      }
-    } catch (cause) {
-      if (targetBridge === bridgeRef.current && readRevision === settingsReadRevision.current)
-        setError(`刷新外观失败：${String(cause)}`)
-    }
-  }, [enabled, accept])
   return {
     refresh,
     snapshot: snapshot ? { ...snapshot, settings: { ...snapshot.settings, ...editorSettings } } : null,
@@ -260,12 +244,7 @@ export function useSettings(
     saving,
     reload: () => action(() => bridgeRef.current.reloadThemes()),
     openDirectory: () => action(() => bridgeRef.current.openThemesDirectory()),
-    saveCapabilities: (value: { codemodeEnabled: boolean; mcpEnabled: boolean }) =>
-      saveRuntime({
-        ...snapshot?.settings,
-        themeId: snapshot?.settings.themeId ?? 'dark',
-        ...value,
-      }),
+    saveCapabilities: (value: { codemodeEnabled: boolean; mcpEnabled: boolean }) => saveRuntime(value),
     subagentDefaults: {
       model: null,
       thinkingLevel: null,
@@ -277,12 +256,7 @@ export function useSettings(
     subagentFailed,
     saveSubagentDefaults,
     saveSubagents: async (subagentsEnabled: boolean, enabledSubagents: string[]) => {
-      const next = await saveRuntime({
-        ...snapshot?.settings,
-        themeId: snapshot?.settings.themeId ?? 'dark',
-        subagentsEnabled,
-        enabledSubagents,
-      })
+      const next = await saveRuntime({ subagentsEnabled, enabledSubagents })
       if (next && subagentsEnabled) setSubagents(await bridgeRef.current.getSubagents())
     },
     reloadSubagents: async () => {
@@ -299,12 +273,7 @@ export function useSettings(
         setSaving(false)
       }
     },
-    saveAccessMode: (mode: AgentAccessMode) =>
-      saveRuntime({
-        ...snapshot?.settings,
-        themeId: snapshot?.settings.themeId ?? 'dark',
-        defaultAccessMode: mode,
-      }),
+    saveAccessMode: (mode: AgentAccessMode) => saveRuntime({ defaultAccessMode: mode }),
     saveEditor,
   }
 }

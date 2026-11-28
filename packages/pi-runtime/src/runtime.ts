@@ -107,7 +107,7 @@ export interface PiRuntime {
   clearQueue: (sessionKey: string) => Promise<PiQueuedMessages>
   setSteeringMode: (sessionKey: string, mode: 'all' | 'one-at-a-time') => Promise<PiState>
   setFollowUpMode: (sessionKey: string, mode: 'all' | 'one-at-a-time') => Promise<PiState>
-  setAccessMode: (sessionKey: string, mode: AgentAccessMode) => Promise<void>
+  setAccessMode: (sessionKey: string, mode: AgentAccessMode, expectedRevision?: number) => Promise<void>
   getCommands: () => Promise<PiSlashCommand[]>
   setModel: (sessionKey: string, model: PiModel) => Promise<PiModel>
   setServiceTier: (sessionKey: string, model: PiModel, tier: ServiceTier) => Promise<void>

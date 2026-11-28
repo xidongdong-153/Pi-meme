@@ -1,6 +1,6 @@
 import { memo, useEffect, useId, useState } from 'react'
 import { AlertCircle, Check, CheckCircle2, ChevronDown, CirclePause } from 'lucide-react'
-import type { TaskProgress, TaskStep, TaskStepStatus } from '@pi-meme/contracts/task-progress'
+import type { TaskProgressPhase, TaskProgressView, TaskStep, TaskStepStatus } from '@pi-meme/contracts/task-progress'
 import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { RetainedDisclosure } from './retained-disclosure'
@@ -12,6 +12,15 @@ const statusLabels: Record<TaskStepStatus, string> = {
   in_progress: '进行中',
   completed: '已完成',
   blocked: '受阻',
+}
+
+const phaseLabels: Record<TaskProgressPhase, string> = {
+  completed: '已完成',
+  interrupted: '已中断',
+  paused: '已暂停',
+  blocked: '受阻',
+  historical: '上次进度',
+  running: '',
 }
 
 function ProgressRing({
@@ -107,29 +116,14 @@ function StepIndicator({ step, activeWorking }: { step: TaskStep; activeWorking:
   )
 }
 
-function TaskProgressCardContent({
-  progress,
-  live,
-  paused,
-  interrupted,
-  onToggle,
-}: {
-  progress: TaskProgress
-  live: boolean
-  paused: boolean
-  interrupted: boolean
-  onToggle?: () => void
-}) {
+function TaskProgressCardContent({ progress, onToggle }: { progress: TaskProgressView; onToggle?: () => void }) {
   const listId = useId()
   const total = progress.steps.length
-  const completed = progress.steps.filter((step) => step.status === 'completed').length
-  const done = completed === total
-  const activeStep = progress.steps.find((step) => step.status === 'in_progress')
-  const blockedStep = progress.steps.find((step) => step.status === 'blocked')
-  const pendingStep = progress.steps.find((step) => step.status === 'pending')
-  const waiting = !activeStep && Boolean(blockedStep)
-  const canRun = live && !paused && !interrupted
-  const isWorking = Boolean(activeStep) && canRun
+  const { completed, phase } = progress
+  const done = phase === 'completed'
+  const canRun = phase === 'running'
+  const focusStep = progress.steps.find((step) => step.id === progress.focusStepId)
+  const isWorking = focusStep?.status === 'in_progress' && canRun
 
   const [disclosure, setDisclosure] = useState(() => ({
     done,
@@ -154,32 +148,7 @@ function TaskProgressCardContent({
     return () => window.clearTimeout(timer)
   }, [disclosure.pendingCollapse])
 
-  const statusKind = done
-    ? 'done'
-    : interrupted
-      ? 'interrupted'
-      : paused
-        ? 'paused'
-        : waiting
-          ? 'blocked'
-          : live
-            ? 'live'
-            : 'stale'
-
-  const statusText =
-    statusKind === 'done'
-      ? '已完成'
-      : statusKind === 'interrupted'
-        ? '已中断'
-        : statusKind === 'paused'
-          ? '已暂停'
-          : statusKind === 'blocked'
-            ? '受阻'
-            : statusKind === 'stale'
-              ? '上次进度'
-              : ''
-
-  const focusStep = activeStep ?? blockedStep ?? pendingStep
+  const statusText = phaseLabels[phase]
   const collapsedHint = !done && focusStep ? focusStep.title : ''
   const denseTrack = total > 12
 
@@ -235,14 +204,10 @@ function TaskProgressCardContent({
       >
         {done ? (
           <CheckCircle2 aria-hidden="true" className="size-4 shrink-0 text-[var(--color-success)]" />
-        ) : waiting ? (
+        ) : phase === 'blocked' ? (
           <AlertCircle aria-hidden="true" className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
         ) : (
-          <ProgressRing
-            completed={completed}
-            total={total}
-            tone={interrupted || paused || !live ? 'muted' : 'primary'}
-          />
+          <ProgressRing completed={completed} total={total} tone={canRun ? 'primary' : 'muted'} />
         )}
 
         <span className={cn('shrink-0 text-sm font-medium', done && 'text-muted-foreground')}>任务进度</span>
@@ -270,13 +235,12 @@ function TaskProgressCardContent({
           {statusText && (
             <span
               className={cn(
-                statusKind === 'blocked' &&
+                phase === 'blocked' &&
                   'rounded-md bg-amber-500/15 px-1.5 py-0.5 font-medium text-amber-600 dark:text-amber-400',
-                statusKind === 'interrupted' &&
-                  'rounded-md bg-destructive/12 px-1.5 py-0.5 font-medium text-destructive',
-                statusKind === 'paused' && 'rounded-md bg-secondary px-1.5 py-0.5 text-muted-foreground',
-                statusKind === 'done' && 'text-[var(--color-success)]',
-                statusKind === 'stale' && 'text-muted-foreground',
+                phase === 'interrupted' && 'rounded-md bg-destructive/12 px-1.5 py-0.5 font-medium text-destructive',
+                phase === 'paused' && 'rounded-md bg-secondary px-1.5 py-0.5 text-muted-foreground',
+                done && 'text-[var(--color-success)]',
+                phase === 'historical' && 'text-muted-foreground',
               )}
             >
               {statusText}

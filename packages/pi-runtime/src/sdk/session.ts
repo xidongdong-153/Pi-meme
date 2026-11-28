@@ -5,6 +5,7 @@ import {
   type VisualizationRef,
 } from '@pi-meme/contracts/visualize'
 import type { SessionWindow } from '@pi-meme/contracts/sessions'
+import { isTaskContinuation, readTaskProgress } from '@pi-meme/contracts/task-progress'
 import { mcpReferences, mcpSettingsHint, type McpReference } from '@pi-meme/contracts/mcp'
 import type { ContextRuntimeCapture } from '@pi-meme/contracts/context-window'
 import { projectSessionWindow, projectSessionDetails } from '@pi-meme/contracts/session-window'
@@ -300,6 +301,8 @@ export class SdkSession {
   private delegatedTask?: string
   private conversationOrigin?: AgentConversationOrigin
   private activityRevision = 0
+  private promptRevision = 0
+  private hostSubmission?: number
   private lastError = ''
   private piVersion?: string
   private ready: Promise<void> = Promise.resolve()
@@ -1049,6 +1052,18 @@ export class SdkSession {
       const sessionFile = manager.getSessionFile()
       if (sessionFile) this.notify.event({ generation, event: { type: 'session_saved', sessionFile } })
       const committed: PiEvent = { type: 'message_end', message }
+      const interval = this.runIntervals.at(-1)
+      if (interval && interval.endedAt === undefined) {
+        let userEntryId = message.role === 'user' ? entryId : readTaskProgress(message)?.userEntryId
+        if (isTaskContinuation(message)) {
+          const branch = manager.getBranch(entryId)
+          userEntryId = branch.findLast((item) => item.type === 'message' && item.message.role === 'user')?.id
+        }
+        if (userEntryId && userEntryId !== interval.userEntryId) {
+          interval.userEntryId = userEntryId
+          committed.runIntervals = structuredClone(this.runIntervals)
+        }
+      }
       const source = eventUiSource(committed, session, this.policy.agentSources)
       this.handleEvent(
         source
@@ -1237,9 +1252,14 @@ export class SdkSession {
 
   private handleEvent(event: PiEvent, forceSettled = false, accounted = false) {
     if (event.type === 'agent_settled' && this.goalRun && !accounted) {
+      const generation = this.generation
+      const revision = this.promptRevision
       void this.accountGoalUsage()
         .catch((cause: unknown) => this.report(String(cause)))
-        .finally(() => this.handleEvent(event, forceSettled, true))
+        .finally(() => {
+          if (generation === this.generation && revision === this.promptRevision)
+            this.handleEvent(event, forceSettled, true)
+        })
       return
     }
     const emittedAt = event.emittedAt ?? Date.now()
@@ -1294,7 +1314,7 @@ export class SdkSession {
       this.running = true
       const interval = this.runIntervals.at(-1)
       if (event.type === 'agent_start' && (!interval || interval.endedAt !== undefined))
-        this.runIntervals.push({ startedAt: Date.now() })
+        this.runIntervals.push({ startedAt: Date.now(), userEntryId: null })
       if (event.type === 'agent_start') event = { ...event, runIntervals: structuredClone(this.runIntervals) }
     }
     if (event.type === 'agent_settled') {
@@ -1368,7 +1388,7 @@ export class SdkSession {
     this.generationMetrics.handle(event)
     this.notify.event({
       generation: this.generation,
-      event: { ...event, generationMetrics: this.generationMetrics.snapshot() },
+      event: { ...event, generationMetrics: this.generationMetrics.snapshot(), hostSubmission: this.hostSubmission },
     })
   }
 
@@ -1642,7 +1662,7 @@ export class SdkSession {
     return recovery ? { entryId: recovery.entryId, mode: recovery.mode } : undefined
   }
 
-  async recover(failureEntryId: string) {
+  async recover(failureEntryId: string, hostSubmission?: number) {
     if (this.paused || this.queuePaused) throw new Error('会话已暂停，请先继续当前任务')
     if (this.running || this.changing || this.pendingSend) throw new Error('Pi 正在运行或切换，请等待完成后恢复')
     const recovery = this.findRecovery()
@@ -1658,6 +1678,7 @@ export class SdkSession {
       undefined,
       undefined,
       failureEntryId,
+      hostSubmission,
     )
   }
 
@@ -1753,6 +1774,7 @@ export class SdkSession {
     expectedGoal?: GoalControl,
     editEntryId?: string,
     failureEntryId?: string,
+    hostSubmission?: number,
   ) {
     if (options?.visualization) {
       validateVisualizationContext(options.visualization)
@@ -1789,6 +1811,8 @@ export class SdkSession {
       throw new Error('当前模型已不可用，请先重新选择模型')
     if (this.changing || this.running) throw new Error('Pi 正在运行或切换，请等待完成后重试')
     this.assertPluginAvailability(normalized.mode)
+    this.hostSubmission = hostSubmission
+    const revision = ++this.promptRevision
     this.changing = true
     if (!continuation) {
       this.collaborationRevision += 1
@@ -1999,11 +2023,14 @@ export class SdkSession {
         await this.policy.onHistoryEdited?.()
         await this.syncPlan(true)
       }
-      const state = this.getState()
-      if (!state.isStreaming && !state.isCompacting && (this.running || command || handled))
-        this.handleEvent({ type: 'agent_settled' }, Boolean(command || handled))
+      if (revision === this.promptRevision) {
+        const state = this.getState()
+        if (!state.isStreaming && !state.isCompacting && (this.running || command || handled))
+          this.handleEvent({ type: 'agent_settled' }, Boolean(command || handled))
+      }
       if (receipt) return { entryId: receipt.entryId }
     } catch (cause) {
+      if (revision !== this.promptRevision) throw cause
       if (edit || recovery) this.changing = true
       try {
         if (edit) {
@@ -2031,8 +2058,20 @@ export class SdkSession {
     message: string,
     expected: GoalControl,
     configuration?: import('@pi-meme/contracts/plan').MessageConfiguration,
+    hostSubmission?: number,
   ) {
-    return this.prompt(message, undefined, [], { mode: 'default', ...configuration }, 'goal', true, expected)
+    return this.prompt(
+      message,
+      undefined,
+      [],
+      { mode: 'default', ...configuration },
+      'goal',
+      true,
+      expected,
+      undefined,
+      undefined,
+      hostSubmission,
+    )
   }
 
   continueCollaborationTask(message: string, mode: TaskMode) {
@@ -2885,7 +2924,7 @@ export class SdkSession {
     this.session.sessionManager.appendCustomEntry(SdkSession.controlEntry, structuredClone(data))
   }
 
-  continueStopped(options?: import('@pi-meme/contracts/plan').MessageConfiguration) {
+  continueStopped(options?: import('@pi-meme/contracts/plan').MessageConfiguration, hostSubmission?: number) {
     if (!this.stopped) throw new Error('当前没有可恢复的停止任务')
     return this.prompt(
       '继续未完成的任务。核对已有结果，避免重复执行已完成的操作。',
@@ -2893,6 +2932,11 @@ export class SdkSession {
       [],
       { mode: this.mode, ...options },
       'stopped',
+      false,
+      undefined,
+      undefined,
+      undefined,
+      hostSubmission,
     )
   }
 

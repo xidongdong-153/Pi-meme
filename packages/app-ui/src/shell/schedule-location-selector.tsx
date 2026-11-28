@@ -1,5 +1,5 @@
 import { ChevronDown, Globe, Monitor } from 'lucide-react'
-import type { HostService } from '@pi-meme/contracts/host'
+import type { ClientService } from '@pi-meme/contracts/host'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,7 +14,7 @@ export function ScheduleLocationSelector({
   label,
   onSelect,
 }: {
-  services: HostService[]
+  services: ClientService[]
   serviceId?: string
   label: string
   onSelect: (id: string) => void
@@ -41,7 +41,7 @@ export function ScheduleLocationSelector({
           services.map((service) => (
             <DropdownMenuItem
               key={service.id}
-              disabled={service.status !== 'connected' || service.enabled === false}
+              disabled={service.clientStatus !== 'connected' || service.enabled === false}
               onClick={() => onSelect(service.id)}
             >
               <span className="min-w-0 flex-1 truncate">{serviceLabel(service)}</span>

@@ -47,8 +47,19 @@ export class ConnectionCredentialStore {
   async save(value: SavedHostConnection & { token: string }) {
     const url = origin(value.url)
     if (!value.token || !value.hostId) throw new Error('远程服务凭据不完整')
-    this.credentials.set(`${prefix}${url}`, JSON.stringify({ token: value.token, hostId: value.hostId }))
-    await this.flush()
+    await this.write(`${prefix}${url}`, JSON.stringify({ token: value.token, hostId: value.hostId }))
+  }
+  private async write(key: string, value?: string) {
+    const previous = this.credentials.get(key)
+    if (value === undefined) this.credentials.delete(key)
+    else this.credentials.set(key, value)
+    try {
+      await this.flush()
+    } catch (cause) {
+      if (previous === undefined) this.credentials.delete(key)
+      else this.credentials.set(key, previous)
+      throw cause
+    }
   }
   private sshKey(id: string) {
     if (!/^[a-f0-9]{24}$/.test(id)) throw new Error('SSH 连接标识无效')
@@ -59,30 +70,12 @@ export class ConnectionCredentialStore {
   }
   async saveSsh(id: string, token: string) {
     if (!token || token.length > 4096) throw new Error('服务访问令牌无效')
-    const key = this.sshKey(id)
-    const previous = this.credentials.get(key)
-    this.credentials.set(key, token)
-    try {
-      await this.flush()
-    } catch (cause) {
-      if (previous === undefined) this.credentials.delete(key)
-      else this.credentials.set(key, previous)
-      throw cause
-    }
+    await this.write(this.sshKey(id), token)
   }
   async removeSsh(id: string) {
-    const key = this.sshKey(id)
-    const previous = this.credentials.get(key)
-    this.credentials.delete(key)
-    try {
-      await this.flush()
-    } catch (cause) {
-      if (previous !== undefined) this.credentials.set(key, previous)
-      throw cause
-    }
+    await this.write(this.sshKey(id))
   }
   async remove(url: string) {
-    this.credentials.delete(`${prefix}${origin(url)}`)
-    await this.flush()
+    await this.write(`${prefix}${origin(url)}`)
   }
 }

@@ -54,7 +54,7 @@ export function ServicesApp({
   const searchHistory = useCallback(
     (serviceId: string, query: string, paths: string[]) => {
       const service = registry.list().find((entry) => entry.id === serviceId)
-      if (service && !service.local && service.status !== 'connected')
+      if (service && !service.local && service.clientStatus !== 'connected')
         return Promise.reject(new Error('远程未连接，仅能搜索已有标题摘要，正文搜索需恢复连接'))
       return registry.get(serviceId).bridge.searchSessions(query, paths)
     },
@@ -204,7 +204,7 @@ export function ServicesApp({
         services.length &&
         services.every((service) => !controllers.current.get(service.id)?.sessions && !service.sessions) &&
         services.some(
-          (service) => service.status === 'connecting' || controllers.current.get(service.id)?.sessionsLoading,
+          (service) => service.clientStatus === 'connecting' || controllers.current.get(service.id)?.sessionsLoading,
         ),
       )}
       onPreferencesChange={(patch) =>
@@ -222,7 +222,7 @@ export function ServicesApp({
       services.map((service) => ({
         id: service.id,
         label: serviceLabel(service),
-        connected: service.status === 'connected' && !servicePaused(service),
+        connected: service.clientStatus === 'connected' && !servicePaused(service),
         host: registry.get(service.id).host,
       })),
     [services, registry],
@@ -281,7 +281,7 @@ export function ServicesApp({
               },
               onCreateImage: async (id, item, originIsCurrent = () => true) => {
                 const service = registry.list().find((entry) => entry.id === id)
-                if (!service || service.status !== 'connected' || servicePaused(service))
+                if (!service || service.clientStatus !== 'connected' || servicePaused(service))
                   throw new Error('图片所属服务未连接，请恢复连接后重试')
                 const sourceId = activeRef.current
                 let failure: unknown

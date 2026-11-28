@@ -25,12 +25,12 @@ import type {
   Snapshot,
   WorkspaceDeletionResult,
 } from '@pi-meme/contracts/desktop'
-import type {
-  HostConnection,
-  HostDirectory,
-  HostEvent,
-  HostRpcResponse,
-  PlatformAdapter,
+import {
+  isHostRpcResponse,
+  type HostConnection,
+  type HostDirectory,
+  type HostEvent,
+  type PlatformAdapter,
 } from '@pi-meme/contracts/host'
 import type {
   AppearanceMigrationResult,
@@ -459,34 +459,37 @@ export class HostClient {
           }),
         })
       } catch (cause) {
+        requestSignal.throwIfAborted()
         this.assertAvailable(epoch)
         throw new HostTransportError(`无法连接服务，操作没有自动重发：${String(cause)}`, { cause })
       }
     }
     let response = await send()
     this.assertAvailable(epoch)
+    requestSignal.throwIfAborted()
     if (response.status === 401) {
       await this.renewAuthentication()
-      this.assertAvailable(epoch)
       response = await send()
     }
     this.assertAvailable(epoch)
+    requestSignal.throwIfAborted()
     if (response.status === 401) throw new Error('服务登录已失效，请重新连接')
     const value: unknown = await response.json().catch((cause: unknown) => {
+      requestSignal.throwIfAborted()
       throw new HostTransportError(`无法读取服务回执：HTTP ${response.status}`, { cause })
     })
     this.assertAvailable(epoch)
-    if (!value || typeof value !== 'object' || !('requestId' in value)) {
+    requestSignal.throwIfAborted()
+    if (!isHostRpcResponse(value)) {
       if (response.status >= 500) throw new HostTransportError(`服务请求失败：HTTP ${response.status}`)
       const error = value && typeof value === 'object' && 'error' in value ? value.error : undefined
-      throw new Error(typeof error === 'string' ? error : `服务请求失败：HTTP ${response.status}`)
+      throw new Error(typeof error === 'string' ? error : `服务回执格式无效：HTTP ${response.status}`)
     }
-    const envelope = value as HostRpcResponse
-    if (envelope.requestId !== requestId) throw new Error('服务返回了不匹配的请求标识')
-    this.acceptHost(envelope.hostId)
-    if (envelope.error) throw Object.assign(new Error(envelope.error.message), { code: envelope.error.code })
+    if (value.requestId !== requestId) throw new Error('服务返回了不匹配的请求标识')
+    this.acceptHost(value.hostId)
+    if (value.error) throw Object.assign(new Error(value.error.message), { code: value.error.code })
     if (!response.ok) throw new Error(`服务请求失败：HTTP ${response.status}`)
-    return envelope.result as T
+    return value.result as T
   }
 
   private async sendPrompt(
@@ -1510,10 +1513,10 @@ export class HostClient {
         // Host 已确认提交或权威配置，不依赖浏览器存储确认。
       }
     }
-    const settingsRpc = async (method: string, args: unknown[] = []) =>
+    const settingsRpc = async (method: string, args: unknown[] = [], signal?: AbortSignal) =>
       settingsSnapshot(
         await (method === 'settings:get' || method === 'settings:reload'
-          ? settingsRequest<SettingsSnapshot>(method, args)
+          ? settingsRequest<SettingsSnapshot>(method, args, signal)
           : rpc<SettingsSnapshot>(method, args, null)),
       )
     const appearanceRpc = async (method: string, args: unknown[], signal?: AbortSignal) => {
@@ -1671,7 +1674,8 @@ export class HostClient {
       clearQueue: (key) => rpc('pi:clear-queue', [key], key),
       setSteeringMode: (key, mode) => rpc('pi:steering-mode', [key, mode], key),
       setFollowUpMode: (key, mode) => rpc('pi:follow-up-mode', [key, mode], key),
-      setAccessMode: (key, mode) => rpc('pi:access-mode', [key, mode], key),
+      setAccessMode: (key, mode, revision) =>
+        rpc('pi:access-mode', revision === undefined ? [key, mode] : [key, mode, revision], key),
       getProjectFiles: (cwd, query) => rpc('chat:project-files', [cwd, query]),
       getCommands: () => rpc('pi:commands'),
       abort: (key) => rpc('pi:abort', [key], key),
@@ -1736,7 +1740,7 @@ export class HostClient {
       storage: platform?.storage,
       piMigration: platform?.piMigration,
       getUsageStats: () => rpc('settings:usage-stats'),
-      getSettings: () => settingsRpc('settings:get'),
+      getSettings: (signal) => settingsRpc('settings:get', [], signal),
       reloadSettings: () => settingsRpc('settings:reload'),
       onAppearanceChanged: (callback) => subscribe(this.appearanceListeners, callback),
       migrateLegacyAppearance: async (expectedRevision, signal) => {

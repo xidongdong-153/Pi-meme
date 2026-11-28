@@ -1,8 +1,15 @@
 import type { GoalEvent } from '@pi-meme/contracts/goal'
+import { isTaskContinuation } from '@pi-meme/contracts/task-progress'
 import type { CollaborationEvent } from '@pi-meme/contracts/collaboration'
 import type { PlanEvent } from '@pi-meme/contracts/plan'
 import type { AgentAccessEvent } from '@pi-meme/contracts/agent-access'
-import type { PiEvent, PiImage, PiMessage, PiRunInterval } from '@pi-meme/contracts/pi'
+import {
+  sessionExecutionPhase,
+  type PiEvent,
+  type PiImage,
+  type PiMessage,
+  type PiRunInterval,
+} from '@pi-meme/contracts/pi'
 import type { ChatBranchAttachment } from '@pi-meme/contracts/chat-attachments'
 import { messageAttachmentParts } from '@pi-meme/contracts/chat-attachments'
 import type { Snapshot, DesktopEvent } from '@pi-meme/contracts/desktop'
@@ -23,13 +30,7 @@ export const emptyChat: ChatState = {
 }
 
 function marksTurnStarted(message: PiMessage) {
-  return (
-    message.role === 'user' ||
-    message.role === 'assistant' ||
-    (message.role === 'custom' &&
-      message.display === false &&
-      (message.customType === 'pi-meme-stopped-control' || message.customType === 'pi-meme-recovery-control'))
-  )
+  return message.role === 'user' || message.role === 'assistant' || isTaskContinuation(message)
 }
 
 function snapshotTurnStarted(snapshot: Snapshot) {
@@ -64,7 +65,8 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
     sessionEntries: snapshot.sessionEntries,
     branchAttachments: snapshot.branchAttachments ?? [],
     skillUsages: snapshot.state.skillUsages,
-    running: snapshot.state.isStreaming || isCompacting || Boolean(snapshot.state.retry),
+    executionPhase: snapshot.state.executionPhase,
+    running: sessionExecutionPhase(snapshot.state) !== 'idle',
     turnStarted: snapshotTurnStarted(snapshot),
     paused: snapshot.state.isPaused ?? false,
     queuePaused: snapshot.state.queuePaused ?? false,
@@ -213,6 +215,13 @@ export function applyEvent(
         : undefined,
     }
   switch (event.type) {
+    case 'execution_phase':
+      return {
+        ...state,
+        executionPhase: event.phase,
+        running: event.phase !== 'idle',
+        turnStarted: event.phase === 'submitting' ? false : state.turnStarted,
+      }
     case 'agents_update': {
       const root = event.agents.find((agent) => agent.depth === 0 && agent.agentId === agent.rootAgentId)
       const active = root && ['starting', 'running', 'waiting_children', 'waiting_input'].includes(root.status)
@@ -302,7 +311,7 @@ export function applyEvent(
     case 'agent_start':
       return {
         ...state,
-        running: true,
+        running: state.executionPhase === undefined || state.running,
         recovery: undefined,
         compactionError: undefined,
         composerHint: undefined,
@@ -316,7 +325,7 @@ export function applyEvent(
     case 'compaction_start':
       return {
         ...state,
-        running: true,
+        running: state.executionPhase === undefined || state.running,
         compacting: { active: true },
         compactionError: undefined,
       }
@@ -335,7 +344,7 @@ export function applyEvent(
           : undefined
       return {
         ...state,
-        running: true,
+        running: state.executionPhase === undefined || state.running,
         turnStarted: state.turnStarted || event.type === 'auto_retry_start',
         compactionError: event.type === 'summarization_retry_scheduled' ? undefined : state.compactionError,
         retry: {
@@ -362,7 +371,7 @@ export function applyEvent(
       return {
         ...state,
         runIntervals: mergeRunIntervals(state.runIntervals, event.runIntervals),
-        running: false,
+        running: state.executionPhase !== undefined && state.running,
         turnStarted: false,
         activeMode: undefined,
         compacting: null,
@@ -419,6 +428,7 @@ export function applyEvent(
       const next: ChatState = {
         ...state,
         messages,
+        runIntervals: mergeRunIntervals(state.runIntervals, event.runIntervals),
         turnStarted: state.turnStarted || (state.running && index === -1 && marksTurnStarted(message)),
         live: event.message.role === 'assistant' ? null : state.live,
         stream: event.message.role === 'assistant' ? emptyChat.stream : state.stream,

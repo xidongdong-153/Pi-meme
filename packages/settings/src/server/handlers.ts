@@ -95,6 +95,7 @@ export function createSettingsHandlers({
           pi.validateDefaultAccessMode(requestedAccess)
         }
         const snapshot = await settings.save(value)
+        onGeneralChanged?.()
         if (previous.defaultAccessMode !== snapshot.settings.defaultAccessMode)
           await pi.configureDefaultAccessMode(snapshot.settings.defaultAccessMode ?? defaultAccessMode)
         const optionalExtensionsChanged =
