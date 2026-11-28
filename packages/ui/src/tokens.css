@@ -1,15 +1,15 @@
 :root {
-  /* 深海夜青（默认暗色回退） */
-  --color-background: #080c0f;
-  --color-surface: #0f151a;
-  --color-elevated: #161e25;
-  --color-text: #e5edf2;
-  --color-muted: #8696a4;
-  --color-border: #222d37;
-  --color-accent: #4fc4b0;
-  --color-accentText: #080c0f;
-  --color-success: #5ec492;
-  --color-error: #e46e7a;
+  /* 沉墨哑光（默认暗色回退） */
+  --color-background: #0e0f11;
+  --color-surface: #141619;
+  --color-elevated: #1b1e22;
+  --color-text: #d4d7dc;
+  --color-muted: #858b94;
+  --color-border: #272b30;
+  --color-accent: #52a896;
+  --color-accentText: #0e0f11;
+  --color-success: #5fa87f;
+  --color-error: #d4727a;
 
   --background: var(--color-background);
   --foreground: var(--color-text);
@@ -26,11 +26,11 @@
   --accent: var(--color-accent);
   --accent-foreground: var(--color-accentText);
   --destructive: var(--color-error);
-  --destructive-foreground: #080c0f;
+  --destructive-foreground: #0e0f11;
   --border: var(--color-border);
   --input: var(--color-border);
   --ring: var(--color-accent);
-  --surface-hairline: rgba(229, 237, 242, 0.075);
+  --surface-hairline: rgba(212, 215, 220, 0.075);
   --composer-background: color-mix(in srgb, var(--background), var(--foreground) 7%);
   --composer-background-mobile: color-mix(in srgb, var(--background), var(--foreground) 6%);
   --conversation-user-background: color-mix(in srgb, var(--primary) 14%, var(--color-surface));

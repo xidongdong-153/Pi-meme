@@ -19,13 +19,13 @@ type PickerState = {
 }
 
 const defaultPalette = {
-  accent: '#4fc4b0',
-  accentText: '#080c0f',
-  background: '#080c0f',
-  surface: '#0f151a',
-  text: '#e5edf2',
-  muted: '#8696a4',
-  border: '#222d37',
+  accent: '#52a896',
+  accentText: '#0e0f11',
+  background: '#0e0f11',
+  surface: '#141619',
+  text: '#d4d7dc',
+  muted: '#858b94',
+  border: '#272b30',
 }
 
 window.addEventListener('DOMContentLoaded', () => {

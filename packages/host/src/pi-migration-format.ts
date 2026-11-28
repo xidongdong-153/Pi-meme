@@ -294,7 +294,7 @@ export function convertPiTheme(filename: string, source: JsonRecord) {
       : colors.text && brightness(colors.text) < 384
         ? 'light'
         : 'dark')
-  if (colors.accent) colors.accentText = brightness(colors.accent) >= 384 ? '#080c0f' : '#faf9f5'
+  if (colors.accent) colors.accentText = brightness(colors.accent) >= 384 ? '#0e0f11' : '#faf9f5'
   return parseTheme({
     id,
     name: source.name,

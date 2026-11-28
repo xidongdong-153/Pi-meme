@@ -210,7 +210,7 @@ async function setConnection(value: { url: string; token: string } | null) {
 }
 async function open(failed = false) {
   if (stopping || window) return
-  window = createWindow(nativeTheme.shouldUseDarkColors ? '#080c0f' : '#faf9f5', trustedOrigin)
+  window = createWindow(nativeTheme.shouldUseDarkColors ? '#0e0f11' : '#faf9f5', trustedOrigin)
   const target = window
   target.on('closed', () => {
     if (window === target) window = null
