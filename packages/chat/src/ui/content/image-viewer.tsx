@@ -372,6 +372,7 @@ export function ImagePreviewStage({
               key={retry}
               ref={imageRef}
               src={imageSource(image)}
+              referrerPolicy="no-referrer"
               alt={isDiagram ? 'Mermaid 图表大图预览' : `图片大图预览，第 ${index + 1} 张`}
               draggable={false}
               onLoad={(event) =>

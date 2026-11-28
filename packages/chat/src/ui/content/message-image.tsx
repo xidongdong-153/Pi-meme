@@ -224,7 +224,7 @@ export function ImageThumbnail({
       target={remote ? '_blank' : undefined}
       rel={remote ? 'noopener noreferrer' : undefined}
       download={remote ? undefined : filename}
-      className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="inline-flex shrink-0 items-center justify-center rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {remote ? '打开原图' : '下载原图'}
     </a>
@@ -233,7 +233,10 @@ export function ImageThumbnail({
   return (
     <span className={cn('my-2 mr-2 inline-flex size-24 max-w-full align-top', className)}>
       {failure ? (
-        <span role="status" aria-label={failure} className="size-full">
+        <span className="flex size-full flex-col">
+          <span role="status" className="sr-only">
+            {failure}
+          </span>
           <TooltipHint content={failure}>
             <button
               type="button"
@@ -244,7 +247,7 @@ export function ImageThumbnail({
                 setAttempt((value) => value + 1)
                 onRetry?.()
               }}
-              className="flex size-full cursor-pointer flex-col items-center justify-center rounded-xl bg-secondary/30 px-1 py-1.5 text-center text-xs text-muted-foreground hover:bg-secondary/50"
+              className="flex min-h-0 w-full flex-1 cursor-pointer flex-col items-center justify-center rounded-xl bg-secondary/30 px-1 py-1.5 text-center text-xs text-muted-foreground hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <span className="flex flex-col items-center justify-center leading-tight">
                 <span className="font-medium text-foreground/80">预览失败</span>
@@ -255,6 +258,7 @@ export function ImageThumbnail({
               </span>
             </button>
           </TooltipHint>
+          {remote ? originalLink : null}
         </span>
       ) : (
         <button
@@ -273,6 +277,7 @@ export function ImageThumbnail({
               alt={label}
               loading="lazy"
               decoding="async"
+              referrerPolicy={remote ? 'no-referrer' : undefined}
               onLoad={() => setLoaded(true)}
               onError={() => setFailed(true)}
               className={cn('size-full object-cover', !loaded && 'opacity-0')}

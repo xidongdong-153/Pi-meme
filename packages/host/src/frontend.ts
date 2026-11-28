@@ -49,7 +49,7 @@ export async function serveFrontend(requestPath: string, options: { staticDirect
     headers: {
       'Content-Type': frontendMime[path.extname(target)] ?? 'application/octet-stream',
       'X-Content-Type-Options': 'nosniff',
-      'Content-Security-Policy': `default-src 'self'; script-src 'self' ${hashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'`,
+      'Content-Security-Policy': `default-src 'self'; script-src 'self' ${hashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://img.itch.zone; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'`,
     },
   })
 }
