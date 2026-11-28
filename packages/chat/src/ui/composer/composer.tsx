@@ -273,9 +273,7 @@ export function Composer({
           dragging && 'ring-2 ring-primary/40',
         )}
         style={{
-          backgroundColor: mobile
-            ? 'color-mix(in srgb, var(--background), var(--foreground) 9%)'
-            : 'color-mix(in srgb, var(--background), var(--foreground) 11%)',
+          backgroundColor: mobile ? 'var(--composer-background-mobile)' : 'var(--composer-background)',
         }}
         onSubmit={(event) => {
           event.preventDefault()

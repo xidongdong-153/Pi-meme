@@ -18,7 +18,7 @@ export function createWindow(backgroundColor: string, trustedOrigin: () => strin
             titleBarStyle: 'hidden' as const,
             titleBarOverlay: {
               color: backgroundColor,
-              symbolColor: lightWindow ? '#1d201e' : '#eef1ef',
+              symbolColor: lightWindow ? '#1d201e' : '#e5edf2',
               height: 36,
             },
           }

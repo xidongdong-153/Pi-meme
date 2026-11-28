@@ -23,8 +23,8 @@
       "purpose": "any maskable"
     }
   ],
-  "theme_color": "#141716",
-  "background_color": "#141716",
+  "theme_color": "#080c0f",
+  "background_color": "#080c0f",
   "display": "standalone",
   "orientation": "any"
 }

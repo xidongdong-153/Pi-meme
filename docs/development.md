@@ -62,19 +62,20 @@ chore(release): 发布 0.1.0
 
 ## 修改位置
 
-| 任务                                    | 目录或文件                                                                           |
-| --------------------------------------- | ------------------------------------------------------------------------------------ |
-| 输入框、补全、附件与输入队列            | [packages/chat/src/ui/composer](../packages/chat/src/ui/composer/)                   |
-| 对话、消息操作与工具卡片                | [packages/chat/src/ui/conversation](../packages/chat/src/ui/conversation/)           |
-| Markdown、消息投影和聊天状态            | [content](../packages/chat/src/ui/content/)、[model](../packages/chat/src/ui/model/) |
-| 项目、会话索引与侧栏                    | [packages/workspace/src](../packages/workspace/src/)                                 |
-| 原生会话历史、导出与分支树              | [packages/history/src](../packages/history/src/)                                     |
-| 设置导航、独立技能/插件页、右侧工具标签 | [packages/app-ui/src](../packages/app-ui/src/)                                       |
-| 内置图片、应用图标与 Dock 图标          | [packages/assets/files](../packages/assets/files/)                                   |
-| 公共类型与正式控制接口                  | [packages/contracts/src](../packages/contracts/src/)                                 |
-| 协议、认证、路由与内置装配              | [packages/host/src](../packages/host/src/)                                           |
-| Electron 窗口、preload 和平台 IPC       | [apps/desktop/src](../apps/desktop/src/)                                             |
-| 新的外部 App 插件                       | [DevKit](../packages/plugin-devkit/src/cli.ts)，用法见 [插件开发](plugins.md)        |
+| 任务                                    | 目录或文件                                                                                                                                                         |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 输入框、补全、附件与输入队列            | [packages/chat/src/ui/composer](../packages/chat/src/ui/composer/)                                                                                                 |
+| 对话、消息操作与工具卡片                | [packages/chat/src/ui/conversation](../packages/chat/src/ui/conversation/)                                                                                         |
+| Markdown、消息投影和聊天状态            | [content](../packages/chat/src/ui/content/)、[model](../packages/chat/src/ui/model/)                                                                               |
+| 项目、会话索引与侧栏                    | [packages/workspace/src](../packages/workspace/src/)                                                                                                               |
+| 原生会话历史、导出与分支树              | [packages/history/src](../packages/history/src/)                                                                                                                   |
+| 设置导航、独立技能/插件页、右侧工具标签 | [packages/app-ui/src](../packages/app-ui/src/)                                                                                                                     |
+| 默认主题、暗色色板与全局样式变量        | [themes.ts](../packages/settings/src/shared/themes.ts)、[tokens.css](../packages/ui/src/tokens.css)，同步范围见[指令、资源与主题](configuration.md#指令资源与主题) |
+| 内置图片、应用图标与 Dock 图标          | [packages/assets/files](../packages/assets/files/)                                                                                                                 |
+| 公共类型与正式控制接口                  | [packages/contracts/src](../packages/contracts/src/)                                                                                                               |
+| 协议、认证、路由与内置装配              | [packages/host/src](../packages/host/src/)                                                                                                                         |
+| Electron 窗口、preload 和平台 IPC       | [apps/desktop/src](../apps/desktop/src/)                                                                                                                           |
+| 新的外部 App 插件                       | [DevKit](../packages/plugin-devkit/src/cli.ts)，用法见 [插件开发](plugins.md)                                                                                      |
 
 业务包按实际需要创建 `src/server`、`src/agent`、`src/ui` 和 `src/shared`，不创建空层。新增功能先确认是内置能力还是可独立安装、移除的 App 插件。
 
