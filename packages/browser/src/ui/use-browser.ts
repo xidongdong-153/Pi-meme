@@ -116,6 +116,15 @@ export function useBrowser({
           current.current.onAnnotation(annotation, false)
         }
         restorePending.current.clear()
+        for (const tab of restored.tabs) {
+          if (!tab.keepAlive) continue
+          void platform
+            .create(owner, tab.id, tab.url)
+            .then(() => {
+              if (!cancelled) return platform.command(tab.id, { type: 'keep-alive', enabled: true })
+            })
+            .catch(() => {})
+        }
       })
       .catch((cause) => {
         if (!cancelled) setError(`无法恢复浏览器：${String(cause)}`)
@@ -141,6 +150,10 @@ export function useBrowser({
         return
       }
       if (event.type === 'changed') return
+      if (event.type === 'agent-handoff') {
+        if (event.owner === target.owner) target.onOpen(`builtin:browser:${event.tabId}`)
+        return
+      }
       if (event.type === 'tab-closed') {
         if (event.owner === target.owner && loaded.current === target.owner)
           update((value) => ({ ...value, tabs: value.tabs.filter((tab) => tab.id !== event.id) }), false)

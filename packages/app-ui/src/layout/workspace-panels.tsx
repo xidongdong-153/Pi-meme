@@ -22,6 +22,8 @@ import {
   MoreHorizontal,
   PanelRightClose,
   PanelRightOpen,
+  Pin,
+  PinOff,
   Plus,
   RefreshCw,
   Search,
@@ -729,6 +731,9 @@ export function WorkspacePanels({
                 <OverflowTooltip content={title}>
                   <span className={`${directory ? 'max-w-48' : 'max-w-28'} min-w-0 truncate`}>{title}</span>
                 </OverflowTooltip>
+                {browserTabItem?.keepAlive ? (
+                  <Pin aria-label="后台常驻运行中" className="size-2.5 shrink-0 text-primary" />
+                ) : null}
               </button>
               <button
                 type="button"
@@ -754,6 +759,25 @@ export function WorkspacePanels({
                 <ContextMenuItem onSelect={() => void browserPlatform?.command(browserId, { type: 'reload' })}>
                   <RefreshCw />
                   重新加载
+                </ContextMenuItem>
+                <ContextMenuItem
+                  onSelect={() => {
+                    if (!browserPlatform) return
+                    const ensure = browserTabItem
+                      ? browserPlatform.create(browserTabItem.owner, browserId, browserTabItem.url)
+                      : Promise.resolve()
+                    void ensure
+                      .then(() =>
+                        browserPlatform.command(browserId, {
+                          type: 'keep-alive',
+                          enabled: !browserTabItem?.keepAlive,
+                        }),
+                      )
+                      .catch(() => {})
+                  }}
+                >
+                  {browserTabItem?.keepAlive ? <PinOff /> : <Pin />}
+                  {browserTabItem?.keepAlive ? '取消后台常驻' : '后台常驻运行'}
                 </ContextMenuItem>
                 <ContextMenuItem
                   disabled={!hasWebUrl}

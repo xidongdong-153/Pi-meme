@@ -96,16 +96,16 @@ ID 与标题以 [settings-page.tsx](../packages/app-ui/src/settings/settings-pag
 
 ## 发起客户端的覆盖与隔离
 
-| 对象           | 操作                                                                                                | 读取边界                                                                                   |
-| -------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| 页面与导航     | `client.state/navigation`                                                                           | 读取当前真实页面与导航状态，不跳页                                                         |
-| 会话面板       | `client.panels`                                                                                     | 已保留布局、tab 和打开元信息，不挂载或恢复面板                                             |
-| 输入框         | `composer.status/read/attachments/processing`                                                       | 先取得明确 ref 和草稿数字修订；只读文档 JSON、附件进度、处理状态，不发送或运行处理器       |
-| 网页与批注     | `browser.list/read/waitFor/screenshot/workspace/annotations.list/annotations.get/annotations.image` | 所属会话；按条件观察已加载网页，工作区摘要保留当前视图和保存状态，批注正文和截图分别读取   |
-| 外观与快捷键   | `appearance.get/effective`、`themes.list/get`、`shortcuts.list`                                     | 使用实际外观 Host 和发起客户端偏好，不按执行 Host 猜外观                                   |
-| 入口与原生能力 | `client.connections.*`、`client.ssh.*`、`client.platform.capabilities`、`client.projectApps.list`   | 支持状态和缓存摘要；不连接远端、打开应用或执行原生操作                                     |
-| 插件 UI        | `client.plugins.ui.list`                                                                            | 已注册且已授权页面、面板、导航和动作的元数据；不返回任意 props、render 或回调              |
-| 可视化预览     | `visualizations.previewState`                                                                       | client scope，绑定执行会话和真实版本引用；返回状态与 `live/saved/initial` 来源，不挂载面板 |
+| 对象           | 操作                                                                                                                                | 读取边界                                                                                                     |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 页面与导航     | `client.state/navigation`                                                                                                           | 读取当前真实页面与导航状态，不跳页                                                                           |
+| 会话面板       | `client.panels`                                                                                                                     | 已保留布局、tab 和打开元信息，不挂载或恢复面板                                                               |
+| 输入框         | `composer.status/read/attachments/processing`                                                                                       | 先取得明确 ref 和草稿数字修订；只读文档 JSON、附件进度、处理状态，不发送或运行处理器                         |
+| 网页与批注     | `browser.list/read/query/waitFor/screenshot/console.list/network.list/workspace/annotations.list/annotations.get/annotations.image` | 所属会话；按条件观察已加载网页、检索元素及调试摘要，工作区摘要保留当前视图和保存状态，批注正文和截图分别读取 |
+| 外观与快捷键   | `appearance.get/effective`、`themes.list/get`、`shortcuts.list`                                                                     | 使用实际外观 Host 和发起客户端偏好，不按执行 Host 猜外观                                                     |
+| 入口与原生能力 | `client.connections.*`、`client.ssh.*`、`client.platform.capabilities`、`client.projectApps.list`                                   | 支持状态和缓存摘要；不连接远端、打开应用或执行原生操作                                                       |
+| 插件 UI        | `client.plugins.ui.list`                                                                                                            | 已注册且已授权页面、面板、导航和动作的元数据；不返回任意 props、render 或回调                                |
+| 可视化预览     | `visualizations.previewState`                                                                                                       | client scope，绑定执行会话和真实版本引用；返回状态与 `live/saved/initial` 来源，不挂载面板                   |
 
 `visualizations.previewState([{id,revision}])` 读取发起客户端的状态；Host 先校验执行会话、临时会话归属与当前分支引用，不取前台选中会话。来源为 `initial` 的值只是保存初值，不冒充用户已操作的状态；读取不重置、不保存、不发起聊天。`visualizations.list/read` 仍是 Host 保存产物的会话范围读取，两类来源不能混用。
 

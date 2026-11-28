@@ -28,6 +28,9 @@ const browser: BrowserPlatform = {
   chooseDownloadDirectory: () => browserCall('chooseDownloadDirectory'),
   clear: (parts) => browserCall('clear', parts),
   openLink: (url, owner) => browserCall('openLink', url, owner),
+  stopAgent: (owner, tabId) => browserCall('stopAgent', owner, tabId),
+  resolveHandOff: (owner, tabId) => browserCall('resolveHandOff', owner, tabId),
+  agentState: (owner, tabId) => browserCall('agentState', owner, tabId),
   onEvent: (listener) => {
     const callback = (_event: Electron.IpcRendererEvent, value: Parameters<typeof listener>[0]) => listener(value)
     ipcRenderer.on('browser:event', callback)

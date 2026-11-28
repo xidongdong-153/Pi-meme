@@ -12,6 +12,8 @@ import {
   MoreHorizontal,
   MousePointer2,
   Pencil,
+  Pin,
+  PinOff,
   RefreshCw,
   Search,
   Settings,
@@ -116,6 +118,8 @@ export function BrowserPanel({
   const menuRequest = useRef(0)
   const menuPreviewReady = useRef(false)
   const [annotating, setAnnotating] = useState(false)
+  const [agentActivity, setAgentActivity] = useState<{ active: boolean; label?: string } | null>(null)
+  const [handoff, setHandoff] = useState<{ reason: string; actionHint?: string } | null>(null)
 
   const recent = snapshot?.history.slice(0, 6) ?? []
   const activeDownloads = snapshot?.downloads.filter((item) => item.state === 'progressing').length ?? 0
@@ -160,6 +164,23 @@ export function BrowserPanel({
   }, [platform, tab.id, tab.documentId])
 
   useEffect(() => {
+    let cancelled = false
+    setAgentActivity(null)
+    setHandoff(null)
+    void platform
+      .agentState?.(tab.owner, tab.id)
+      .then((state) => {
+        if (cancelled || !state) return
+        setAgentActivity(state.activity?.active ? state.activity : null)
+        setHandoff(state.handoff)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [platform, tab.owner, tab.id])
+
+  useEffect(() => {
     if (finding && !menuOpen) {
       findInput.current?.focus()
       findInput.current?.select()
@@ -178,6 +199,11 @@ export function BrowserPanel({
     const release = platform.onEvent((event) => {
       if (event.type === 'target-url' && event.tabId === tab.id) setHoverUrl(event.url)
       if (event.type === 'annotation-mode' && event.tabId === tab.id) setAnnotating(event.enabled)
+      if (event.type === 'agent-activity' && event.tabId === tab.id)
+        setAgentActivity(event.active ? { active: true, label: event.label } : null)
+      if (event.type === 'agent-handoff' && event.tabId === tab.id)
+        setHandoff({ reason: event.reason, actionHint: event.actionHint })
+      if (event.type === 'agent-handoff-clear' && event.tabId === tab.id) setHandoff(null)
       if (event.type === 'find-result' && event.tabId === tab.id && event.text === findText.current)
         setFindResult({ active: event.active, matches: event.matches })
       if (event.type === 'browser-shortcut' && event.tabId === tab.id) {
@@ -361,6 +387,8 @@ export function BrowserPanel({
         void platform.command(tab.id, { type: 'annotation-state' }).catch(() => {})
         void platform.command(tab.id, { type: 'view-mode', mode: currentViewMode.current }).catch(() => {})
         void platform.command(tab.id, { type: 'markers', annotations: currentAnnotations.current }).catch(() => {})
+        if (currentTab.current.keepAlive)
+          void platform.command(tab.id, { type: 'keep-alive', enabled: true }).catch(() => {})
         if (editor) void platform.command(tab.id, { type: 'annotate', enabled: true })
       })
       .catch((cause) => {
@@ -686,6 +714,10 @@ export function BrowserPanel({
               继续未完成批注
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => void command({ type: 'keep-alive', enabled: !tab.keepAlive })}>
+              {tab.keepAlive ? <PinOff /> : <Pin />}
+              {tab.keepAlive ? '取消后台常驻' : '后台常驻运行'}
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => void command({ type: 'external' })}>
               <ExternalLink />
               在系统浏览器打开
@@ -799,6 +831,46 @@ export function BrowserPanel({
         <p role="alert" className="shrink-0 px-3 py-2 text-xs text-destructive">
           {error}
         </p>
+      ) : null}
+
+      {agentActivity?.active ? (
+        <div
+          role="status"
+          className="flex h-8 shrink-0 items-center justify-between gap-2 border-b border-border bg-primary/10 px-3 text-xs text-foreground no-drag"
+        >
+          <span className="truncate">{agentActivity.label || 'Agent 正在操作此网页'}</span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 px-2 text-[11px]"
+            onClick={() => void platform.stopAgent?.(tab.owner, tab.id)}
+          >
+            接管
+          </Button>
+        </div>
+      ) : null}
+
+      {handoff ? (
+        <div
+          role="status"
+          className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-secondary/80 px-3 py-2 text-xs text-foreground no-drag"
+        >
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <p className="font-medium">{handoff.reason}</p>
+            {handoff.actionHint ? <p className="text-[11px] text-muted-foreground">{handoff.actionHint}</p> : null}
+          </div>
+          <Button
+            size="sm"
+            variant="default"
+            className="h-7 shrink-0 px-2.5 text-xs"
+            onClick={() => {
+              setHandoff(null)
+              void platform.resolveHandOff?.(tab.owner, tab.id)
+            }}
+          >
+            已完成，继续
+          </Button>
+        </div>
       ) : null}
 
       <div ref={viewport} className="relative min-h-0 flex-1 bg-background">

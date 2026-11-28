@@ -29,9 +29,6 @@ const browserWrites = new Set([
   'browser.open',
   'browser.navigate',
   'browser.close',
-  'browser.click',
-  'browser.input',
-  'browser.scroll',
   ...browserAgentOperations.filter(({ write }) => write).map(({ name }) => name),
 ])
 
@@ -165,7 +162,8 @@ export function useSystemClient(
             await context.confirmPending()
             return callBrowser(agent, owner, request)
           }
-          if (request.operation === 'browser.open') return write()
+          if (request.operation === 'browser.open' || request.operation === 'browser.downloads.saveToWorkspace')
+            return write()
           const key = JSON.stringify([owner, request.args[0]])
           const previous = browserWritesByTab.get(key)
           const pending = previous ? previous.then(write, write) : write()
@@ -289,9 +287,6 @@ export function useSystemClient(
             'browser.screenshot',
             'browser.open',
             'browser.navigate',
-            'browser.click',
-            'browser.input',
-            'browser.scroll',
             'browser.close',
           ]
         : []),

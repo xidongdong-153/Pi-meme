@@ -293,6 +293,31 @@ export function BrowserSettings({
               )}
             </SettingsCard>
           </SettingsGroup>
+          <SettingsGroup title="Agent 自动化">
+            <SettingsCard>
+              {row(
+                '允许 Agent 执行页面脚本',
+                '开启后，完全权限下可使用 browser.evaluate 与 browser.fetch；可能读取当前站点页面状态，默认关闭。',
+                <div
+                  aria-hidden={!snapshot}
+                  inert={!snapshot}
+                  className={cn(
+                    'h-6 w-11 transition-opacity duration-150 motion-reduce:transition-none',
+                    snapshot ? 'opacity-100' : 'pointer-events-none opacity-0',
+                  )}
+                >
+                  {settings && (
+                    <Switch
+                      checked={Boolean(settings.agentScripts)}
+                      disabled={saving || !snapshot}
+                      onChange={(agentScripts) => save({ agentScripts })}
+                      label="允许 Agent 执行页面脚本"
+                    />
+                  )}
+                </div>,
+              )}
+            </SettingsCard>
+          </SettingsGroup>
           <SettingsGroup title="浏览数据">
             <SettingsCard>
               {row(

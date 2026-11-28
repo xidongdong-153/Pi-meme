@@ -43,9 +43,6 @@ const allowed = new Set([
   'browser.screenshot',
   'browser.open',
   'browser.navigate',
-  'browser.click',
-  'browser.input',
-  'browser.scroll',
   'browser.close',
 ])
 function validIdentity(value: unknown): value is SystemClientIdentity {
@@ -172,7 +169,11 @@ export class SystemClientBridge {
     signal.throwIfAborted()
     const identity = this.identity(clientId)
     if (!clientId || !identity || !this.supports(clientId, operation)) throw new Error('发起客户端未连接或不支持此操作')
-    const timeout = executionId ? 90_000 : 30_000
+    const timeout = executionId
+      ? 90_000
+      : operation === 'browser.waitFor' || operation === 'browser.batch'
+        ? 60_000
+        : 30_000
     const id = randomUUID()
     return new Promise<unknown>((resolve, reject) => {
       let settled = false

@@ -51,6 +51,7 @@ export type BrowserTab = {
   canGoBack: boolean
   canGoForward: boolean
   error?: string
+  keepAlive?: boolean
 }
 export type BrowserSettings = {
   links: 'internal' | 'external'
@@ -62,6 +63,7 @@ export type BrowserSettings = {
   restore: boolean
   downloadDirectory: string
   askDownload: boolean
+  agentScripts?: boolean
 }
 export type BrowserPermission = { origin: string; permission: string; value: 'ask' | 'allow' | 'deny' }
 export type BrowserHistory = {
@@ -119,6 +121,9 @@ export type BrowserEvent =
   | { type: 'discard'; owner: string }
   | { type: 'settings' }
   | { type: 'changed' }
+  | { type: 'agent-activity'; owner: string; tabId: string; active: boolean; operation?: string; label?: string }
+  | { type: 'agent-handoff'; owner: string; tabId: string; reason: string; actionHint?: string }
+  | { type: 'agent-handoff-clear'; owner: string; tabId: string }
 export type BrowserCommand =
   | { type: 'navigate'; url: string }
   | { type: 'go-to-index'; index: number }
@@ -131,6 +136,7 @@ export type BrowserCommand =
   | { type: 'restore-editor'; annotation: BrowserAnnotation }
   | { type: 'annotation-state' }
   | { type: 'screenshot' }
+  | { type: 'keep-alive'; enabled: boolean }
 export interface BrowserPlatform {
   agent?: (owner: string, operation: string, args: unknown[], deadline?: number) => Promise<unknown>
   agentInteraction?: true
@@ -159,6 +165,15 @@ export interface BrowserPlatform {
   chooseDownloadDirectory: () => Promise<string | null>
   clear: (parts: Array<'history' | 'storage' | 'cache' | 'downloads'>) => Promise<void>
   openLink: (url: string, owner: string) => Promise<void>
+  stopAgent?: (owner: string, tabId: string) => Promise<void>
+  resolveHandOff?: (owner: string, tabId: string) => Promise<void>
+  agentState?: (
+    owner: string,
+    tabId: string,
+  ) => Promise<{
+    activity: { active: boolean; label?: string } | null
+    handoff: { reason: string; actionHint?: string } | null
+  }>
   onEvent: (listener: (event: BrowserEvent) => void) => () => void
 }
 export type BrowserOverlayState = {

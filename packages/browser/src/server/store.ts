@@ -23,6 +23,7 @@ const defaults: BrowserSettings = {
   restore: true,
   downloadDirectory: '',
   askDownload: true,
+  agentScripts: false,
 }
 function empty(): BrowserSnapshot {
   return {

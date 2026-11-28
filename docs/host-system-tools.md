@@ -22,27 +22,27 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 
 以运行时 `capabilities` 为准。它支持 `domain/scope/write/query` 筛选和有修订的分页，默认 50 项、最多 100 项。`args` 是按顺序排列的数组，省略的会话目标默认为当前执行根会话。显式 `SessionRef` 使用 `{hostId, sessionId}`，项目工作区可使用 `{hostId,projectId}`；不能传界面选择或路径冒充身份。下表保留读写入口概览，新增读取的完整分组见覆盖表。
 
-| 能力         | 读取                                                                        | 修改                                                                                                    |
-| ------------ | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| 终端         | `terminal.list`、`terminal.read`                                            | `terminal.open`、`terminal.input`、`terminal.resize`、`terminal.close`                                  |
-| 定时任务     | `schedules.list`、`get`、`runs`、`schema`                                   | `create`、`update`、`pause`、`resume`、`delete`、`runNow`、`stopRun`、`markRead`、`resetSession`        |
-| 图像素材     | `images.list`、`images.get`、`images.read`                                  | `images.import`、`images.rename`、`images.remove`；生成沿用 `image_gen`                                 |
-| 可视化       | `visualizations.list`、`visualizations.read`、`visualizations.previewState` | `visualizations.export`；创建与保存版本沿用 `save_visualization`                                        |
-| 上下文窗口   | `contextWindow.list`、`get`、`item`、`reply`、`piece`、`image`              | 只读；默认摘要，正文和图片显式分页读取                                                                  |
-| 文件         | `files.list`、`read`、`preview`、`search`                                   | `files.write`，需文件修订                                                                               |
-| Git 与计划   | `git.availability`、`git.snapshot`、`git.diff`、`plans.list`                | Git 现有专用入口保持原权限                                                                              |
-| 任务进度     | `taskProgress.list` 分页读取当前分支的任务与步骤                            | 内置 `update_plan` 向当前执行会话提交完整清单，普通和 Plan 模式均可使用                                 |
-| 后台活动     | `activities.list`、`activities.logs`                                        | `activities.stop`                                                                                       |
-| 个人资料     | `profile.get`、`profile.avatar`                                             | `profile.save`，需修订                                                                                  |
-| 外观         | `appearance.get`                                                            | `appearance.save`，需修订，仅发起客户端                                                                 |
-| MCP          | `mcp.get`                                                                   | `mcp.save`、`mcp.delete`，需配置修订                                                                    |
-| 指令与资源   | `instructions.get`、`resources.list`、`commands.list`                       | `instructions.save`，需指令修订                                                                         |
-| 插件默认选择 | `plugins.defaults`                                                          | `plugins.setDefaults`，仍走插件校验                                                                     |
-| 记忆         | `memory.status`、`memory.list`、`memory.search`、`memory.get`               | `memory.remember`、`memory.update`、`memory.forget`；响应用户明确请求，不提供主开关或全 Host 清空       |
-| 用量与模型   | `usage.get`、`models.list`                                                  | 模型凭据不通过此目录返回                                                                                |
-| 项目与会话   | `projects.list/get/deletePreview`、`sessions.list/get/messages/attention`   | `projects.create/rename/setPinned/delete`、`sessions.create/rename/configure/setPinned/delete/markRead` |
-| Agent 与目标 | `agents.list`、`goals.get`                                                  | 沿用已有协作和目标工具                                                                                  |
-| Desktop 网页 | `browser.list`、`read`、`waitFor`、`screenshot`                             | `browser.open`、`navigate`、`click`、`input`、`press`、`select`、`scroll`、`close`                      |
+| 能力         | 读取                                                                                     | 修改                                                                                                                                                                                                                                                                     |
+| ------------ | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 终端         | `terminal.list`、`terminal.read`                                                         | `terminal.open`、`terminal.input`、`terminal.resize`、`terminal.close`                                                                                                                                                                                                   |
+| 定时任务     | `schedules.list`、`get`、`runs`、`schema`                                                | `create`、`update`、`pause`、`resume`、`delete`、`runNow`、`stopRun`、`markRead`、`resetSession`                                                                                                                                                                         |
+| 图像素材     | `images.list`、`images.get`、`images.read`                                               | `images.import`、`images.rename`、`images.remove`；生成沿用 `image_gen`                                                                                                                                                                                                  |
+| 可视化       | `visualizations.list`、`visualizations.read`、`visualizations.previewState`              | `visualizations.export`；创建与保存版本沿用 `save_visualization`                                                                                                                                                                                                         |
+| 上下文窗口   | `contextWindow.list`、`get`、`item`、`reply`、`piece`、`image`                           | 只读；默认摘要，正文和图片显式分页读取                                                                                                                                                                                                                                   |
+| 文件         | `files.list`、`read`、`preview`、`search`                                                | `files.write`，需文件修订                                                                                                                                                                                                                                                |
+| Git 与计划   | `git.availability`、`git.snapshot`、`git.diff`、`plans.list`                             | Git 现有专用入口保持原权限                                                                                                                                                                                                                                               |
+| 任务进度     | `taskProgress.list` 分页读取当前分支的任务与步骤                                         | 内置 `update_plan` 向当前执行会话提交完整清单，普通和 Plan 模式均可使用                                                                                                                                                                                                  |
+| 后台活动     | `activities.list`、`activities.logs`                                                     | `activities.stop`                                                                                                                                                                                                                                                        |
+| 个人资料     | `profile.get`、`profile.avatar`                                                          | `profile.save`，需修订                                                                                                                                                                                                                                                   |
+| 外观         | `appearance.get`                                                                         | `appearance.save`，需修订，仅发起客户端                                                                                                                                                                                                                                  |
+| MCP          | `mcp.get`                                                                                | `mcp.save`、`mcp.delete`，需配置修订                                                                                                                                                                                                                                     |
+| 指令与资源   | `instructions.get`、`resources.list`、`commands.list`                                    | `instructions.save`，需指令修订                                                                                                                                                                                                                                          |
+| 插件默认选择 | `plugins.defaults`                                                                       | `plugins.setDefaults`，仍走插件校验                                                                                                                                                                                                                                      |
+| 记忆         | `memory.status`、`memory.list`、`memory.search`、`memory.get`                            | `memory.remember`、`memory.update`、`memory.forget`；响应用户明确请求，不提供主开关或全 Host 清空                                                                                                                                                                        |
+| 用量与模型   | `usage.get`、`models.list`                                                               | 模型凭据不通过此目录返回                                                                                                                                                                                                                                                 |
+| 项目与会话   | `projects.list/get/deletePreview`、`sessions.list/get/messages/attention`                | `projects.create/rename/setPinned/delete`、`sessions.create/rename/configure/setPinned/delete/markRead`                                                                                                                                                                  |
+| Agent 与目标 | `agents.list`、`goals.get`                                                               | 沿用已有协作和目标工具                                                                                                                                                                                                                                                   |
+| Desktop 网页 | `browser.list`、`read`、`query`、`waitFor`、`screenshot`、`console.list`、`network.list` | `browser.open`、`navigate`、`back`、`forward`、`reload`、`activate`、`keepAlive`、`click`、`dblclick`、`hover`、`drag`、`input`、`paste`、`press`、`select`、`scroll`、`dialog`、`upload`、`downloads.saveToWorkspace`、`batch`、`evaluate`、`fetch`、`handOff`、`close` |
 
 短名称沿用该行前缀，例如定时任务的 `get` 完整名称为 `schedules.get`。
 
@@ -153,27 +153,40 @@ Agent 不通过此目录修改主开关、每日预算或清空整个 Host。管
 
 ### Desktop 网页
 
-网页属于发起对话的 Desktop 和明确会话。读取及等待复用已加载的标签，保留前台焦点。能力目录按客户端实际支持报告 `available`，Web 入口的 Desktop 网页操作不可用。新增操作由 Desktop 与所连 Host 协商注册。写入需要普通任务和完全权限。
+网页属于发起对话的 Desktop 和明确会话。读取、等待、控制台与网络观测复用已加载的标签，默认静默保留前台焦点。能力目录按客户端实际支持报告 `available`，Web 入口的 Desktop 网页操作不可用。新增操作由 Desktop 与所连 Host 协商注册。写入需要普通任务和完全权限；`browser.evaluate` 与 `browser.fetch` 额外要求在「设置 → 浏览器」中开启「允许 Agent 执行页面脚本」（默认关闭）。
 
-| 操作              | 参数                                                 | 返回与行为                                                                                                             |
-| ----------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `browser.read`    | `[tabId]`                                            | 返回 `tab`、`documentId`、标题、正文、控件和截断标记。控件包括角色、可访问名称、禁用、只读及可观察的选中和展开状态。   |
-| `browser.press`   | `[tabId, documentId, elementId, key]`                | 支持 `Enter`、`Tab`、`Shift+Tab`、`Escape`、`Space` 和四个方向键。Pi meme 窗口需处于前台，后台标签可接收按键。         |
-| `browser.select`  | `[tabId, documentId, elementId, {value} 或 {label}]` | 精确匹配原生单选下拉中的值或显示标签。选中项变化时触发 `input` 和 `change`，已选中时返回 `not_needed`。                |
-| `browser.waitFor` | `[tabId, condition, {timeoutMs}?]`                   | 只读观察，默认等待 10000 毫秒，上限 20000 毫秒。返回 `matched` 或 `timed-out`，附观察到的标签 ID、文档 ID 和脱敏 URL。 |
+| 操作                                               | 参数                                         | 返回与行为                                                                                                                                                                                                                   |
+| -------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `browser.read`                                     | `[tabId, options?]`                          | 支持 `scope`（`viewport`/`full`/`subtree`）、`root`、`frameId`（同源或跨域子帧）、`cursor`、`maxElements`（默认 150，上限 300）与 `includeText`；返回控件（含 `href`、坐标、可滚动标记）、视口滚动状态、子帧摘要及挂起弹窗。 |
+| `browser.query`                                    | `[tabId, target, {limit?}?]`                 | 按 `css`、`role`、`text` 检索匹配元素并分配可操作 `elementId`（默认最多 20 条，上限 50）。                                                                                                                                   |
+| `browser.waitFor`                                  | `[tabId, condition, {timeoutMs}?]`           | 只读观察，默认等待 10000 毫秒，上限 30000 毫秒。返回 `matched` 或 `timed-out`，附观察到的标签 ID、文档 ID 和脱敏 URL。                                                                                                       |
+| `browser.console.list` / `network.list`            | `[tabId, query?]`                            | 分页读取当前标签挂载调试会话后捕获的控制台日志或脱敏网络请求摘要（不含 Cookie/Authorization/Body）。                                                                                                                         |
+| `browser.back` / `forward` / `reload` / `activate` | `[tabId]`                                    | 历史导航、刷新或将指定标签切到前台可见。                                                                                                                                                                                     |
+| `browser.keepAlive`                                | `[tabId, enabled]`                           | 开启或关闭标签的持久后台常驻（关闭后台节流并保持离屏 60fps 渲染，不抢占当前视图与焦点）。                                                                                                                                    |
+| `browser.click` / `dblclick` / `hover` / `drag`    | `[tabId, documentId, target, ...]`           | 自动滚入视口并发送真实 CDP 鼠标事件；`target` 支持 `elementId`、`{css,nth?}`、`{role,name?,exact?,nth?}`、`{text,exact?,nth?}` 或 `{x,y}` 坐标；动作回执附带新开标签 `openedTabs` 与挂起 `dialog`。                          |
+| `browser.input` / `paste`                          | `[tabId, documentId, target, ...]`           | 聚焦并通过真实输入通道写入文本（`mode`: `replace`/`append`/`type`）或粘贴文本/HTML，兼容受控组件与富文本且不改写系统剪贴板。                                                                                                 |
+| `browser.press`                                    | `[tabId, documentId, targetOrNull, key]`     | 发送完整按键与组合键（如 `Enter`、`Backspace`、`ControlOrMeta+k`、`Shift+Tab`）；后台标签可用且不要求窗口在前台。                                                                                                            |
+| `browser.select`                                   | `[tabId, documentId, target, selection]`     | 支持原生单选或多选下拉，接受 `{value}`、`{label}`、`{index}` 或选项数组（`[]` 清空）。                                                                                                                                       |
+| `browser.scroll`                                   | `[tabId, documentId, deltaOrOptions]`        | 支持数字 `deltaY` 或 `{deltaX?,deltaY?,target?,to?}`，优先通过滚轮滚动目标容器并在位置未变时自动回退 DOM 滚动。                                                                                                              |
+| `browser.dialog`                                   | `[tabId, "accept"\|"dismiss", promptText?]`  | 处理当前网页挂起的 `alert`/`confirm`/`prompt`/`beforeunload` 原生弹窗。                                                                                                                                                      |
+| `browser.upload`                                   | `[tabId, documentId, target, paths]`         | 将工作区内合法相对路径文件（单文件 <= 16 MiB，总计 <= 32 MiB，最多 10 个）注入 `<input type="file">` 或触发的文件选择器。                                                                                                    |
+| `browser.downloads.saveToWorkspace`                | `[downloadId, relativePath]`                 | 将已完成的下载产物（<= 16 MiB）安全保存到当前工作区相对路径，不暴露宿主机下载目录。                                                                                                                                          |
+| `browser.batch`                                    | `[tabId, steps, {stopOnError?,readAfter?}?]` | 单轮最多顺序执行 20 步操作，遇到弹窗、文档跳转或错误时立即中止并返回结果与可选快照。                                                                                                                                         |
+| `browser.evaluate` / `fetch`                       | `[tabId, documentId, ...]`                   | 需开启「允许 Agent 执行页面脚本」；`evaluate` 限 5 秒且返回纯 JSON <= 32 KiB，`fetch` 过滤 `set-cookie` 并截断正文至 32K 字符。                                                                                              |
+| `browser.handOff`                                  | `[tabId, {reason, actionHint?}]`             | 遇到登录、验证码、2FA 或网站权限确认时显式切出标签并在面板提示用户接管。                                                                                                                                                     |
 
 等待条件支持以下结构。
 
 - `{kind: 'ready'}` 等主文档停止加载。
+- `{kind: 'loadState', state}` 等 `domcontentloaded` 或 `load`。
+- `{kind: 'networkIdle', idleMs?}` 等网络静止（100..5000 毫秒，默认 500）。
+- `{kind: 'download', since?}` 等浏览器下载完成。
 - `{kind: 'url', url}` 匹配已提交网址的来源和路径。接受 HTTP(S) 地址或 `about:blank`。
+- `{kind: 'selector', documentId?, target, state}` 按选择器观察可见状态。
 - `{kind: 'element', documentId, role, name, state}` 按角色和规范化名称精确匹配主文档元素。
 - `{kind: 'text', documentId, text, state}` 按规范化后的子串匹配主文档可见文字。
 
-DOM 条件的 `state` 可选 `visible` 或 `hidden`，后者表示当前没有可见匹配。文档代次变化时返回 `stale-cursor`。按键和下拉操作的 `delivered_unverified` 表示动作已派发，随后可等待预期条件并回读页面。送达不确定时先读取当前状态再决定是否重试。
-
-`browser.read` 最多返回 40000 字符的正文和 150 个控件。每个原生下拉最多返回 40 个选项，每次读取共最多 300 个，可从 `optionsTruncated` 判断是否省略。密码、隐藏项、本机文件路径及明确标记的验证码值从控件投影中排除。读取和操作覆盖主文档中的普通 DOM。元素引用在同一文档内有界保留，续读大型快照时仍可使用未变化的控件引用。导航、控件移除或语义变化后须重新读取，隐藏或禁用时操作会被拒绝。网页文本和标签按外部数据处理。
-
-点击参数为 `[tabId, documentId, elementId]`，输入为 `[tabId, documentId, elementId, text]`，滚动为 `[tabId, documentId, deltaY]`。输入会触发 `input` 和 `change`，单次滚动绝对值上限为 10000 像素。
+DOM 条件的 `state` 可选 `visible` 或 `hidden`，后者表示当前没有可见匹配。文档代次变化时返回 `stale-cursor`。密码、隐藏项、本机文件路径及明确标记的验证码值继续从控件投影中排除。读取和操作覆盖主文档、开放 Shadow DOM、同源 iframe 及通过 `frameId` 指定的跨域子帧。用户在工具条点击「接管」时会立即中止正在执行的写操作并返回 `cancelled`。
 
 ## 本机电脑操控
 

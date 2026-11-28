@@ -35,6 +35,10 @@ export type SystemOperationContext = {
   client: (operation: string, args: unknown[]) => Promise<unknown>
   read: (operation: string, args: unknown[]) => Promise<unknown>
   write: (operation: string, args: unknown[]) => Promise<unknown>
+  browserFiles?: {
+    prepareUpload: (paths: string[]) => Promise<Array<{ name: string; dataBase64: string; size: number }>>
+    saveDownload: (relativePath: string, dataBase64: string) => Promise<{ savedPath: string; size: number }>
+  }
 }
 
 /** 内置能力只在此显式登记；不接受 Agent 提供的 RPC 名称或对象路径。 */
@@ -510,9 +514,6 @@ export function createSystemOperations(context: SystemOperationContext) {
     ['browser.screenshot', '截取网页', '[tabId]', false],
     ['browser.open', '在所属会话打开网页', '[url]', true],
     ['browser.navigate', '导航已有网页', '[tabId,url]', true],
-    ['browser.click', '点击上次读取的元素', '[tabId,documentId,elementId]', true],
-    ['browser.input', '填写上次读取的输入元素', '[tabId,documentId,elementId,text]', true],
-    ['browser.scroll', '滚动网页', '[tabId,documentId,deltaY]', true],
     ['browser.close', '关闭所属会话的网页', '[tabId]', true],
   ] as const)
     register(name, description, parameters, write, 'client', (args) => context.client(name, args))
@@ -598,7 +599,7 @@ export function createSystemOperations(context: SystemOperationContext) {
   for (const definition of browserAgentOperations) {
     operations.set(definition.name, {
       definition,
-      run: (args) => {
+      run: async (args) => {
         if (definition.write) {
           validateReadArguments(definition.inputSchema, args)
           if (!context.clientAvailable(definition.name))
@@ -606,6 +607,30 @@ export function createSystemOperations(context: SystemOperationContext) {
               context.clientUnavailableReason?.() ?? 'disconnected',
               '发起客户端不支持此网页操作或已断开',
             )
+        }
+        if (definition.name === 'browser.upload') {
+          if (!context.browserFiles) throw new SystemReadError('not-supported', '当前服务不支持从工作区读取上传文件')
+          const [tabId, docId, target, paths] = args as [string, number, unknown, string[]]
+          const prepared = await context.browserFiles.prepareUpload(paths)
+          return context.client(definition.name, [tabId, docId, target, prepared])
+        }
+        if (definition.name === 'browser.downloads.saveToWorkspace') {
+          if (!context.browserFiles) throw new SystemReadError('not-supported', '当前服务不支持保存下载到工作区')
+          const [downloadId, relativePath] = args as [string, string]
+          const downloaded = (await context.client(definition.name, [downloadId])) as {
+            name: string
+            size: number
+            dataBase64: string
+          }
+          if (
+            !downloaded ||
+            typeof downloaded.name !== 'string' ||
+            typeof downloaded.dataBase64 !== 'string' ||
+            typeof downloaded.size !== 'number'
+          )
+            throw new SystemReadError('internal-error', '客户端返回的下载数据无效')
+          const saved = await context.browserFiles.saveDownload(relativePath, downloaded.dataBase64)
+          return { savedPath: saved.savedPath, name: downloaded.name, size: saved.size }
         }
         return context.client(definition.name, args)
       },

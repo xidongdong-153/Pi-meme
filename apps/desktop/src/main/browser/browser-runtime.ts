@@ -1,4 +1,6 @@
-import { existsSync } from 'node:fs'
+import { existsSync, constants } from 'node:fs'
+import { lstat, mkdir, open, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import {
   app,
   BrowserWindow,
@@ -43,20 +45,32 @@ import {
 } from '@pi-meme/contracts/system-client-reads'
 import {
   browserAgentOperations,
+  browserBatchMaxSteps,
   type BrowserActionReceipt,
-  type BrowserAgentKey,
+  type BrowserAgentSelectorTarget,
   type BrowserAgentSnapshot,
+  type BrowserAgentTarget,
+  type BrowserBatchStep,
+  type BrowserPreparedUploadFile,
+  type BrowserReadOptions,
+  type BrowserScrollInput,
   type BrowserSelectOption,
   type BrowserWaitCondition,
   type BrowserWaitObservation,
 } from '@pi-meme/contracts/browser-agent'
-import { readText, readRecord, SystemReadError, validateReadArguments } from '@pi-meme/contracts/system-read'
+import {
+  readInteger,
+  readText,
+  readRecord,
+  SystemReadError,
+  validateReadArguments,
+} from '@pi-meme/contracts/system-read'
 import { runBrowserAgentPage } from './browser-agent-page'
-import { pressBrowserKey, withBrowserDebugger } from './browser-debugger'
+import { BrowserCdpController } from './browser-debugger'
 
 const agentDefinitions = new Map(browserAgentOperations.map((operation) => [operation.name, operation]))
 function agentTabMetadata(tab: BrowserTab): Omit<BrowserTab, 'favicon'> {
-  const { id, owner, title, documentId, zoom, loading, canGoBack, canGoForward, error } = tab
+  const { id, owner, title, documentId, zoom, loading, canGoBack, canGoForward, error, keepAlive } = tab
   return {
     id,
     owner,
@@ -67,6 +81,7 @@ function agentTabMetadata(tab: BrowserTab): Omit<BrowserTab, 'favicon'> {
     canGoBack,
     canGoForward,
     error,
+    ...(keepAlive ? { keepAlive: true } : {}),
     url: systemMetadataUrl(tab.url),
   }
 }
@@ -106,6 +121,16 @@ type Tab = {
   screenshot: BrowserSnapshot['settings']['screenshots']
   find?: { requestId: number; text: string }
   capture?: Promise<string>
+  cdp: BrowserCdpController
+  domReady: boolean
+  agentAbort?: AbortController
+  agentActivity?: { active: boolean; label?: string }
+  agentHandoff?: { reason: string; actionHint?: string }
+  lastViewport: { width: number; height: number }
+  agentKeepAliveUntil: number
+  agentKeepAliveTimer?: ReturnType<typeof setTimeout>
+  uploadTempDirs: string[]
+  popupCollector?: Array<{ tabId: string; url: string }>
 }
 type Overlay = { view: WebContentsView; kind: 'editor' | 'toolbar'; tab: Tab }
 
@@ -122,6 +147,7 @@ export function registerBrowserRuntime(options: {
   let snapshot: BrowserSnapshot | undefined
   let attachedWindow: BrowserWindow | undefined
   let visible: Tab | undefined
+  let lastFocusedSurface: 'window' | 'overlay' | string = 'window'
   let permissionPending = false
   let overlayBusy = false
   let submitBusy = false
@@ -134,12 +160,67 @@ export function registerBrowserRuntime(options: {
     if (window && !window.isDestroyed()) window.webContents.send('browser:event', event)
   }
   const changed = () => emit({ type: 'changed' })
-  const tabFor = (sender: WebContents) => [...tabs.values()].find((tab) => tab.view.webContents === sender)
-  const overlayFor = (sender: WebContents) => [...overlays].find((item) => item.view.webContents === sender)
+  const liveWeb = (view: WebContentsView): WebContents | undefined => {
+    try {
+      const web = view.webContents as WebContents | undefined
+      return web && !web.isDestroyed() ? web : undefined
+    } catch {
+      return undefined
+    }
+  }
+  const tabFor = (sender: WebContents) => [...tabs.values()].find((tab) => liveWeb(tab.view) === sender)
+  const overlayFor = (sender: WebContents) => [...overlays].find((item) => liveWeb(item.view) === sender)
   const detachTabView = (tab: Tab) => {
     // Electron can give an attached view native focus during navigation even when it is hidden.
     tab.view.setVisible(false)
     if (attachedWindow && !attachedWindow.isDestroyed()) attachedWindow.contentView.removeChildView(tab.view)
+  }
+  const isKeepAliveEffective = (tab: Tab) => Boolean(tab.state.keepAlive || tab.agentKeepAliveUntil > Date.now())
+  const syncTabHosting = (tab: Tab) => {
+    const web = liveWeb(tab.view)
+    if (!web) return
+    const keepAlive = isKeepAliveEffective(tab)
+    if (visible === tab) {
+      web.setBackgroundThrottling(!keepAlive)
+      return
+    }
+    if (
+      keepAlive &&
+      !tab.state.error &&
+      tab.state.url !== 'about:blank' &&
+      attachedWindow &&
+      !attachedWindow.isDestroyed()
+    ) {
+      web.setBackgroundThrottling(false)
+      tab.view.setBounds({
+        x: -20_000,
+        y: -20_000,
+        width: tab.lastViewport.width,
+        height: tab.lastViewport.height,
+      })
+      if (!attachedWindow.contentView.children.includes(tab.view)) attachedWindow.contentView.addChildView(tab.view)
+      tab.view.setVisible(true)
+      return
+    }
+    web.setBackgroundThrottling(true)
+    detachTabView(tab)
+  }
+  const clearAgentKeepAlive = (tab: Tab) => {
+    tab.agentKeepAliveUntil = 0
+    if (tab.agentKeepAliveTimer) {
+      clearTimeout(tab.agentKeepAliveTimer)
+      tab.agentKeepAliveTimer = undefined
+    }
+  }
+  const touchAgentKeepAlive = (tab: Tab, durationMs = 30_000) => {
+    tab.agentKeepAliveUntil = Math.max(tab.agentKeepAliveUntil, Date.now() + durationMs)
+    if (tab.agentKeepAliveTimer) clearTimeout(tab.agentKeepAliveTimer)
+    const delay = Math.max(100, tab.agentKeepAliveUntil - Date.now() + 50)
+    tab.agentKeepAliveTimer = setTimeout(() => {
+      tab.agentKeepAliveTimer = undefined
+      syncTabHosting(tab)
+    }, delay)
+    syncTabHosting(tab)
   }
   const publish = (tab: Tab) => emit({ type: 'tab', tab: { ...tab.state } })
   const preview = (tab: Tab) =>
@@ -155,11 +236,11 @@ export function registerBrowserRuntime(options: {
         overlays.delete(item)
         if (item.kind === 'toolbar') item.tab.toolbarMenuOpen = false
         if (attachedWindow && !attachedWindow.isDestroyed()) attachedWindow.contentView.removeChildView(item.view)
-        if (!item.view.webContents.isDestroyed()) item.view.webContents.close()
+        liveWeb(item.view)?.close()
       }
   }
   const picker = (tab: Tab, value: object) => {
-    if (!tab.view.webContents.isDestroyed()) tab.view.webContents.send('browser:picker', value)
+    liveWeb(tab.view)?.send('browser:picker', value)
   }
   const visibleMarkers = (tab: Tab) =>
     tab.annotations.flatMap((annotation, index) =>
@@ -306,6 +387,9 @@ export function registerBrowserRuntime(options: {
     window.contentView.addChildView(view)
     view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     view.webContents.on('will-navigate', (event) => event.preventDefault())
+    view.webContents.on('focus', () => {
+      lastFocusedSurface = 'overlay'
+    })
     positionOverlays(tab)
     try {
       await view.webContents.loadURL(`${options.origin()}/?browser-overlay=${kind}`)
@@ -409,6 +493,25 @@ export function registerBrowserRuntime(options: {
         publish(tab)
         web.reload()
         break
+      case 'keep-alive': {
+        tab.state.keepAlive = Boolean(value.enabled)
+        syncTabHosting(tab)
+        publish(tab)
+        const workspace = await options
+          .rpc<BrowserWorkspace>('browser:workspace', [tab.state.owner])
+          .catch(() => undefined)
+        if (workspace) {
+          const nextTabs = workspace.tabs.some((item) => item.id === tab.state.id)
+            ? workspace.tabs.map((item) =>
+                item.id === tab.state.id ? { ...item, keepAlive: tab.state.keepAlive } : item,
+              )
+            : [...workspace.tabs, { ...tab.state }]
+          await options
+            .rpc('browser:save-workspace', [tab.state.owner, { ...workspace, tabs: nextTabs }])
+            .catch(() => {})
+        }
+        break
+      }
       case 'stop':
         web.stop()
         break
@@ -516,12 +619,25 @@ export function registerBrowserRuntime(options: {
     if (!window) throw new Error('桌面窗口已关闭')
     if (attachedWindow !== window) {
       attachedWindow = window
+      const windowWeb = window.webContents
+      const onWindowFocus = () => {
+        lastFocusedSurface = 'window'
+      }
+      windowWeb.on('focus', onWindowFocus)
       window.once('closed', () => {
+        attachedWindow = undefined
+        if (!windowWeb.isDestroyed()) windowWeb.removeListener('focus', onWindowFocus)
         closeOverlays()
-        for (const tab of tabs.values()) if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close()
+        for (const tab of tabs.values()) {
+          tab.agentAbort?.abort()
+          clearAgentKeepAlive(tab)
+          tab.cdp.dispose()
+          for (const dir of tab.uploadTempDirs) void rm(dir, { recursive: true, force: true }).catch(() => {})
+          liveWeb(tab.view)?.close()
+        }
         tabs.clear()
         visible = undefined
-        attachedWindow = undefined
+        lastFocusedSurface = 'window'
       })
     }
     const view = new WebContentsView({
@@ -561,10 +677,38 @@ export function registerBrowserRuntime(options: {
       toolbarOffset: { x: 0, y: 0 },
       toolbarMenuOpen: false,
       screenshot: config.settings.screenshots,
+      cdp: new BrowserCdpController(view),
+      domReady: false,
+      lastViewport: { width: 1024, height: 768 },
+      agentKeepAliveUntil: 0,
+      uploadTempDirs: [],
     }
     tabs.set(id, tab)
     view.setVisible(false)
     const web = view.webContents
+    web.on('focus', () => {
+      if (visible === tab) {
+        lastFocusedSurface = tab.state.id
+        return
+      }
+      if (!attachedWindow || attachedWindow.isDestroyed() || !attachedWindow.isFocused()) return
+      if (lastFocusedSurface === 'overlay') {
+        const editorOverlay = [...overlays].find((item) => item.kind === 'editor')
+        const editorWeb = editorOverlay ? liveWeb(editorOverlay.view) : undefined
+        if (editorWeb) {
+          editorWeb.focus()
+          return
+        }
+      }
+      if (lastFocusedSurface === visible?.state.id && visible) {
+        const visibleWeb = liveWeb(visible.view)
+        if (visibleWeb) {
+          visibleWeb.focus()
+          return
+        }
+      }
+      attachedWindow.webContents.focus()
+    })
     web.on('found-in-page', (_event, result) => {
       if (!tab.find || result.requestId !== tab.find.requestId || !result.finalUpdate) return
       emit({
@@ -649,6 +793,8 @@ export function registerBrowserRuntime(options: {
     web.on('did-start-navigation', (_event, _url, inPlace, isMainFrame) => {
       if (isMainFrame && !inPlace) {
         tab.find = undefined
+        tab.domReady = false
+        tab.cdp.resetNavigationState()
         tab.state.documentId++
         tab.state.error = undefined
         tab.state.favicon = undefined
@@ -697,6 +843,7 @@ export function registerBrowserRuntime(options: {
       picker(tab, { enabled: tab.enabled, documentId: tab.state.documentId, annotations: [], reset: true })
     })
     web.on('dom-ready', () => {
+      tab.domReady = true
       picker(tab, {
         enabled: tab.enabled,
         region: tab.mode === 'region',
@@ -712,9 +859,12 @@ export function registerBrowserRuntime(options: {
     web.on('did-finish-load', () => {
       sync()
       recordHistory(false)
+      if (visible !== tab) syncTabHosting(tab)
     })
     web.on('did-fail-load', (_event, code, description, _url, isMainFrame) => {
       if (isMainFrame && code !== -3) {
+        clearAgentKeepAlive(tab)
+        web.setBackgroundThrottling(true)
         tab.state.error = `网页加载失败：${description}（${code}）`
         sync()
         detachTabView(tab)
@@ -722,6 +872,8 @@ export function registerBrowserRuntime(options: {
       }
     })
     web.on('render-process-gone', (_event, details) => {
+      clearAgentKeepAlive(tab)
+      web.setBackgroundThrottling(true)
       tab.state.documentId++
       tab.state.error = `网页进程已退出：${details.reason}`
       tab.state.loading = false
@@ -742,7 +894,7 @@ export function registerBrowserRuntime(options: {
       } catch {
         return { action: 'deny' }
       }
-      if (details.features || details.postBody)
+      if ((details.features || details.postBody) && !tab.popupCollector)
         return {
           action: 'allow',
           overrideBrowserWindowOptions: {
@@ -759,8 +911,14 @@ export function registerBrowserRuntime(options: {
           },
         }
       const newId = randomUUID()
+      const fromAgent = Boolean(tab.popupCollector)
+      if (tab.popupCollector) {
+        tab.popupCollector.push({ tabId: newId, url: systemMetadataUrl(details.url) })
+      }
       void makeTab(tab.state.owner, newId, details.url)
-        .then((value) => emit({ type: 'open', tab: value }))
+        .then((value) => {
+          emit({ type: fromAgent ? 'tab' : 'open', tab: value })
+        })
         .catch(console.error)
       return { action: 'deny' }
     })
@@ -1297,10 +1455,589 @@ export function registerBrowserRuntime(options: {
     }
     void save()
   })
+  const cleanupTab = (tab: Tab) => {
+    tab.agentAbort?.abort()
+    clearAgentKeepAlive(tab)
+    tab.cdp.dispose()
+    for (const dir of tab.uploadTempDirs) void rm(dir, { recursive: true, force: true }).catch(() => {})
+    tab.uploadTempDirs = []
+  }
+
+  const isPointTarget = (value: unknown): value is { x: number; y: number } =>
+    Boolean(value && typeof value === 'object' && !Array.isArray(value) && 'x' in value && 'y' in value)
+
+  const getCrossOriginId = (target: unknown): string | undefined => {
+    if (typeof target === 'string' && target.startsWith('ax:')) return target
+    if (
+      target &&
+      typeof target === 'object' &&
+      'elementId' in target &&
+      typeof (target as { elementId?: unknown }).elementId === 'string' &&
+      (target as { elementId: string }).elementId.startsWith('ax:')
+    )
+      return (target as { elementId: string }).elementId
+    return undefined
+  }
+
+  const operationLabel = (operation: string) =>
+    (
+      ({
+        back: '正在后退网页',
+        forward: '正在前进网页',
+        reload: '正在刷新网页',
+        activate: '正在切换网页标签',
+        keepAlive: '正在更新后台常驻状态',
+        click: '正在点击网页元素',
+        dblclick: '正在双击网页元素',
+        hover: '正在悬停网页元素',
+        drag: '正在拖拽网页元素',
+        input: '正在输入网页内容',
+        paste: '正在粘贴网页内容',
+        press: '正在发送网页按键',
+        select: '正在选择下拉选项',
+        scroll: '正在滚动网页',
+        dialog: '正在处理网页弹窗',
+        upload: '正在上传工作区文件',
+        batch: '正在批量执行网页操作',
+        evaluate: '正在执行页面脚本',
+        fetch: '正在发起页内请求',
+        handOff: '等待人工接管网页',
+      }) as Record<string, string>
+    )[operation] ?? `正在执行 ${operation}`
+
+  const executeTabOperation = async (
+    tab: Tab,
+    owner: string,
+    operation: string,
+    input: unknown[],
+    deadline: number,
+    signal: AbortSignal,
+  ): Promise<unknown> => {
+    const web = tab.view.webContents
+    const assertSignal = () => {
+      if (signal.aborted) throw new SystemReadError('cancelled', '用户已接管当前网页操作')
+    }
+    assertSignal()
+    const { id: tabId, documentId } = tab.state
+    const url = web.getURL() || tab.state.url
+    const sameDocument = () =>
+      !web.isDestroyed() &&
+      tab.state.owner === owner &&
+      tab.state.documentId === documentId &&
+      (web.getURL() || tab.state.url) === url
+    const assertDocument = (expected: unknown) => {
+      if (web.isDestroyed()) throw new SystemReadError('not-found', '网页已关闭')
+      if (expected !== documentId || !sameDocument())
+        throw new SystemReadError('stale-cursor', '网页文档已变化，请重新调用 browser.read', {
+          reason: 'stale-document',
+        })
+    }
+
+    if (operation === 'back' || operation === 'forward' || operation === 'reload') {
+      await command(tab, { type: operation })
+      return agentTabMetadata(tab.state)
+    }
+    if (operation === 'activate') {
+      emit({ type: 'open', tab: { ...tab.state } })
+      return { activated: true, tabId }
+    }
+    if (operation === 'keepAlive') {
+      await command(tab, { type: 'keep-alive', enabled: Boolean(input[1]) })
+      return { tabId, keepAlive: Boolean(tab.state.keepAlive) }
+    }
+    if (operation === 'handOff') {
+      const payload = input[1] as { reason: string; actionHint?: string }
+      tab.agentHandoff = payload
+      emit({ type: 'open', tab: { ...tab.state } })
+      emit({ type: 'agent-handoff', owner, tabId, reason: payload.reason, actionHint: payload.actionHint })
+      return { handedOff: true, tabId }
+    }
+
+    if (tab.state.error) throw new SystemReadError('not-loaded', '网页加载失败或进程已退出，请先检查标签状态')
+    const pageDeadline = Math.min(deadline, Date.now() + 15_000)
+
+    if (operation === 'dialog') {
+      const action = input[1] as 'accept' | 'dismiss'
+      const promptText = input[2] as string | undefined
+      const handledDialog = await tab.cdp.handleDialog(pageDeadline, action === 'accept', promptText)
+      return { tabId, handled: true, dialog: handledDialog }
+    }
+
+    if (operation === 'console.list') {
+      await tab.cdp.ensureObserving(pageDeadline)
+      const query = readRecord(input[1], ['level', 'cursor', 'offset', 'limit'])
+      const level = query.level as string | undefined
+      const items = tab.cdp.getConsoleLogs().filter((entry) => !level || entry.level === level)
+      const { cursor, offset, limit } = query
+      return clientReadList(items, { cursor, offset, limit }, `console.list:${tabId}`)
+    }
+
+    if (operation === 'network.list') {
+      await tab.cdp.ensureObserving(pageDeadline)
+      const query = readRecord(input[1], ['failedOnly', 'resourceType', 'cursor', 'offset', 'limit'])
+      const failedOnly = query.failedOnly === true
+      const resourceType = typeof query.resourceType === 'string' ? query.resourceType.toLowerCase() : undefined
+      const items = tab.cdp.getNetworkLogs().filter((entry) => {
+        if (failedOnly && !entry.failed) return false
+        if (resourceType && entry.resourceType.toLowerCase() !== resourceType) return false
+        return true
+      })
+      const { cursor, offset, limit } = query
+      return clientReadList(items, { cursor, offset, limit }, `network.list:${tabId}`)
+    }
+
+    if (operation === 'read') {
+      const readOpts = (input[1] as BrowserReadOptions | undefined) ?? {}
+      const pendingDialog = tab.cdp.getPendingDialog()
+      if (readOpts.frameId && !readOpts.frameId.startsWith('frame:')) {
+        const elements = await tab.cdp.readCrossOriginFrame(pageDeadline, readOpts.frameId)
+        return {
+          tab: agentTabMetadata(tab.state),
+          documentId,
+          title: tab.state.title.slice(0, 512),
+          text: '',
+          elements,
+          truncated: { text: false, elements: elements.length >= 150 },
+          viewport: { width: 1024, height: 768, scrollX: 0, scrollY: 0, scrollHeight: 768, scrollWidth: 1024 },
+          hasMoreBelow: false,
+          totalElements: elements.length,
+          ...(pendingDialog ? { pendingDialog } : {}),
+        } satisfies BrowserAgentSnapshot
+      }
+      const result = await runBrowserAgentPage(web, documentId, url, pageDeadline, {
+        type: 'read',
+        prefix: randomUUID(),
+        options: readOpts,
+      })
+      assertDocument(documentId)
+      let frames: BrowserAgentSnapshot['frames']
+      if (!readOpts.frameId && /^https?:/.test(url)) {
+        try {
+          const origin = new URL(url).origin
+          const listed = await tab.cdp.listFrames(Math.min(pageDeadline, Date.now() + 2000), origin)
+          if (listed.length) frames = listed
+        } catch {
+          // Do not block browser.read if DevTools occupies debugger.
+        }
+      }
+      return {
+        tab: agentTabMetadata(tab.state),
+        documentId,
+        ...result,
+        ...(frames ? { frames } : {}),
+        ...(pendingDialog ? { pendingDialog } : {}),
+      } satisfies BrowserAgentSnapshot
+    }
+
+    if (operation === 'query') {
+      const target = input[1] as BrowserAgentSelectorTarget
+      const opts = readRecord(input[2], ['limit'])
+      const limit = readInteger(opts.limit, 20, 50, 1)
+      const matches = await runBrowserAgentPage(web, documentId, url, pageDeadline, {
+        type: 'query',
+        prefix: randomUUID(),
+        target,
+        limit,
+      })
+      assertDocument(documentId)
+      return { tabId, documentId, matches }
+    }
+
+    if (operation === 'waitFor') {
+      const condition = input[1] as BrowserWaitCondition
+      const committedUrl = web.getURL()
+      let matched = false
+      if (condition.kind === 'url') {
+        const expected = waitUrl(condition.url)
+        if (!expected) throw new SystemReadError('invalid-input', '等待的网址须为完整 HTTP(S) 地址或 about:blank')
+        matched = waitUrl(committedUrl) === expected
+      } else if (condition.kind === 'ready') {
+        matched = Boolean(committedUrl) && !web.isLoadingMainFrame()
+      } else if (condition.kind === 'loadState') {
+        matched =
+          condition.state === 'domcontentloaded'
+            ? Boolean(committedUrl) && tab.domReady
+            : Boolean(committedUrl) && !web.isLoadingMainFrame()
+      } else if (condition.kind === 'networkIdle') {
+        await tab.cdp.ensureObserving(pageDeadline)
+        matched = tab.cdp.isNetworkIdle(condition.idleMs ?? 500)
+      } else if (condition.kind === 'download') {
+        const profile = await refresh()
+        matched = profile.downloads.some(
+          (item) => item.state === 'completed' && (!condition.since || item.createdAt >= condition.since),
+        )
+      } else {
+        if (condition.documentId !== undefined) assertDocument(condition.documentId)
+        if (committedUrl && !web.isLoadingMainFrame()) {
+          matched = await runBrowserAgentPage(web, documentId, url, pageDeadline, { type: 'probe', condition })
+          if (condition.documentId !== undefined) assertDocument(condition.documentId)
+        }
+      }
+      return { matched, tabId, documentId, url: systemMetadataUrl(committedUrl) } satisfies BrowserWaitObservation
+    }
+
+    assertDocument(input[1])
+
+    const resolvePoint = async (target: BrowserAgentTarget, allowHiddenFile = false) => {
+      if (isPointTarget(target)) return { x: target.x, y: target.y }
+      const axId = getCrossOriginId(target)
+      if (axId) {
+        const box = await tab.cdp.resolveCrossOriginBox(pageDeadline, axId)
+        if (!box) throw new SystemReadError('stale-cursor', '跨域帧控件已失效，请重新读取')
+        return { x: box.x, y: box.y, backendDOMNodeId: box.backendDOMNodeId }
+      }
+      const meta = await runBrowserAgentPage(web, documentId, url, pageDeadline, {
+        type: 'resolve',
+        prefix: randomUUID(),
+        target,
+        allowHiddenFile,
+      })
+      return { x: meta.x, y: meta.y, meta }
+    }
+
+    const withPopupTracking = async (
+      run: () => Promise<Partial<BrowserActionReceipt> | void>,
+    ): Promise<BrowserActionReceipt> => {
+      const collector: Array<{ tabId: string; url: string }> = []
+      tab.popupCollector = collector
+      try {
+        const extra = (await run()) ?? {}
+        const dialogInfo = tab.cdp.getPendingDialog()
+        return {
+          tabId,
+          documentId: tab.state.documentId,
+          delivery: extra.delivery ?? 'delivered_verified',
+          ...(collector.length ? { openedTabs: collector } : {}),
+          ...(dialogInfo ? { dialog: dialogInfo } : {}),
+          ...(extra.scroll ? { scroll: extra.scroll } : {}),
+        }
+      } finally {
+        if (tab.popupCollector === collector) tab.popupCollector = undefined
+      }
+    }
+
+    if (operation === 'click' || operation === 'dblclick' || operation === 'hover') {
+      const target = input[2] as BrowserAgentTarget
+      const opts =
+        (input[3] as { button?: 'left' | 'middle' | 'right'; clickCount?: number; modifiers?: string[] } | undefined) ??
+        {}
+      return withPopupTracking(async () => {
+        const resolved = await resolvePoint(target)
+        assertSignal()
+        if (operation === 'hover') {
+          await tab.cdp.dispatchHover(pageDeadline, resolved.x, resolved.y)
+        } else {
+          await tab.cdp.dispatchClick(pageDeadline, resolved.x, resolved.y, {
+            button: opts.button,
+            clickCount: operation === 'dblclick' ? 2 : opts.clickCount,
+            modifiers: opts.modifiers,
+          })
+        }
+      })
+    }
+
+    if (operation === 'drag') {
+      const fromTarget = input[2] as BrowserAgentTarget
+      const toTarget = input[3] as BrowserAgentTarget
+      return withPopupTracking(async () => {
+        const from = await resolvePoint(fromTarget)
+        const to = await resolvePoint(toTarget)
+        assertSignal()
+        await tab.cdp.dispatchDrag(pageDeadline, from.x, from.y, to.x, to.y)
+      })
+    }
+
+    if (operation === 'input') {
+      const target = input[2] as BrowserAgentTarget
+      const text = input[3] as string
+      const opts = (input[4] as { mode?: 'replace' | 'append' | 'type' } | undefined) ?? {}
+      const mode = opts.mode ?? 'replace'
+      return withPopupTracking(async () => {
+        const axId = getCrossOriginId(target)
+        if (isPointTarget(target) || axId) {
+          const resolved = await resolvePoint(target)
+          if (resolved.backendDOMNodeId) await tab.cdp.focusBackendNode(pageDeadline, resolved.backendDOMNodeId)
+          else await tab.cdp.dispatchClick(pageDeadline, resolved.x, resolved.y)
+          await tab.cdp.insertText(pageDeadline, text, mode)
+          return
+        }
+        const prepared = await runBrowserAgentPage(web, documentId, url, pageDeadline, {
+          type: 'prepareInput',
+          prefix: randomUUID(),
+          target,
+          mode,
+          text,
+        })
+        assertSignal()
+        if (!prepared.fallbackApplied) {
+          await tab.cdp.insertText(pageDeadline, text, mode)
+        }
+      })
+    }
+
+    if (operation === 'paste') {
+      const target = input[2] as BrowserAgentTarget | null
+      const payload = input[3] as { text: string; html?: string }
+      return withPopupTracking(async () => {
+        if (target && (isPointTarget(target) || getCrossOriginId(target))) {
+          const resolved = await resolvePoint(target)
+          if (resolved.backendDOMNodeId) await tab.cdp.focusBackendNode(pageDeadline, resolved.backendDOMNodeId)
+          else await tab.cdp.dispatchClick(pageDeadline, resolved.x, resolved.y)
+          await tab.cdp.insertText(pageDeadline, payload.text, 'replace')
+          return
+        }
+        const domRes = await runBrowserAgentPage(web, documentId, url, pageDeadline, {
+          type: 'pasteDom',
+          prefix: randomUUID(),
+          target: target as BrowserAgentSelectorTarget | null,
+          text: payload.text,
+          html: payload.html,
+        })
+        if (!domRes.handled) {
+          await tab.cdp.insertText(pageDeadline, payload.text, 'replace')
+        }
+      })
+    }
+
+    if (operation === 'press') {
+      const target = input[2] as BrowserAgentTarget | null
+      const key = input[3] as string
+      return withPopupTracking(async () => {
+        let beforeKey:
+          | ((
+              send: (method: string, params?: Record<string, unknown>) => Promise<Record<string, unknown>>,
+            ) => Promise<void>)
+          | undefined
+        if (target !== null) {
+          const axId = getCrossOriginId(target)
+          if (isPointTarget(target) || axId) {
+            const resolved = await resolvePoint(target)
+            beforeKey = async (send) => {
+              if (resolved.backendDOMNodeId) await tab.cdp.focusBackendNodeWithSend(send, resolved.backendDOMNodeId)
+              else await tab.cdp.clickWithSend(send, resolved.x, resolved.y)
+            }
+          } else {
+            beforeKey = async () => {
+              await runBrowserAgentPage(web, documentId, url, pageDeadline, {
+                type: 'focus',
+                prefix: randomUUID(),
+                target: target as BrowserAgentSelectorTarget,
+              })
+            }
+          }
+        }
+        await tab.cdp.dispatchKeyChord(pageDeadline, key, beforeKey)
+        return { delivery: 'delivered_unverified' }
+      })
+    }
+
+    if (operation === 'select') {
+      const target = input[2] as BrowserAgentSelectorTarget
+      const option = input[3] as BrowserSelectOption
+      if (isPointTarget(target) || getCrossOriginId(target)) {
+        throw new SystemReadError('invalid-input', 'select 请传入主文档或同源帧的原生下拉控件选择器')
+      }
+      const changed = await runBrowserAgentPage(web, documentId, url, pageDeadline, {
+        type: 'select',
+        prefix: randomUUID(),
+        target,
+        option,
+      })
+      return {
+        tabId,
+        documentId,
+        delivery: changed ? 'delivered_unverified' : 'not_needed',
+      } satisfies BrowserActionReceipt
+    }
+
+    if (operation === 'scroll') {
+      const scrollInput = input[2] as BrowserScrollInput
+      const opts = typeof scrollInput === 'number' ? { deltaY: scrollInput } : scrollInput
+      const deltaX = opts.deltaX ?? 0
+      const deltaY = opts.deltaY ?? 0
+      if (isPointTarget(opts.target)) {
+        await tab.cdp.dispatchWheel(pageDeadline, opts.target.x, opts.target.y, deltaX, deltaY)
+        return { tabId, documentId, delivery: 'delivered_unverified' } satisfies BrowserActionReceipt
+      }
+      const selectorTarget = opts.target as BrowserAgentSelectorTarget | undefined
+      const prep = await runBrowserAgentPage(web, documentId, url, pageDeadline, {
+        type: 'scrollPrep',
+        prefix: randomUUID(),
+        target: selectorTarget,
+        to: opts.to,
+      })
+      if (prep.applied) {
+        return { tabId, documentId, delivery: 'delivered_verified', scroll: { x: prep.scrollX, y: prep.scrollY } }
+      }
+      await tab.cdp.dispatchWheel(pageDeadline, prep.x, prep.y, deltaX, deltaY)
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      const after = await runBrowserAgentPage(web, documentId, url, pageDeadline, {
+        type: 'scrollPrep',
+        prefix: randomUUID(),
+        target: selectorTarget,
+      })
+      if ((deltaX !== 0 || deltaY !== 0) && after.scrollX === prep.scrollX && after.scrollY === prep.scrollY) {
+        const finalPos = await runBrowserAgentPage(web, documentId, url, pageDeadline, {
+          type: 'scrollFallback',
+          deltaX,
+          deltaY,
+          target: selectorTarget,
+        })
+        return { tabId, documentId, delivery: 'delivered_verified', scroll: finalPos }
+      }
+      return { tabId, documentId, delivery: 'delivered_verified', scroll: { x: after.scrollX, y: after.scrollY } }
+    }
+
+    if (operation === 'upload') {
+      const target = input[2] as BrowserAgentTarget
+      const prepared = input[3] as BrowserPreparedUploadFile[]
+      if (!Array.isArray(prepared) || !prepared.length) throw new SystemReadError('invalid-input', '缺少待上传文件')
+      const dir = path.join(tmpdir(), `pi-meme-upload-${randomUUID()}`)
+      await mkdir(dir, { recursive: true, mode: 0o700 })
+      tab.uploadTempDirs.push(dir)
+      const tempPaths: string[] = []
+      const usedNames = new Set<string>()
+      for (const file of prepared) {
+        let base = path.basename(file.name) || 'upload.bin'
+        if (usedNames.has(base)) base = `${tempPaths.length}-${base}`
+        usedNames.add(base)
+        const dest = path.join(dir, base)
+        await writeFile(dest, Buffer.from(file.dataBase64, 'base64'), { mode: 0o600 })
+        tempPaths.push(dest)
+      }
+      return withPopupTracking(async () => {
+        const resolved = await resolvePoint(target, true)
+        if (resolved.meta?.isFileInput && resolved.meta.fileSelector) {
+          const marker = resolved.meta.fileSelector
+          try {
+            const applied = await tab.cdp.setFilesOnMarker(pageDeadline, marker, tempPaths)
+            if (!applied) throw new SystemReadError('not-found', '未能定位到文件输入控件')
+          } finally {
+            await runBrowserAgentPage(web, documentId, url, pageDeadline, {
+              type: 'clearFileMarker',
+              marker,
+            }).catch(() => {})
+          }
+          return
+        }
+        await tab.cdp.withInterceptedFileChooser(pageDeadline, tempPaths, () =>
+          tab.cdp.dispatchClick(pageDeadline, resolved.x, resolved.y),
+        )
+      })
+    }
+
+    if (operation === 'evaluate' || operation === 'fetch') {
+      const config = await refresh()
+      if (!config.settings.agentScripts) {
+        throw new SystemReadError(
+          'disabled',
+          '未开启页面脚本权限，请在「设置 → 浏览器」中开启“允许 Agent 执行页面脚本”',
+          { reason: 'agent-scripts-disabled' },
+        )
+      }
+      if (operation === 'evaluate') {
+        const expression = input[2] as string
+        const value = await tab.cdp.evaluateInMainWorld(pageDeadline, expression, input[3])
+        return { tabId, documentId, result: value }
+      }
+      const fetchUrl = input[2] as string
+      const opts =
+        (input[3] as
+          { method?: string; headers?: Record<string, string>; body?: string; timeoutMs?: number } | undefined) ?? {}
+      const parsed = URL.parse(fetchUrl, url)
+      if (!parsed || !['http:', 'https:'].includes(parsed.protocol)) {
+        throw new SystemReadError('invalid-input', 'fetch 仅支持 HTTP(S) 或同源相对路径')
+      }
+      const timeoutMs = Math.min(20_000, Math.max(100, opts.timeoutMs ?? 10_000))
+      const fetchExpr = `async (args) => {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), args.timeoutMs);
+        try {
+          const res = await window.fetch(args.url, {
+            method: args.method || 'GET',
+            headers: args.headers,
+            body: args.body,
+            signal: controller.signal,
+          });
+          const headers = {};
+          res.headers.forEach((v, k) => {
+            if (k.toLowerCase() !== 'set-cookie') headers[k] = v;
+          });
+          const raw = await res.text();
+          const maxChars = 32000;
+          return {
+            ok: res.ok,
+            status: res.status,
+            statusText: res.statusText,
+            url: res.url,
+            headers,
+            body: raw.slice(0, maxChars),
+            truncated: raw.length > maxChars,
+          };
+        } finally {
+          clearTimeout(timer);
+        }
+      }`
+      const fetchResult = (await tab.cdp.evaluateInMainWorld(
+        Math.max(pageDeadline, Date.now() + timeoutMs + 2000),
+        fetchExpr,
+        {
+          url: fetchUrl,
+          method: opts.method ?? 'GET',
+          headers: opts.headers,
+          body: opts.body,
+          timeoutMs,
+        },
+      )) as {
+        ok: boolean
+        status: number
+        statusText: string
+        url: string
+        headers: Record<string, string>
+        body: string
+        truncated: boolean
+      }
+      return {
+        ...fetchResult,
+        url: systemMetadataUrl(String(fetchResult?.url ?? '')),
+      }
+    }
+
+    throw new SystemReadError('not-supported', `未知的网页操作：${operation}`)
+  }
+
   ipcMain.handle('browser:call', async (event, method: string, args: unknown[]) => {
     trusted(event)
     if (!Array.isArray(args)) throw new Error('浏览器调用参数无效')
     switch (method) {
+      case 'stopAgent': {
+        const [owner, tabId] = args as [string, string]
+        const tab = tabs.get(tabId)
+        if (tab && tab.state.owner === owner) {
+          tab.agentAbort?.abort()
+          tab.agentActivity = undefined
+          emit({ type: 'agent-activity', owner, tabId, active: false })
+        }
+        return
+      }
+      case 'resolveHandOff': {
+        const [owner, tabId] = args as [string, string]
+        const tab = tabs.get(tabId)
+        if (tab && tab.state.owner === owner) {
+          tab.agentHandoff = undefined
+          emit({ type: 'agent-handoff-clear', owner, tabId })
+        }
+        return
+      }
+      case 'agentState': {
+        const [owner, tabId] = args as [string, string]
+        const tab = tabs.get(tabId)
+        if (!tab || tab.state.owner !== owner) return { activity: null, handoff: null }
+        return {
+          activity: tab.agentActivity ?? null,
+          handoff: tab.agentHandoff ?? null,
+        }
+      }
       case 'agent': {
         const [owner, operation, input, requestedDeadline] = args
         if (typeof owner !== 'string' || typeof operation !== 'string' || !Array.isArray(input))
@@ -1308,9 +2045,7 @@ export function registerBrowserRuntime(options: {
         const name = `browser.${operation}`
         const definition = agentDefinitions.get(name)
         const structured =
-          definition ||
-          browserClientReadNames.includes(name) ||
-          ['click', 'input', 'scroll', 'screenshot'].includes(operation)
+          Boolean(definition) || browserClientReadNames.includes(name) || ['screenshot'].includes(operation)
         try {
           if (
             requestedDeadline !== undefined &&
@@ -1319,15 +2054,15 @@ export function registerBrowserRuntime(options: {
             throw new SystemReadError('invalid-input', '网页操作截止时间无效')
           const deadline = Math.min(
             typeof requestedDeadline === 'number' ? requestedDeadline : Infinity,
-            Date.now() + 30_000,
+            Date.now() + (operation === 'batch' || operation === 'waitFor' ? 55_000 : 30_000),
           )
           const assertDeadline = () => {
             if (Date.now() >= deadline) throw new SystemReadError('timeout', '网页操作已过期')
           }
           assertDeadline()
-          if (definition) validateReadArguments(definition.inputSchema, input)
-          // These branches only peek at the profile. In particular, history() clears
-          // records and the UI workspace() wrapper can reset restore=false workspaces.
+          if (definition && operation !== 'upload' && operation !== 'downloads.saveToWorkspace') {
+            validateReadArguments(definition.inputSchema, input)
+          }
           if (
             [
               'settings.get',
@@ -1384,6 +2119,31 @@ export function registerBrowserRuntime(options: {
                 input[0],
                 operation,
               ),
+            }
+          }
+          if (operation === 'downloads.saveToWorkspace') {
+            if (typeof input[0] !== 'string') throw new SystemReadError('invalid-input', '下载标识无效')
+            const item = (await refresh()).downloads.find((value) => value.id === input[0])
+            if (!item) throw new SystemReadError('not-found', '下载记录不存在')
+            if (item.state !== 'completed' || !path.isAbsolute(item.path))
+              throw new SystemReadError('not-loaded', '文件尚未下载完成')
+            const statInfo = await lstat(item.path).catch(() => undefined)
+            if (!statInfo || statInfo.isSymbolicLink() || !statInfo.isFile())
+              throw new SystemReadError('not-found', '已下载的文件不存在或不可读取')
+            if (statInfo.size > 16 * 1024 * 1024)
+              throw new SystemReadError('invalid-input', '下载文件超过 16 MiB 保存上限')
+            const handle = await open(item.path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+            try {
+              const buf = Buffer.alloc(statInfo.size)
+              let offset = 0
+              while (offset < buf.length) {
+                const { bytesRead } = await handle.read(buf, offset, buf.length - offset, offset)
+                if (!bytesRead) break
+                offset += bytesRead
+              }
+              return { name: item.name, size: offset, dataBase64: buf.subarray(0, offset).toString('base64') }
+            } finally {
+              await handle.close()
             }
           }
           if (operation === 'annotations.image') {
@@ -1444,14 +2204,16 @@ export function registerBrowserRuntime(options: {
             assertDeadline()
             const created = await makeTab(owner, randomUUID(), input[0])
             await options.rpc('browser:save-workspace', [owner, { ...workspace, tabs: [...workspace.tabs, created] }])
+            const opened = tabs.get(created.id)
+            if (opened) touchAgentKeepAlive(opened)
             emit({ type: 'tab', tab: created })
             return agentTabMetadata(created)
           }
           if (typeof input[0] !== 'string') throw new SystemReadError('invalid-input', '网页标签标识无效')
           const tab = tabs.get(input[0])
-          if (!tab || tab.state.owner !== owner || tab.view.webContents.isDestroyed())
+          const web = tab ? liveWeb(tab.view) : undefined
+          if (!tab || tab.state.owner !== owner || !web)
             throw new SystemReadError('not-found', '网页未加载、已关闭或不属于此会话')
-          const web = tab.view.webContents
           if (operation === 'close') {
             const workspace = await options.rpc<BrowserWorkspace>('browser:workspace', [owner])
             assertDeadline()
@@ -1464,6 +2226,7 @@ export function registerBrowserRuntime(options: {
               closeOverlays()
             }
             attachedWindow?.contentView.removeChildView(tab.view)
+            cleanupTab(tab)
             web.close()
             tabs.delete(tab.state.id)
             emit({ type: 'tab-closed', owner, id: tab.state.id })
@@ -1471,133 +2234,289 @@ export function registerBrowserRuntime(options: {
           }
           if (operation === 'navigate') {
             if (typeof input[1] !== 'string') throw new Error('网页地址无效')
+            touchAgentKeepAlive(tab)
             await command(tab, { type: 'navigate', url: input[1] })
             return agentTabMetadata(tab.state)
           }
           if (operation === 'screenshot') {
+            touchAgentKeepAlive(tab)
             if (!tab.capture) {
-              tab.capture = withBrowserDebugger(web, Math.min(deadline, Date.now() + 20_000), async (send) => {
-                const { cssVisualViewport: viewport } = await send('Page.getLayoutMetrics')
-                if (!viewport || viewport.clientWidth <= 0 || viewport.clientHeight <= 0)
-                  throw new Error('网页尚未完成布局，请加载完成后重试截图')
-                const result = await send('Page.captureScreenshot', {
-                  format: 'png',
-                  fromSurface: true,
-                  captureBeyondViewport: true,
-                  clip: {
-                    x: viewport.pageX,
-                    y: viewport.pageY,
-                    width: viewport.clientWidth,
-                    height: viewport.clientHeight,
-                    scale: 1,
-                  },
+              tab.capture = tab.cdp
+                .withSession(Math.min(deadline, Date.now() + 20_000), async (send) => {
+                  const { cssVisualViewport: viewport } = (await send('Page.getLayoutMetrics')) as {
+                    cssVisualViewport?: { pageX: number; pageY: number; clientWidth: number; clientHeight: number }
+                  }
+                  if (!viewport || viewport.clientWidth <= 0 || viewport.clientHeight <= 0)
+                    throw new Error('网页尚未完成布局，请加载完成后重试截图')
+                  const result = (await send('Page.captureScreenshot', {
+                    format: 'png',
+                    fromSurface: true,
+                    captureBeyondViewport: true,
+                    clip: {
+                      x: viewport.pageX,
+                      y: viewport.pageY,
+                      width: viewport.clientWidth,
+                      height: viewport.clientHeight,
+                      scale: 1,
+                    },
+                  })) as { data?: unknown }
+                  if (typeof result.data !== 'string' || !result.data.startsWith('iVBORw0KGgo'))
+                    throw new Error('网页截图未返回有效 PNG')
+                  return result.data
                 })
-                if (typeof result.data !== 'string' || !result.data.startsWith('iVBORw0KGgo'))
-                  throw new Error('网页截图未返回有效 PNG')
-                return result.data as string
-              }).finally(() => {
-                tab.capture = undefined
-              })
+                .finally(() => {
+                  tab.capture = undefined
+                })
             }
             return { type: 'image', mimeType: 'image/png', data: await tab.capture }
           }
-          const { id: tabId, documentId } = tab.state
-          const url = web.getURL() || tab.state.url
-          const sameDocument = () =>
-            !web.isDestroyed() &&
-            tab.state.owner === owner &&
-            tab.state.documentId === documentId &&
-            (web.getURL() || tab.state.url) === url
-          const assertDocument = (expected: unknown) => {
-            if (web.isDestroyed()) throw new SystemReadError('not-found', '网页已关闭')
-            if (expected !== documentId || !sameDocument())
-              throw new SystemReadError('stale-cursor', '网页文档已变化，请重新调用 browser.read', {
-                reason: 'stale-document',
-              })
-          }
-          if (tab.state.error) throw new SystemReadError('not-loaded', '网页加载失败或进程已退出，请先检查标签状态')
-          const pageDeadline = Math.min(deadline, Date.now() + 5_000)
-          if (operation === 'read') {
-            const result = await runBrowserAgentPage(web, documentId, url, pageDeadline, {
-              type: 'read',
-              prefix: randomUUID(),
+
+          touchAgentKeepAlive(tab)
+          const isWrite = Boolean(definition?.write)
+          const controller = new AbortController()
+          if (isWrite) {
+            tab.agentAbort = controller
+            const label = operationLabel(operation)
+            tab.agentActivity = { active: true, label }
+            emit({
+              type: 'agent-activity',
+              owner,
+              tabId: tab.state.id,
+              active: true,
+              operation,
+              label,
             })
-            assertDocument(documentId)
-            return { tab: agentTabMetadata(tab.state), documentId, ...result } satisfies BrowserAgentSnapshot
           }
-          if (operation === 'waitFor') {
-            const condition = input[1] as BrowserWaitCondition
-            const committedUrl = web.getURL()
-            let matched = false
-            if (condition.kind === 'url') {
-              const expected = waitUrl(condition.url)
-              if (!expected) throw new SystemReadError('invalid-input', '等待的网址须为完整 HTTP(S) 地址或 about:blank')
-              matched = waitUrl(committedUrl) === expected
-            } else if (condition.kind === 'ready') matched = Boolean(committedUrl) && !web.isLoadingMainFrame()
-            else {
-              assertDocument(condition.documentId)
-              if (committedUrl && !web.isLoadingMainFrame()) {
-                matched = await runBrowserAgentPage(web, documentId, url, pageDeadline, { type: 'probe', condition })
-                assertDocument(condition.documentId)
+          try {
+            if (operation === 'batch') {
+              const steps = input[1] as BrowserBatchStep[]
+              const opts =
+                (input[2] as { stopOnError?: boolean; readAfter?: boolean | BrowserReadOptions } | undefined) ?? {}
+              const stopOnError = opts.stopOnError !== false
+              const results: Array<{ index: number; op: string; ok: boolean; result?: unknown; error?: string }> = []
+              let stoppedReason: string | undefined
+              let expectedDoc = tab.state.documentId
+
+              for (let index = 0; index < Math.min(steps.length, browserBatchMaxSteps); index++) {
+                if (controller.signal.aborted) {
+                  stoppedReason = 'user-aborted'
+                  break
+                }
+                const step = steps[index]
+                const currentDoc = tab.state.documentId
+                if (tab.cdp.getPendingDialog() && step.op !== 'dialog') {
+                  stoppedReason = 'pending-dialog'
+                  break
+                }
+                try {
+                  let stepResult: unknown
+                  if (step.op === 'navigate') {
+                    await command(tab, { type: 'navigate', url: step.url })
+                    expectedDoc = tab.state.documentId
+                    stepResult = agentTabMetadata(tab.state)
+                  } else if (step.op === 'back' || step.op === 'forward' || step.op === 'reload') {
+                    const prevDoc = tab.state.documentId
+                    stepResult = await executeTabOperation(
+                      tab,
+                      owner,
+                      step.op,
+                      [tab.state.id],
+                      deadline,
+                      controller.signal,
+                    )
+                    const navKickoffEnd = Math.min(deadline, Date.now() + 250)
+                    while (
+                      !web.isLoadingMainFrame() &&
+                      tab.state.documentId === prevDoc &&
+                      Date.now() < navKickoffEnd
+                    ) {
+                      if (controller.signal.aborted) break
+                      await new Promise((r) => setTimeout(r, 25))
+                    }
+                    expectedDoc = tab.state.documentId
+                  } else if (step.op === 'dialog') {
+                    stepResult = await executeTabOperation(
+                      tab,
+                      owner,
+                      'dialog',
+                      [tab.state.id, step.action, step.promptText],
+                      deadline,
+                      controller.signal,
+                    )
+                  } else if (step.op === 'waitFor') {
+                    const waitLimit = Math.min(deadline, Date.now() + (step.timeoutMs ?? 10_000))
+                    let obs: BrowserWaitObservation | undefined
+                    let dialogInterrupted = false
+                    for (;;) {
+                      if (controller.signal.aborted) throw new SystemReadError('cancelled', '用户已接管当前网页操作')
+                      if (tab.cdp.getPendingDialog()) {
+                        dialogInterrupted = true
+                        break
+                      }
+                      try {
+                        obs = (await executeTabOperation(
+                          tab,
+                          owner,
+                          'waitFor',
+                          [tab.state.id, step.condition],
+                          waitLimit + 500,
+                          controller.signal,
+                        )) as BrowserWaitObservation
+                      } catch (cause) {
+                        if (!(cause instanceof SystemReadError) || cause.code !== 'timeout' || Date.now() < waitLimit)
+                          throw cause
+                        obs = {
+                          tabId: tab.state.id,
+                          documentId: tab.state.documentId,
+                          url: systemMetadataUrl(web.getURL() || tab.state.url),
+                          matched: false,
+                        }
+                      }
+                      const rem = waitLimit - Date.now()
+                      if (obs.matched || rem <= 0) break
+                      await new Promise((r) => setTimeout(r, Math.min(250, rem)))
+                    }
+                    if (dialogInterrupted) {
+                      stoppedReason = 'pending-dialog'
+                      break
+                    }
+                    expectedDoc = tab.state.documentId
+                    stepResult = {
+                      tabId: obs!.tabId,
+                      documentId: obs!.documentId,
+                      url: obs!.url,
+                      status: obs!.matched ? 'matched' : 'timed-out',
+                    }
+                    if (!obs!.matched && stopOnError) {
+                      results.push({ index, op: step.op, ok: false, result: stepResult, error: '等待条件超时' })
+                      stoppedReason = 'wait-timed-out'
+                      break
+                    }
+                  } else {
+                    const stepArgs: Record<string, unknown[]> = {
+                      click: [
+                        tab.state.id,
+                        currentDoc,
+                        (step as Extract<BrowserBatchStep, { op: 'click' }>).target,
+                        (step as Extract<BrowserBatchStep, { op: 'click' }>).options,
+                      ],
+                      dblclick: [
+                        tab.state.id,
+                        currentDoc,
+                        (step as Extract<BrowserBatchStep, { op: 'dblclick' }>).target,
+                      ],
+                      hover: [tab.state.id, currentDoc, (step as Extract<BrowserBatchStep, { op: 'hover' }>).target],
+                      drag: [
+                        tab.state.id,
+                        currentDoc,
+                        (step as Extract<BrowserBatchStep, { op: 'drag' }>).from,
+                        (step as Extract<BrowserBatchStep, { op: 'drag' }>).to,
+                      ],
+                      input: [
+                        tab.state.id,
+                        currentDoc,
+                        (step as Extract<BrowserBatchStep, { op: 'input' }>).target,
+                        (step as Extract<BrowserBatchStep, { op: 'input' }>).text,
+                        { mode: (step as Extract<BrowserBatchStep, { op: 'input' }>).mode },
+                      ],
+                      paste: [
+                        tab.state.id,
+                        currentDoc,
+                        (step as Extract<BrowserBatchStep, { op: 'paste' }>).target ?? null,
+                        {
+                          text: (step as Extract<BrowserBatchStep, { op: 'paste' }>).text,
+                          html: (step as Extract<BrowserBatchStep, { op: 'paste' }>).html,
+                        },
+                      ],
+                      press: [
+                        tab.state.id,
+                        currentDoc,
+                        (step as Extract<BrowserBatchStep, { op: 'press' }>).target ?? null,
+                        (step as Extract<BrowserBatchStep, { op: 'press' }>).key,
+                      ],
+                      select: [
+                        tab.state.id,
+                        currentDoc,
+                        (step as Extract<BrowserBatchStep, { op: 'select' }>).target,
+                        (step as Extract<BrowserBatchStep, { op: 'select' }>).selection,
+                      ],
+                      scroll: [
+                        tab.state.id,
+                        currentDoc,
+                        (step as Extract<BrowserBatchStep, { op: 'scroll' }>).delta !== undefined
+                          ? (step as Extract<BrowserBatchStep, { op: 'scroll' }>).delta
+                          : {
+                              deltaX: (step as Extract<BrowserBatchStep, { op: 'scroll' }>).deltaX,
+                              deltaY: (step as Extract<BrowserBatchStep, { op: 'scroll' }>).deltaY,
+                              target: (step as Extract<BrowserBatchStep, { op: 'scroll' }>).target,
+                              to: (step as Extract<BrowserBatchStep, { op: 'scroll' }>).to,
+                            },
+                      ],
+                    }
+                    stepResult = await executeTabOperation(
+                      tab,
+                      owner,
+                      step.op,
+                      stepArgs[step.op],
+                      deadline,
+                      controller.signal,
+                    )
+                  }
+                  results.push({ index, op: step.op, ok: true, result: stepResult })
+                  const next = steps[index + 1]
+                  if (
+                    next &&
+                    tab.state.documentId !== expectedDoc &&
+                    ['click', 'dblclick', 'hover', 'drag', 'input', 'paste', 'press', 'select', 'scroll'].includes(
+                      next.op,
+                    )
+                  ) {
+                    stoppedReason = 'document-changed'
+                    break
+                  }
+                } catch (cause) {
+                  const message = cause instanceof Error ? cause.message : String(cause)
+                  results.push({ index, op: step.op, ok: false, error: message })
+                  if (controller.signal.aborted || (cause instanceof SystemReadError && cause.code === 'cancelled')) {
+                    stoppedReason = 'user-aborted'
+                    break
+                  }
+                  if (stopOnError) {
+                    stoppedReason = 'step-error'
+                    break
+                  }
+                }
               }
-            }
-            return { matched, tabId, documentId, url: systemMetadataUrl(committedUrl) } satisfies BrowserWaitObservation
-          }
-          if (!['click', 'input', 'scroll', 'press', 'select'].includes(operation))
-            throw new SystemReadError('not-supported', '未知的网页操作')
-          assertDocument(input[1])
-          if (operation === 'scroll') {
-            const delta = input[2]
-            if (typeof delta !== 'number' || !Number.isFinite(delta) || Math.abs(delta) > 10000)
-              throw new SystemReadError('invalid-input', '滚动距离无效')
-            await runBrowserAgentPage(web, documentId, url, pageDeadline, { type: 'scroll', delta })
-          } else {
-            const elementId = input[2]
-            if (typeof elementId !== 'string') throw new SystemReadError('invalid-input', '网页控件标识无效')
-            if (operation === 'press') {
-              const assertTarget = () => {
-                assertDocument(input[1])
-                if (!options.getWindow()?.isFocused())
-                  throw new SystemReadError('disabled', '请先切回 Pi meme 窗口，再重新发送网页按键', {
-                    reason: 'window-not-focused',
-                  })
+
+              let readSnapshot: BrowserAgentSnapshot | undefined
+              if (opts.readAfter) {
+                const readOpts = typeof opts.readAfter === 'object' ? opts.readAfter : undefined
+                readSnapshot = (await executeTabOperation(
+                  tab,
+                  owner,
+                  'read',
+                  [tab.state.id, readOpts],
+                  deadline,
+                  controller.signal,
+                ).catch(() => undefined)) as BrowserAgentSnapshot | undefined
               }
-              await pressBrowserKey(
-                tab.view,
-                pageDeadline,
-                input[3] as BrowserAgentKey,
-                async () => {
-                  await runBrowserAgentPage(web, documentId, url, pageDeadline, { type: 'focus', elementId })
-                },
-                assertTarget,
-                sameDocument,
-              )
-              return { tabId, documentId, delivery: 'delivered_unverified' } satisfies BrowserActionReceipt
-            }
-            if (operation === 'select') {
-              const changed = await runBrowserAgentPage(web, documentId, url, pageDeadline, {
-                type: 'select',
-                elementId,
-                option: input[3] as BrowserSelectOption,
-              })
               return {
-                tabId,
-                documentId,
-                delivery: changed ? 'delivered_unverified' : 'not_needed',
-              } satisfies BrowserActionReceipt
+                tabId: tab.state.id,
+                completedSteps: results.length,
+                totalSteps: steps.length,
+                results,
+                ...(stoppedReason ? { stoppedReason } : {}),
+                ...(readSnapshot ? { snapshot: readSnapshot } : {}),
+              }
             }
-            if (operation === 'click')
-              await runBrowserAgentPage(web, documentId, url, pageDeadline, { type: 'click', elementId })
-            else {
-              if (typeof input[3] !== 'string') throw new SystemReadError('invalid-input', '网页输入文本无效')
-              await runBrowserAgentPage(web, documentId, url, pageDeadline, {
-                type: 'input',
-                elementId,
-                text: input[3],
-              })
+            return await executeTabOperation(tab, owner, operation, input, deadline, controller.signal)
+          } finally {
+            if (isWrite) {
+              if (tab.agentAbort === controller) tab.agentAbort = undefined
+              tab.agentActivity = undefined
+              emit({ type: 'agent-activity', owner, tabId: tab.state.id, active: false })
             }
           }
-          return { tabId, documentId: tab.state.documentId, applied: true }
         } catch (cause) {
           if (!structured) throw cause
           return {
@@ -1646,7 +2565,8 @@ export function registerBrowserRuntime(options: {
             closeOverlays()
           }
           attachedWindow?.contentView.removeChildView(tab.view)
-          tab.view.webContents.close()
+          cleanupTab(tab)
+          liveWeb(tab.view)?.close()
           tabs.delete(tab.state.id)
         }
         return
@@ -1657,12 +2577,16 @@ export function registerBrowserRuntime(options: {
         const bounds = args[1] as BrowserRect | null
         if (!bounds) {
           const capturePreview = visible === tab && args[4] !== false
-          tab.view.webContents.setBackgroundThrottling(args[4] !== false)
-          detachTabView(tab)
           tab.bounds = undefined
           if (visible === tab) {
             closeOverlays()
             visible = undefined
+          }
+          if (isKeepAliveEffective(tab)) {
+            syncTabHosting(tab)
+          } else {
+            tab.view.webContents.setBackgroundThrottling(args[4] !== false)
+            detachTabView(tab)
           }
           return capturePreview ? preview(tab) : null
         }
@@ -1672,16 +2596,21 @@ export function registerBrowserRuntime(options: {
           bounds.height < 1
         )
           throw new Error('网页视图边界无效')
+        const previousVisible = visible && visible !== tab ? visible : undefined
         if (visible !== tab) {
-          if (visible) detachTabView(visible)
           closeOverlays()
           visible = tab
         }
+        if (previousVisible) syncTabHosting(previousVisible)
         tab.bounds = {
           x: Math.round(bounds.x),
           y: Math.round(bounds.y),
           width: Math.round(bounds.width),
           height: Math.round(bounds.height),
+        }
+        tab.lastViewport = {
+          width: Math.max(320, tab.bounds.width),
+          height: Math.max(240, tab.bounds.height),
         }
         tab.theme = args[2] === 'light' ? 'light' : 'dark'
         const colors = args[3] as ThemeColors | undefined
@@ -1709,7 +2638,7 @@ export function registerBrowserRuntime(options: {
         }
         picker(tab, { colors: tab.colors })
         tab.view.setBounds(tab.bounds)
-        tab.view.webContents.setBackgroundThrottling(true)
+        tab.view.webContents.setBackgroundThrottling(!isKeepAliveEffective(tab))
         if (tab.state.error || tab.state.url === 'about:blank') {
           detachTabView(tab)
           closeOverlays()

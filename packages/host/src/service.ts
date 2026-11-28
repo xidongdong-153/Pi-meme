@@ -43,7 +43,9 @@ import { createBuiltinModules } from './builtin-modules'
 import { PiMigration, type PiMigrationShortcuts } from './pi-migration'
 import { readPiPrompts } from './pi-migration-files'
 import { assertExternalPluginId } from '@pi-meme/plugin-sdk/reserved'
-import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { assertPublicHostPath } from '@pi-meme/pi-runtime/sdk/private-host-files'
+import { constants } from 'node:fs'
+import { lstat, mkdir, open, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
@@ -1176,6 +1178,24 @@ export async function createHost(options: HostOptions = {}) {
                 ? origin.clientId
                 : undefined
             }
+            const maxBrowserFileBytes = 16 * 1024 * 1024
+            const maxBrowserUploadTotalBytes = 32 * 1024 * 1024
+            const resolveBrowserRelative = async (relative: string) => {
+              if (!actor.cwd) throw new SystemReadError('disabled', '当前会话未绑定工作区目录')
+              if (
+                typeof relative !== 'string' ||
+                !relative.trim() ||
+                path.isAbsolute(relative) ||
+                /[\\:\0]/.test(relative) ||
+                relative.split('/').some((part) => !part || part === '.' || part === '..')
+              )
+                throw new SystemReadError('invalid-input', '路径必须是工作区内的合法相对路径')
+              const root = await realpath(actor.cwd)
+              const resolved = path.resolve(root, relative)
+              if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`))
+                throw new SystemReadError('permission-denied', '文件路径越出工作区范围')
+              return { root, resolved }
+            }
             const operations = createSystemOperations({
               api,
               session: ref,
@@ -1183,6 +1203,96 @@ export async function createHost(options: HostOptions = {}) {
               canWrite: isBuiltinAgentToolAllowed('system_write', effectiveAgentAccess(actor.accessMode, actor.mode)),
               identity: JSON.stringify([ref, actor.rootTaskId, actor.runId, actor.epoch, actor.executionGeneration]),
               results: readResults,
+              browserFiles: {
+                prepareUpload: async (paths) => {
+                  const files: Array<{ name: string; dataBase64: string; size: number }> = []
+                  let total = 0
+                  for (const relative of paths) {
+                    const { root, resolved } = await resolveBrowserRelative(relative)
+                    let realFile: string
+                    try {
+                      realFile = await realpath(resolved)
+                    } catch {
+                      throw new SystemReadError('not-found', `工作区文件不存在：${relative}`)
+                    }
+                    if (realFile !== root && !realFile.startsWith(`${root}${path.sep}`))
+                      throw new SystemReadError('permission-denied', '文件路径越出工作区范围')
+                    assertPublicHostPath(canonicalImageDataRoot, realFile)
+                    const handle = await open(realFile, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+                    try {
+                      const info = await handle.stat()
+                      if (!info.isFile()) throw new SystemReadError('invalid-input', `只能上传普通文件：${relative}`)
+                      if (info.size > maxBrowserFileBytes)
+                        throw new SystemReadError('invalid-input', `单个上传文件不能超过 16 MiB：${relative}`)
+                      total += info.size
+                      if (total > maxBrowserUploadTotalBytes)
+                        throw new SystemReadError('invalid-input', '单次上传文件总大小不能超过 32 MiB')
+                      const buffer = Buffer.alloc(info.size)
+                      let offset = 0
+                      while (offset < buffer.length) {
+                        const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset)
+                        if (!bytesRead) break
+                        offset += bytesRead
+                      }
+                      files.push({
+                        name: path.basename(realFile),
+                        dataBase64: buffer.subarray(0, offset).toString('base64'),
+                        size: offset,
+                      })
+                    } finally {
+                      await handle.close()
+                    }
+                  }
+                  return files
+                },
+                saveDownload: async (relativePath, dataBase64) => {
+                  const { root, resolved } = await resolveBrowserRelative(relativePath)
+                  const bytes = Buffer.from(dataBase64, 'base64')
+                  if (bytes.length > maxBrowserFileBytes)
+                    throw new SystemReadError('invalid-input', '下载文件超过 16 MiB 工作区保存上限')
+                  const targetParent = path.dirname(resolved)
+                  const segments = path.relative(root, targetParent).split(path.sep).filter(Boolean)
+                  let checkDir = root
+                  for (const segment of segments) {
+                    checkDir = path.join(checkDir, segment)
+                    try {
+                      const info = await lstat(checkDir)
+                      if (info.isSymbolicLink()) {
+                        const realSegment = await realpath(checkDir)
+                        if (realSegment !== root && !realSegment.startsWith(`${root}${path.sep}`))
+                          throw new SystemReadError('permission-denied', '目标路径经过的符号链接越出工作区范围')
+                        checkDir = realSegment
+                      } else if (!info.isDirectory()) {
+                        throw new SystemReadError('invalid-input', '目标父路径包含非目录文件')
+                      }
+                    } catch (cause) {
+                      if ((cause as NodeJS.ErrnoException).code === 'ENOENT') break
+                      throw cause
+                    }
+                  }
+                  await mkdir(targetParent, { recursive: true })
+                  const realParent = await realpath(targetParent)
+                  if (realParent !== root && !realParent.startsWith(`${root}${path.sep}`))
+                    throw new SystemReadError('permission-denied', '目标目录越出工作区范围')
+                  const targetPath = path.join(realParent, path.basename(resolved))
+                  assertPublicHostPath(canonicalImageDataRoot, targetPath)
+                  try {
+                    const existing = await lstat(targetPath)
+                    if (existing.isSymbolicLink() || existing.isDirectory())
+                      throw new SystemReadError('invalid-input', '目标路径是符号链接或目录，无法写入')
+                  } catch (cause) {
+                    if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+                  }
+                  const temporary = `${targetPath}.${randomUUID()}.tmp`
+                  try {
+                    await writeFile(temporary, bytes, { mode: 0o600 })
+                    await rename(temporary, targetPath)
+                  } finally {
+                    await rm(temporary, { force: true })
+                  }
+                  return { savedPath: relativePath, size: bytes.length }
+                },
+              },
               clientUnavailableReason: () => (initiatingClient() ? 'not-supported' : 'disconnected'),
               clientAvailable: (operation) => systemClients.supports(initiatingClient(), operation),
               client: async (operation, args) => {
