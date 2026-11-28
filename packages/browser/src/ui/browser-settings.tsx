@@ -216,6 +216,27 @@ export function BrowserSettings({
                 ]),
               )}
               {row(
+                '地址栏搜索建议',
+                '输入搜索词时从当前搜索引擎获取补全建议；本地地址和完整网址不会发送。',
+                <div
+                  aria-hidden={!snapshot}
+                  inert={!snapshot}
+                  className={cn(
+                    'h-6 w-11 transition-opacity duration-150 motion-reduce:transition-none',
+                    snapshot ? 'opacity-100' : 'pointer-events-none opacity-0',
+                  )}
+                >
+                  {settings && (
+                    <Switch
+                      checked={settings.searchSuggestions !== false}
+                      disabled={saving || !snapshot}
+                      onChange={(searchSuggestions) => save({ searchSuggestions })}
+                      label="地址栏搜索建议"
+                    />
+                  )}
+                </div>,
+              )}
+              {row(
                 '显示完整网址',
                 '关闭时隐藏网址路径，编辑地址时仍显示完整网址。',
                 <div

@@ -15,6 +15,7 @@ export async function create(context: BuiltinModuleContext) {
     'browser:settings': (value) => store.settings(value),
     'browser:permission': (value) => store.permission(value),
     'browser:history': (value) => store.history(value),
+    'browser:search-query': (value) => store.searchQuery(value),
     'browser:download': (value) => store.download(value as BrowserDownload | string),
     'browser:clear-downloads': () => store.clearDownloads(),
     'browser:workspace': (owner) => store.workspace(String(owner)),

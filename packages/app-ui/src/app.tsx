@@ -19,7 +19,8 @@ import { MemorySettings } from '@pi-meme/memory/ui/memory-settings'
 import { resolveModelThinkingLevel } from '@pi-meme/contracts/pi'
 import { explicitSessionName, sessionPreviewText } from '@pi-meme/contracts/sessions'
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
-import { BrowserFavicon, BrowserPanel } from '@pi-meme/browser/ui/browser-panel'
+import { BrowserFavicon } from '@pi-meme/browser/ui/browser-omnibox'
+import { BrowserPanel } from '@pi-meme/browser/ui/browser-panel'
 import { ComputerActivity, ComputerSettings } from './settings/computer-use'
 import { computerMention } from '@pi-meme/chat/ui/composer/completion-query'
 import { BrowserSettings } from '@pi-meme/browser/ui/browser-settings'
@@ -133,6 +134,7 @@ import {
   Folder,
   Globe,
   Lightbulb,
+  LoaderCircle,
   Paperclip,
   PieChart,
   Sparkles,
@@ -2220,7 +2222,11 @@ function AppContent({
       id: `builtin:browser:${tab.id}`,
       launcher: 'hidden' as const,
       title: tab.title || '新网页',
-      icon: <BrowserFavicon key={tab.favicon} src={tab.favicon} />,
+      icon: tab.loading ? (
+        <LoaderCircle className="size-3.5 animate-spin" />
+      ) : (
+        <BrowserFavicon key={tab.favicon} src={tab.favicon} />
+      ),
       location: 'right' as const,
       scope: 'app' as const,
       render: () =>
@@ -2230,6 +2236,8 @@ function AppContent({
             saveError={browser.error}
             onRetrySave={browser.retrySave}
             tab={tab}
+            openTabs={browser.tabs}
+            onSwitchTab={(tabId) => openTool(`builtin:browser:${tabId}`)}
             annotations={browser.workspace?.annotations ?? []}
             editor={browser.workspace?.editor}
             viewMode={workspaceView.unified ? 'unified' : 'split'}
@@ -3472,7 +3480,13 @@ function AppContent({
               onDataRetry={retryPanelData}
               onToolsVisibilityChange={setToolsVisible}
               onSystemSnapshot={receiveSystemPanelSnapshot}
-              onNewWebPage={browserPlatform && browser.ready ? () => void browser.create() : undefined}
+              onOpenWebPage={browserPlatform && browser.ready ? (url: string) => void browser.create(url) : undefined}
+              browserPlatform={browserPlatform}
+              browserTabs={browser.tabs}
+              onBrowserSettings={(section = 'general') => {
+                setBrowserSettingsTarget(section)
+                openSettings('browser')
+              }}
               browserPanelIds={browser.tabs.map((tab) => `builtin:browser:${tab.id}`)}
               onClosePanel={(id) => {
                 if (id.startsWith('builtin:file:')) setFileTabs((tabs) => tabs.filter((tab) => tab.id !== id))

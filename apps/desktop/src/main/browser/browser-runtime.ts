@@ -26,13 +26,14 @@ import type {
   BrowserPermission,
   BrowserRect,
   BrowserSnapshot,
+  BrowserSuggestion,
   BrowserTab,
   BrowserViewMode,
   BrowserWorkspace,
   BrowserWorkspaceMetadata,
 } from '@pi-meme/contracts/browser'
 import type { ThemeColors } from '@pi-meme/contracts/settings'
-import { browserUrl, isLocalBrowserUrl } from '@pi-meme/browser/shared/navigation'
+import { browserUrl, isLikelyUrlInput, isLocalBrowserUrl } from '@pi-meme/browser/shared/navigation'
 import { validAnnotation } from '@pi-meme/browser/shared/annotations'
 import {
   browserClientReadNames,
@@ -331,10 +332,24 @@ export function registerBrowserRuntime(options: {
   const command = async (tab: Tab, value: BrowserCommand) => {
     const web = tab.view.webContents
     switch (value.type) {
-      case 'navigate':
+      case 'navigate': {
         tab.state.error = undefined
+        const trimmed = value.url.trim()
+        if (trimmed && !isLikelyUrlInput(trimmed)) {
+          void options
+            .rpc('browser:search-query', [trimmed])
+            .then(changed)
+            .catch(() => {})
+        }
         await web.loadURL(browserUrl(value.url, (snapshot ?? (await refresh())).settings.search)).catch(() => {})
         break
+      }
+      case 'go-to-index': {
+        if (!Number.isInteger(value.index)) throw new Error('历史索引无效')
+        const entries = web.navigationHistory.getAllEntries()
+        if (value.index >= 0 && value.index < entries.length) web.navigationHistory.goToIndex(value.index)
+        break
+      }
       case 'back':
         if (web.navigationHistory.canGoBack()) web.navigationHistory.goBack()
         break
@@ -543,12 +558,54 @@ export function registerBrowserRuntime(options: {
       }
       publish(tab)
     }
+    let lastHistoryVisit: { url: string; visitedAt: string; hasFavicon: boolean } | undefined
+    const recordHistory = (updateFaviconOnly = false) => {
+      if (!/^https?:/.test(tab.state.url)) return
+      if (updateFaviconOnly) {
+        if (
+          !tab.state.favicon ||
+          !lastHistoryVisit ||
+          lastHistoryVisit.url !== tab.state.url ||
+          lastHistoryVisit.hasFavicon
+        )
+          return
+        lastHistoryVisit.hasFavicon = true
+        void options
+          .rpc('browser:history', [
+            {
+              id: randomUUID(),
+              url: tab.state.url,
+              title: tab.state.title,
+              visitedAt: lastHistoryVisit.visitedAt,
+              favicon: tab.state.favicon,
+            },
+          ])
+          .then(changed)
+          .catch(console.error)
+        return
+      }
+      const visitedAt = new Date().toISOString()
+      lastHistoryVisit = { url: tab.state.url, visitedAt, hasFavicon: Boolean(tab.state.favicon) }
+      void options
+        .rpc('browser:history', [
+          {
+            id: randomUUID(),
+            url: tab.state.url,
+            title: tab.state.title,
+            visitedAt,
+            favicon: tab.state.favicon,
+          },
+        ])
+        .then(changed)
+        .catch(console.error)
+    }
     web.on('did-start-navigation', (_event, _url, inPlace, isMainFrame) => {
       if (isMainFrame && !inPlace) {
         tab.find = undefined
         tab.state.documentId++
         tab.state.error = undefined
         tab.state.favicon = undefined
+        lastHistoryVisit = undefined
         tab.editorVisible = false
         if (visible === tab) closeOverlays('editor')
       }
@@ -556,6 +613,7 @@ export function registerBrowserRuntime(options: {
     web.on('did-start-loading', sync)
     web.on('did-stop-loading', sync)
     web.on('page-title-updated', sync)
+    web.on('update-target-url', (_event, url) => emit({ type: 'target-url', tabId: tab.state.id, url }))
     web.on('page-favicon-updated', (_event, favicons) => {
       const candidate = favicons.find((value) => /^https?:|^data:image\//.test(value))
       const documentId = tab.state.documentId
@@ -564,6 +622,7 @@ export function registerBrowserRuntime(options: {
         if (candidate.length <= 700_000) {
           tab.state.favicon = candidate
           publish(tab)
+          if (!web.isLoading()) recordHistory(true)
         }
         return
       }
@@ -576,6 +635,7 @@ export function registerBrowserRuntime(options: {
           if (bytes.length > 512 * 1024 || tab.state.documentId !== documentId || web.isDestroyed()) return
           tab.state.favicon = `data:${mimeType};base64,${bytes.toString('base64')}`
           publish(tab)
+          if (!web.isLoading()) recordHistory(true)
         })
         .catch(() => {})
     })
@@ -584,6 +644,7 @@ export function registerBrowserRuntime(options: {
       tab.state.documentId++
       tab.editorVisible = false
       tab.state.favicon = undefined
+      lastHistoryVisit = undefined
       if (visible === tab) closeOverlays('editor')
       sync()
       picker(tab, { enabled: tab.enabled, documentId: tab.state.documentId, annotations: [], reset: true })
@@ -603,13 +664,7 @@ export function registerBrowserRuntime(options: {
     })
     web.on('did-finish-load', () => {
       sync()
-      if (/^https?:/.test(tab.state.url))
-        void options
-          .rpc('browser:history', [
-            { id: randomUUID(), url: tab.state.url, title: tab.state.title, visitedAt: new Date().toISOString() },
-          ])
-          .then(changed)
-          .catch(console.error)
+      recordHistory(false)
     })
     web.on('did-fail-load', (_event, code, description, _url, isMainFrame) => {
       if (isMainFrame && code !== -3) {
@@ -1586,7 +1641,65 @@ export function registerBrowserRuntime(options: {
       }
       case 'history':
         snapshot = await options.rpc('browser:history', args)
+        changed()
         return snapshot
+      case 'searchQuery':
+        snapshot = await options.rpc('browser:search-query', args)
+        changed()
+        return snapshot
+      case 'navigationHistory': {
+        const tab = tabs.get(String(args[0]))
+        if (!tab) return { index: -1, entries: [] }
+        return {
+          index: tab.view.webContents.navigationHistory.getActiveIndex(),
+          entries: tab.view.webContents.navigationHistory
+            .getAllEntries()
+            .map((entry, index) => ({ index, title: entry.title, url: entry.url })),
+        }
+      }
+      case 'suggest': {
+        const config = snapshot ?? (await refresh())
+        if (config.settings.searchSuggestions === false) return []
+        const query = String(args[0] ?? '').trim()
+        if (!query || query.length > 200 || isLikelyUrlInput(query)) return []
+        const endpoint = {
+          google: `https://suggestqueries.google.com/complete/search?client=chrome&hl=zh-CN&ie=utf-8&oe=utf-8&q=${encodeURIComponent(query)}`,
+          bing: `https://api.bing.com/osjson.aspx?query=${encodeURIComponent(query)}`,
+          duckduckgo: `https://duckduckgo.com/ac/?q=${encodeURIComponent(query)}&type=list`,
+        }[config.settings.search]
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), 2000)
+        try {
+          const response = await guestSession.fetch(endpoint, {
+            signal: controller.signal,
+            headers: { 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8' },
+          })
+          if (!response.ok) return []
+          const payload = (await response.json()) as unknown
+          if (!Array.isArray(payload) || !Array.isArray(payload[1])) return []
+          const texts = payload[1] as unknown[]
+          const descriptions = Array.isArray(payload[2]) ? (payload[2] as unknown[]) : []
+          const seen = new Set<string>()
+          const items: BrowserSuggestion[] = []
+          for (let index = 0; index < texts.length && items.length < 6; index++) {
+            const rawText = texts[index]
+            const text = typeof rawText === 'string' ? rawText.trim() : ''
+            if (!text) continue
+            const lower = text.toLocaleLowerCase()
+            if (seen.has(lower)) continue
+            seen.add(lower)
+            const rawDescription = descriptions[index]
+            const description =
+              typeof rawDescription === 'string' && rawDescription.trim() ? rawDescription.trim() : undefined
+            items.push(description ? { text, description } : { text })
+          }
+          return items
+        } catch {
+          return []
+        } finally {
+          clearTimeout(timer)
+        }
+      }
       case 'download': {
         const id = String(args[0])
         const action = args[1]

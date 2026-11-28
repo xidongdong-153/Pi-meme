@@ -1,19 +1,52 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react'
+import {
+  Copy,
+  Download,
+  ExternalLink,
   Globe,
   Grid2X2,
+  History,
   Layers,
   LoaderCircle,
   MessageCircle,
   MessageSquarePlus,
+  MoreHorizontal,
   PanelRightClose,
   PanelRightOpen,
   Plus,
+  RefreshCw,
   Search,
+  Settings,
   X,
 } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@pi-meme/ui/components/ui/context-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@pi-meme/ui/components/ui/dropdown-menu'
 import { OverflowTooltip, Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
+import { BrowserFavicon, BrowserOmnibox } from '@pi-meme/browser/ui/browser-omnibox'
+import { isLocalBrowserUrl } from '@pi-meme/browser/shared/navigation'
+import type { BrowserPlatform, BrowserSnapshot, BrowserTab } from '@pi-meme/contracts/browser'
 import type { UiContributionProps, UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
 import type { RegisteredNavigation } from '@pi-meme/plugin-sdk/navigation'
 import { AppRail } from './app-rail'
@@ -46,12 +79,16 @@ import { ResizeHandle } from './resize-handle'
 import type { WorkspaceView } from './use-workspace-view'
 
 const emptyBrowserPanels: string[] = []
+const emptyBrowserTabs: BrowserTab[] = []
 const tabIconClassName =
   'flex size-3.5 shrink-0 items-center justify-center [&_img]:size-3.5 [&_img]:object-contain [&_svg]:size-3.5'
 
 export function WorkspacePanels({
   panels,
-  onNewWebPage,
+  onOpenWebPage,
+  browserPlatform,
+  browserTabs = emptyBrowserTabs,
+  onBrowserSettings,
   onClosePanel,
   browserPanelIds = emptyBrowserPanels,
   chatAnnotationCount = 0,
@@ -101,7 +138,10 @@ export function WorkspacePanels({
   onChatVisibilityChange,
   children,
 }: {
-  onNewWebPage?: () => void
+  onOpenWebPage?: (url: string) => void
+  browserPlatform?: BrowserPlatform
+  browserTabs?: BrowserTab[]
+  onBrowserSettings?: (section?: 'general' | 'history' | 'downloads' | 'clear') => void
   onClosePanel?: (id: string) => void | boolean | Promise<void | boolean>
   browserPanelIds?: string[]
   chatAnnotationCount?: number
@@ -194,6 +234,7 @@ export function WorkspacePanels({
     }))
   }, [])
   const [search, setSearch] = useState('')
+  const [browserSnapshot, setBrowserSnapshot] = useState<BrowserSnapshot>()
   const [openError, setOpenError] = useState('')
   const openRevision = useRef(0)
   const handledRequest = useRef<number | undefined>(undefined)
@@ -247,6 +288,29 @@ export function WorkspacePanels({
   const setLayout = useCallback((update: (value: PanelLayoutState) => PanelLayoutState) => {
     updateState((value) => ({ ...value, inherited: false, layout: update(value.layout) }))
   }, [])
+  useEffect(() => {
+    if (!browserPlatform) {
+      setBrowserSnapshot(undefined)
+      return
+    }
+    let cancelled = false
+    const refresh = () => {
+      void browserPlatform
+        .snapshot()
+        .then((value) => {
+          if (!cancelled) setBrowserSnapshot(value)
+        })
+        .catch(() => {})
+    }
+    refresh()
+    const release = browserPlatform.onEvent((event) => {
+      if (event.type === 'changed') refresh()
+    })
+    return () => {
+      cancelled = true
+      release()
+    }
+  }, [browserPlatform])
   const { container, width: containerWidth } = useSidebarContainer()
   const launcherFocus = useRef<HTMLElement | null>(null)
   useLayoutEffect(() => {
@@ -254,7 +318,11 @@ export function WorkspacePanels({
     if (!focused || focused.isConnected) return
     launcherFocus.current = null
     if (document.activeElement === document.body)
-      container.current?.querySelector<HTMLInputElement>('input[aria-label="查找工具和插件"]')?.focus()
+      container.current
+        ?.querySelector<HTMLInputElement>(
+          'input[aria-label="输入网址、搜索或打开工具"], input[aria-label="查找工具和插件"]',
+        )
+        ?.focus()
   })
   const tabList = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -527,14 +595,34 @@ export function WorkspacePanels({
 
   const normalizedSearch = search.trim().toLocaleLowerCase()
   const matchesSearch = (title: string) => title.toLocaleLowerCase().includes(normalizedSearch)
-  const sideChatSearchMatch = Boolean(onOpenSideChat) && matchesSearch('侧边聊天')
-  const webSearchMatch = Boolean(onNewWebPage) && matchesSearch('新建网页')
-  const filtered = available.filter(
-    (panel) =>
-      panel.id !== sideChatTabId &&
-      resolvePanelAvailability(panel, props.target, dataFacts).launcherVisible &&
-      matchesSearch(panel.title),
+  const webHeroEnabled = Boolean(browserPlatform && onOpenWebPage)
+  const sideChatLauncherVisible = Boolean(onOpenSideChat) && (webHeroEnabled || matchesSearch('侧边聊天'))
+  const visiblePanels = available.filter(
+    (panel) => panel.id !== sideChatTabId && resolvePanelAvailability(panel, props.target, dataFacts).launcherVisible,
   )
+  const filtered = webHeroEnabled ? visiblePanels : visiblePanels.filter((panel) => matchesSearch(panel.title))
+  const launcherTools = useMemo(
+    () => [
+      ...(onOpenSideChat ? [{ id: sideChatTabId, title: '侧边聊天', icon: <MessageSquarePlus /> }] : []),
+      ...visiblePanels.map((panel) => ({ id: panel.id, title: panel.title, icon: panel.icon })),
+    ],
+    [onOpenSideChat, visiblePanels],
+  )
+  const frequentSites = useMemo(() => {
+    if (!webHeroEnabled || !browserSnapshot?.history.length) return []
+    const now = Date.now()
+    return [...browserSnapshot.history]
+      .sort((a, b) => {
+        const localA = isLocalBrowserUrl(a.url) ? 25 : 0
+        const localB = isLocalBrowserUrl(b.url) ? 25 : 0
+        const ageA = Math.max(1, (now - Date.parse(a.visitedAt)) / 3_600_000)
+        const ageB = Math.max(1, (now - Date.parse(b.visitedAt)) / 3_600_000)
+        const scoreA = localA + (a.visitCount ?? 1) * 8 + 60 / ageA
+        const scoreB = localB + (b.visitCount ?? 1) * 8 + 60 / ageB
+        return scoreB - scoreA
+      })
+      .slice(0, 6)
+  }, [webHeroEnabled, browserSnapshot?.history])
   const toolErrors = [
     ...new Set([
       ...Object.values(errors),
@@ -610,11 +698,19 @@ export function WorkspacePanels({
           const directory = id === 'builtin:terminal' ? terminalCwd : undefined
           const title = directory || (isSideChat ? (panel?.title ?? '侧边聊天') : (panel?.title ?? '新标签页'))
           const browserTab = id.startsWith('builtin:browser:')
+          const browserId = browserTab ? id.slice(16) : undefined
+          const browserTabItem = browserId ? browserTabs.find((item) => item.id === browserId) : undefined
           const closing = isClosingTab(id)
           const icon = panel?.icon ?? (isSideChat ? <MessageSquarePlus /> : <Grid2X2 />)
-          return (
+          const tabChip = (
             <div
               key={id}
+              onAuxClick={(event) => {
+                if (event.button === 1) {
+                  event.preventDefault()
+                  closeTab(id)
+                }
+              }}
               className={`group flex min-w-0 shrink-0 items-center ${browserTab ? 'rounded-xl border border-transparent' : 'rounded-md'} ${active === id && (!unified || showTool) ? (browserTab ? 'border-border/60 bg-secondary/80 text-foreground shadow-xs' : 'bg-background/80 text-foreground shadow-xs') : 'text-muted-foreground hover:bg-background/40'}`}
             >
               <button
@@ -648,6 +744,47 @@ export function WorkspacePanels({
                 {closing ? <LoaderCircle className="size-3 animate-spin" /> : <X className="size-3" />}
               </button>
             </div>
+          )
+          if (!browserTab || !browserId) return tabChip
+          const hasWebUrl = Boolean(browserTabItem?.url && browserTabItem.url !== 'about:blank')
+          return (
+            <ContextMenu key={id}>
+              <ContextMenuTrigger asChild>{tabChip}</ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem onSelect={() => void browserPlatform?.command(browserId, { type: 'reload' })}>
+                  <RefreshCw />
+                  重新加载
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={!hasWebUrl}
+                  onSelect={() => {
+                    if (browserTabItem?.url) void navigator.clipboard.writeText(browserTabItem.url)
+                  }}
+                >
+                  <Copy />
+                  复制网址
+                </ContextMenuItem>
+                <ContextMenuItem
+                  disabled={!hasWebUrl}
+                  onSelect={() => void browserPlatform?.command(browserId, { type: 'external' })}
+                >
+                  <ExternalLink />
+                  在系统浏览器打开
+                </ContextMenuItem>
+                <ContextMenuSeparator />
+                <ContextMenuItem onSelect={() => closeTab(id)}>关闭标签页</ContextMenuItem>
+                <ContextMenuItem
+                  disabled={!tabs.some((other) => other !== id)}
+                  onSelect={() => {
+                    for (const other of tabs) {
+                      if (other !== id) closeTab(other)
+                    }
+                  }}
+                >
+                  关闭其他标签页
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
           )
         })}
       </div>
@@ -867,95 +1004,210 @@ export function WorkspacePanels({
                   openRequests={state.openRequests}
                 />
                 {!selected && active !== sideChatTabId ? (
-                  <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-                    <div className="flex items-center gap-1.5 px-3 py-2">
-                      <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full bg-secondary/50 px-3 py-1 text-xs text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
-                        <Search className="size-3.5 shrink-0 text-muted-foreground" />
-                        <input
-                          aria-label="查找工具和插件"
-                          placeholder="查找工具和插件"
-                          value={search}
-                          onChange={(event) => setSearch(event.target.value)}
-                          className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
-                        />
-                      </label>
-                    </div>
-                    <div className="p-4 @container">
-                      <h2 className="mb-4 text-sm font-medium text-foreground">新标签页</h2>
-                      <div
-                        className="grid grid-cols-1 gap-2 @min-[32rem]:grid-cols-2 @min-[32rem]:gap-x-3"
-                        onFocusCapture={(event) => {
-                          launcherFocus.current = event.target as HTMLElement
-                        }}
-                      >
-                        {webSearchMatch ? (
-                          <button
-                            type="button"
-                            onClick={onNewWebPage}
-                            className="group flex min-h-10 items-center gap-3 rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm hover:bg-secondary/60"
+                  <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-6 @min-[40rem]:px-8 @min-[40rem]:pt-[14vh]">
+                    <div className="mx-auto w-full max-w-2xl space-y-6">
+                      <div>
+                        {webHeroEnabled ? (
+                          <BrowserOmnibox
+                            variant="hero"
+                            platform={browserPlatform}
+                            value={search}
+                            onChange={setSearch}
+                            searchEngine={browserSnapshot?.settings.search}
+                            searchSuggestionsEnabled={browserSnapshot?.settings.searchSuggestions !== false}
+                            history={browserSnapshot?.history}
+                            searchQueries={browserSnapshot?.searchQueries}
+                            openTabs={browserTabs}
+                            tools={launcherTools}
+                            placeholder="输入网址、搜索或打开工具"
+                            autoFocus
+                            onSubmitUrl={(input) => {
+                              setSearch('')
+                              onOpenWebPage?.(input)
+                            }}
+                            onSwitchTab={(tabId) => {
+                              setSearch('')
+                              open(`builtin:browser:${tabId}`)
+                            }}
+                            onSelectTool={(toolId) => {
+                              setSearch('')
+                              if (toolId === sideChatTabId) handleOpenSideChat()
+                              else open(toolId, 'launcher')
+                            }}
+                            onRemoveSearchQuery={(query) => void browserPlatform?.searchQuery({ remove: query })}
+                          />
+                        ) : (
+                          <form
+                            onSubmit={(event) => {
+                              event.preventDefault()
+                              const firstId = sideChatLauncherVisible ? sideChatTabId : filtered[0]?.id
+                              if (!firstId) return
+                              setSearch('')
+                              if (firstId === sideChatTabId) handleOpenSideChat()
+                              else open(firstId, 'launcher')
+                            }}
                           >
-                            <Globe className="size-4 text-muted-foreground" />
-                            新建网页
-                          </button>
-                        ) : null}
-                        {sideChatSearchMatch && (
-                          <button
-                            type="button"
-                            onClick={handleOpenSideChat}
-                            className="group flex min-h-10 min-w-0 items-center rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
-                          >
-                            <div className="flex min-w-0 items-center gap-3">
-                              <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground [&>svg]:size-4">
-                                <MessageSquarePlus className="size-4" />
-                              </span>
-                              <span className="truncate">侧边聊天</span>
-                            </div>
-                          </button>
+                            <label className="flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-full border border-border/60 bg-secondary/55 px-4 text-sm text-muted-foreground shadow-xs focus-within:border-ring/60 focus-within:bg-secondary/80">
+                              <Search className="size-4 shrink-0 text-muted-foreground" />
+                              <input
+                                autoFocus
+                                aria-label="查找工具和插件"
+                                placeholder="查找工具和插件"
+                                value={search}
+                                onChange={(event) => setSearch(event.target.value)}
+                                className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+                              />
+                              {search ? (
+                                <button
+                                  type="button"
+                                  aria-label="清空输入"
+                                  onClick={() => setSearch('')}
+                                  className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground"
+                                >
+                                  <X className="size-3" />
+                                </button>
+                              ) : null}
+                            </label>
+                          </form>
                         )}
-                        {filtered.map((panel) => (
-                          <button
-                            key={panel.id}
-                            type="button"
-                            onClick={() => open(panel.id, 'launcher')}
-                            className="group flex min-h-10 min-w-0 items-center rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
-                          >
-                            <div className="flex min-w-0 items-center gap-3">
-                              <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground [&>svg]:size-4">
+                      </div>
+
+                      <div>
+                        <div className="mb-2.5 flex items-center justify-between">
+                          <h2 className="text-xs font-medium text-muted-foreground">打开</h2>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                size="icon-sm"
+                                variant="ghost"
+                                aria-label="更多启动台操作"
+                                className="size-7 rounded-full text-muted-foreground hover:text-foreground"
+                              >
+                                <MoreHorizontal className="size-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" side="bottom" className="w-44">
+                              <DropdownMenuItem disabled={!onNewSession} onSelect={onNewSession}>
+                                <Globe />
+                                新会话
+                              </DropdownMenuItem>
+                              <DropdownMenuItem disabled={!onPlugins} onSelect={onPlugins}>
+                                <Layers />
+                                扩展中心
+                              </DropdownMenuItem>
+                              {onBrowserSettings ? (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onSelect={() => onBrowserSettings('history')}>
+                                    <History />
+                                    历史记录
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onSelect={() => onBrowserSettings('downloads')}>
+                                    <Download />
+                                    下载记录
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onSelect={() => onBrowserSettings('general')}>
+                                    <Settings />
+                                    浏览器设置
+                                  </DropdownMenuItem>
+                                </>
+                              ) : null}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+
+                        <div
+                          className="grid grid-cols-2 gap-2.5 @min-[36rem]:grid-cols-4"
+                          onFocusCapture={(event) => {
+                            launcherFocus.current = event.target as HTMLElement
+                          }}
+                        >
+                          {sideChatLauncherVisible && (
+                            <button
+                              type="button"
+                              onClick={handleOpenSideChat}
+                              className="group flex min-h-20 min-w-0 flex-col items-start justify-between gap-3 rounded-xl border border-border/40 bg-secondary/40 p-3.5 text-left text-sm text-foreground transition-colors hover:bg-secondary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+                            >
+                              <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground [&>svg]:size-4">
+                                <MessageSquarePlus />
+                              </span>
+                              <span className="w-full truncate text-xs font-medium">侧边聊天</span>
+                            </button>
+                          )}
+                          {filtered.map((panel) => (
+                            <button
+                              key={panel.id}
+                              type="button"
+                              onClick={() => open(panel.id, 'launcher')}
+                              className="group flex min-h-20 min-w-0 flex-col items-start justify-between gap-3 rounded-xl border border-border/40 bg-secondary/40 p-3.5 text-left text-sm text-foreground transition-colors hover:bg-secondary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+                            >
+                              <span className="flex size-5 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground [&>svg]:size-4">
                                 {panel.icon}
                               </span>
-                              <span className="truncate">{panel.title}</span>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                      {!filtered.length && !sideChatSearchMatch && !webSearchMatch && !toolErrors.length && (
-                        <p className="py-4 text-xs text-muted-foreground">
-                          {normalizedSearch ? '没有匹配的工具。' : '当前聊天暂无可用工具。'}
-                        </p>
-                      )}
-                      <div className="mt-5">
-                        <h2 className="mb-2.5 text-xs font-medium text-muted-foreground/80">推荐</h2>
-                        <div className="grid grid-cols-1 gap-2 @min-[32rem]:grid-cols-2 @min-[32rem]:gap-x-3">
-                          <button
-                            type="button"
-                            onClick={onNewSession}
-                            disabled={!onNewSession}
-                            className="group flex min-h-10 min-w-0 items-center gap-3 rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <Globe className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
-                            <span className="truncate">新会话</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={onPlugins}
-                            disabled={!onPlugins}
-                            className="group flex min-h-10 min-w-0 items-center gap-3 rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <Layers className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
-                            <span className="truncate">扩展中心</span>
-                          </button>
+                              <span className="w-full truncate text-xs font-medium">{panel.title}</span>
+                            </button>
+                          ))}
                         </div>
+                        {!filtered.length && !sideChatLauncherVisible && !toolErrors.length && (
+                          <p className="py-4 text-xs text-muted-foreground">
+                            {normalizedSearch ? '没有匹配的工具。' : '当前聊天暂无可用工具。'}
+                          </p>
+                        )}
                       </div>
+
+                      {frequentSites.length > 0 ? (
+                        <div>
+                          <h2 className="mb-2.5 text-xs font-medium text-muted-foreground">常访与最近</h2>
+                          <div className="grid grid-cols-1 gap-2 @min-[28rem]:grid-cols-2 @min-[42rem]:grid-cols-3">
+                            {frequentSites.map((item) => {
+                              const host = (() => {
+                                try {
+                                  return new URL(item.url).host
+                                } catch {
+                                  return item.url
+                                }
+                              })()
+                              return (
+                                <div
+                                  key={item.id}
+                                  className="group relative flex min-w-0 items-center rounded-xl border border-border/40 bg-secondary/35 transition-colors hover:bg-secondary/65"
+                                >
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <button
+                                        type="button"
+                                        onClick={() => onOpenWebPage?.(item.url)}
+                                        className="flex min-w-0 flex-1 items-center gap-2.5 px-3 py-2.5 pr-8 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl cursor-pointer"
+                                      >
+                                        <BrowserFavicon src={item.favicon} className="size-4 shrink-0" />
+                                        <div className="min-w-0 flex-1">
+                                          <p className="truncate text-xs font-medium text-foreground">
+                                            {item.title || host}
+                                          </p>
+                                          <p className="truncate text-[11px] text-muted-foreground">{host}</p>
+                                        </div>
+                                      </button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="bottom">{item.url}</TooltipContent>
+                                  </Tooltip>
+                                  <button
+                                    type="button"
+                                    aria-label={`移除常访记录：${item.title || host}`}
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      void browserPlatform?.history(item.id)
+                                    }}
+                                    className="absolute right-1.5 inline-flex size-5 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity hover:bg-background/70 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                                  >
+                                    <X className="size-3" />
+                                  </button>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+
                       {toolErrors.length > 0 && (
                         <div role="alert" className="mt-3 flex items-start gap-2 text-xs text-destructive">
                           <p className="min-w-0 flex-1 break-words">{toolErrors.join('；')}</p>

@@ -56,6 +56,7 @@ export type BrowserSettings = {
   links: 'internal' | 'external'
   localLinks: 'internal' | 'external'
   search: 'bing' | 'google' | 'duckduckgo'
+  searchSuggestions: boolean
   fullUrl: boolean
   screenshots: 'element' | 'viewport' | 'none'
   restore: boolean
@@ -63,7 +64,17 @@ export type BrowserSettings = {
   askDownload: boolean
 }
 export type BrowserPermission = { origin: string; permission: string; value: 'ask' | 'allow' | 'deny' }
-export type BrowserHistory = { id: string; url: string; title: string; visitedAt: string }
+export type BrowserHistory = {
+  id: string
+  url: string
+  title: string
+  visitedAt: string
+  favicon?: string
+  visitCount?: number
+}
+export type BrowserSearchQuery = { query: string; usedAt: string; count: number }
+export type BrowserSuggestion = { text: string; description?: string }
+export type BrowserNavigationEntry = { index: number; title: string; url: string }
 export type BrowserDownload = {
   id: string
   url: string
@@ -89,11 +100,13 @@ export type BrowserSnapshot = {
   settings: BrowserSettings
   permissions: BrowserPermission[]
   history: BrowserHistory[]
+  searchQueries?: BrowserSearchQuery[]
   downloads: BrowserDownload[]
 }
 export type BrowserEvent =
   | { type: 'tab-closed'; owner: string; id: string }
   | { type: 'tab'; tab: BrowserTab }
+  | { type: 'target-url'; tabId: string; url: string }
   | { type: 'find-result'; tabId: string; text: string; active: number; matches: number }
   | { type: 'browser-shortcut'; tabId: string; action: 'find' | 'address' | 'close-find' }
   | { type: 'annotation-mode'; tabId: string; enabled: boolean; mode?: BrowserAnnotationMode }
@@ -108,6 +121,7 @@ export type BrowserEvent =
   | { type: 'changed' }
 export type BrowserCommand =
   | { type: 'navigate'; url: string }
+  | { type: 'go-to-index'; index: number }
   | { type: 'back' | 'forward' | 'reload' | 'stop' | 'external' | 'focus' }
   | { type: 'zoom'; value: number }
   | { type: 'find'; text: string; forward?: boolean; next?: boolean }
@@ -137,6 +151,9 @@ export interface BrowserPlatform {
   preview: (id: string) => Promise<string | null>
   command: (id: string, command: BrowserCommand) => Promise<void>
   history: (id?: string) => Promise<BrowserSnapshot>
+  suggest: (query: string) => Promise<BrowserSuggestion[]>
+  searchQuery: (value?: string | { remove: string }) => Promise<BrowserSnapshot>
+  navigationHistory: (id: string) => Promise<{ index: number; entries: BrowserNavigationEntry[] }>
   download: (id: string, action: 'cancel' | 'open' | 'reveal' | 'remove') => Promise<void>
   chooseDownloadDirectory: () => Promise<string | null>
   clear: (parts: Array<'history' | 'storage' | 'cache' | 'downloads'>) => Promise<void>

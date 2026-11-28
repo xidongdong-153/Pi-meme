@@ -17,13 +17,22 @@ const defaults: BrowserSettings = {
   links: 'external',
   localLinks: 'internal',
   search: 'bing',
+  searchSuggestions: true,
   fullUrl: false,
   screenshots: 'element',
   restore: true,
   downloadDirectory: '',
   askDownload: true,
 }
-const empty = (): BrowserSnapshot => ({ settings: { ...defaults }, permissions: [], history: [], downloads: [] })
+function empty(): BrowserSnapshot {
+  return {
+    settings: { ...defaults },
+    permissions: [],
+    history: [],
+    searchQueries: [],
+    downloads: [],
+  }
+}
 const digest = (text: string) => createHash('sha256').update(text).digest('hex')
 type SavedAnnotation = Omit<BrowserAnnotation, 'image'> & { asset?: string }
 type SavedWorkspace = Omit<BrowserWorkspace, 'annotations' | 'editor'> & {
@@ -49,6 +58,7 @@ export class BrowserStore {
       this.state = {
         ...saved,
         settings: { ...defaults, ...saved.settings },
+        searchQueries: Array.isArray(saved.searchQueries) ? saved.searchQueries : [],
         downloads: saved.downloads.map((item) =>
           item.state === 'progressing' ? { ...item, state: 'interrupted' } : item,
         ),
@@ -136,11 +146,52 @@ export class BrowserStore {
     return this.change((state) => {
       if (typeof value === 'string') state.history = state.history.filter((item) => item.id !== value)
       else if (value && typeof value === 'object') {
-        const item = value as BrowserSnapshot['history'][number]
+        const item = value as NonNullable<BrowserSnapshot['history']>[number]
         if (!item.id || !/^https?:\/\//.test(item.url) || typeof item.title !== 'string')
           throw new Error('浏览记录无效')
-        state.history = [item, ...state.history.filter((previous) => previous.url !== item.url)].slice(0, 2000)
-      } else state.history = []
+        const existing = state.history.find((previous) => previous.url === item.url)
+        const sameVisit = existing && existing.visitedAt === item.visitedAt
+        const nextItem = {
+          ...item,
+          favicon: item.favicon || existing?.favicon,
+          visitCount: sameVisit ? (existing.visitCount ?? 1) : (existing?.visitCount ?? 0) + 1,
+        }
+        state.history = [nextItem, ...state.history.filter((previous) => previous.url !== item.url)].slice(0, 2000)
+      } else {
+        state.history = []
+        state.searchQueries = []
+      }
+    })
+  }
+  searchQuery(value?: unknown) {
+    return this.change((state) => {
+      const queries = state.searchQueries ?? []
+      if (value === undefined) {
+        state.searchQueries = []
+        return
+      }
+      if (typeof value === 'object' && value !== null && 'remove' in value) {
+        const target = String((value as { remove?: unknown }).remove ?? '')
+          .trim()
+          .toLocaleLowerCase()
+        state.searchQueries = queries.filter((item) => item.query.toLocaleLowerCase() !== target)
+        return
+      }
+      if (typeof value === 'string') {
+        const text = value.trim()
+        if (!text || text.length > 200) return
+        const lower = text.toLocaleLowerCase()
+        const existing = queries.find((item) => item.query.toLocaleLowerCase() === lower)
+        const next = {
+          query: text,
+          usedAt: new Date().toISOString(),
+          count: (existing?.count ?? 0) + 1,
+        }
+        state.searchQueries = [next, ...queries.filter((item) => item.query.toLocaleLowerCase() !== lower)].slice(
+          0,
+          200,
+        )
+      }
     })
   }
   download(value: BrowserDownload | string) {

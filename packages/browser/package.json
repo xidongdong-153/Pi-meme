@@ -8,6 +8,7 @@
     "./shared/annotations": "./src/shared/annotations.ts",
     "./shared/navigation": "./src/shared/navigation.ts",
     "./ui/browser-panel": "./src/ui/browser-panel.tsx",
+    "./ui/browser-omnibox": "./src/ui/browser-omnibox.tsx",
     "./ui/browser-settings": "./src/ui/browser-settings.tsx",
     "./ui/browser-overlay": "./src/ui/browser-overlay.tsx",
     "./ui/use-browser": "./src/ui/use-browser.ts"

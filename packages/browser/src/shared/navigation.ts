@@ -18,6 +18,17 @@ export function browserUrl(input: string, search: BrowserSettings['search'] = 'b
   }
   return engines[search] + encodeURIComponent(text)
 }
+export function isLikelyUrlInput(input: string): boolean {
+  const text = input.trim()
+  if (!text || text === 'about:blank') return false
+  if (/^[a-z][\w+.-]*:\S*/i.test(text) && !/\s/.test(text) && !/^(?:localhost|[\w.-]+\.\w+):\d/i.test(text)) return true
+  if (/^(?:localhost|127(?:\.\d+){3}|\[::1\])(?::\d+)?(?:[/?#]|$)/i.test(text)) return true
+  if (/^[^\s/][^\s./]*\.[^\s/]+(?:[/?#]|$)/.test(text)) return true
+  return false
+}
+export function searchEngineLabel(search: BrowserSettings['search'] = 'bing'): string {
+  return { bing: 'Bing', google: 'Google', duckduckgo: 'DuckDuckGo' }[search]
+}
 export function isLocalBrowserUrl(value: string) {
   try {
     return (
