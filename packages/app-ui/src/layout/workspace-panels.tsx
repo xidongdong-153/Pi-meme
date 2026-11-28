@@ -382,12 +382,12 @@ export function WorkspacePanels({
       requestPanel.target.session?.sessionId === props.target.session?.sessionId &&
       requestPanel.target.project?.projectId === props.target.project?.projectId
     if (matches) {
-      if (open(requestPanel.id, requestPanel.intent ?? 'manual') && requestPanel.id.startsWith('builtin:file:'))
-        setUnified(true)
+      const opened = open(requestPanel.id, requestPanel.intent ?? 'manual')
+      if (opened && !unified && requestPanel.id.startsWith('builtin:file:')) setUnified(true)
     }
     // 过期目标、撤权和未知面板均是终态，不能让旧请求永久阻塞后续打开。
     onPanelRequestHandled?.(requestPanel.revision)
-  }, [requestPanel, open, props.target, onPanelRequestHandled, setUnified])
+  }, [requestPanel, open, props.target, onPanelRequestHandled, unified, setUnified])
   const previousSideChatActive = useRef(sideChatActive)
   useEffect(() => {
     const previous = previousSideChatActive.current
@@ -515,11 +515,6 @@ export function WorkspacePanels({
     if (!unified && activeTool) setLayout((value) => ({ ...value, open: true }))
     setToolActive(false)
   }, [unified, activeTool, setLayout, setToolActive])
-  const changeView = (next: boolean, forceTool = false) => {
-    if (!next && forceTool) setLayout((value) => ({ ...value, open: true }))
-    if (next === unified) setToolActive(false)
-    setUnified(next)
-  }
   const workspaceWidth = Math.max(0, containerWidth - (sidebarOpen ? sidebarWidth : 0))
   const maxWidth = Math.max(0, workspaceWidth - Math.min(480, containerWidth * 0.6))
   const rightWidth = Math.min(layout.width, maxWidth)
@@ -564,17 +559,16 @@ export function WorkspacePanels({
     containerRef.current = containerWidth
     rightPane.jump()
   }, [containerWidth, rightPane.jump])
-  const toggleRight = () => {
-    if (unified) changeView(false, true)
-    else setLayout((value) => ({ ...value, open: !value.open }))
-  }
+  const toggleFullView = () => setUnified(!unified)
+  const toggleRight = () => setLayout((value) => ({ ...value, open: !value.open }))
+  const rightSidebarLabel = layout.open ? '收起右侧栏' : '展开右侧栏'
   const shortcuts = useShortcuts()
   const toolsShortcut = shortcuts.getShortcutLabel('toggleTools')
   const fullViewShortcut = shortcuts.getShortcutLabel('toggleFullView')
 
   useShortcutHandlers(
     {
-      toggleFullView: () => changeView(!unified),
+      toggleFullView,
       toggleTools: () => {
         if (unified) {
           if (!showTool && !tabs.length) open(toolsTabId)
@@ -859,7 +853,7 @@ export function WorkspacePanels({
             label={`${unified ? '退出完整视图' : '进入完整视图'}${fullViewShortcut ? ` · ${fullViewShortcut}` : ''}`}
             ariaLabel={unified ? '退出完整视图' : '进入完整视图'}
             pressed={unified}
-            onClick={() => changeView(!unified)}
+            onClick={toggleFullView}
           >
             <svg
               viewBox="0 0 24 24"
@@ -874,38 +868,35 @@ export function WorkspacePanels({
               <path d={unified ? 'M14 3v7h7M3 14h7v7' : 'M14 3h7v7M3 14v7h7'} />
             </svg>
           </HeaderButton>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={toggleRight}
-                aria-label={unified ? '分栏显示工具' : layout.open ? '收起右侧栏' : '展开右侧栏'}
-                aria-expanded={layout.open}
-                aria-controls="workspace-right-sidebar"
-                className="relative size-7 text-muted-foreground hover:text-foreground cursor-pointer"
-              >
-                {layout.open ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
-                {Boolean(activity?.count) && (
-                  <span
-                    aria-label={`${activity!.count} 个活动服务`}
-                    className="absolute -right-1 -top-1 min-w-3.5 rounded-full bg-primary px-0.5 text-[9px] leading-3.5 text-primary-foreground tabular-nums"
-                  >
-                    {activity!.count}
-                  </span>
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {unified
-                ? '分栏显示工具'
-                : activity?.count
-                  ? `本会话有 ${activity.count} 个活动服务${toolsShortcut ? ` · ${toolsShortcut}` : ''}`
-                  : layout.open
-                    ? `收起右侧栏${toolsShortcut ? ` · ${toolsShortcut}` : ''}`
-                    : `展开右侧栏${toolsShortcut ? ` · ${toolsShortcut}` : ''}`}
-            </TooltipContent>
-          </Tooltip>
+          {!unified && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={toggleRight}
+                  aria-label={rightSidebarLabel}
+                  aria-expanded={layout.open}
+                  aria-controls="workspace-right-sidebar"
+                  className="relative size-7 text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  {layout.open ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
+                  {activity?.count ? (
+                    <span
+                      aria-label={`${activity.count} 个活动服务`}
+                      className="absolute -right-1 -top-1 min-w-3.5 rounded-full bg-primary px-0.5 text-[9px] leading-3.5 text-primary-foreground tabular-nums"
+                    >
+                      {activity.count}
+                    </span>
+                  ) : null}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {activity?.count ? `本会话有 ${activity.count} 个活动服务` : rightSidebarLabel}
+                {toolsShortcut && ` · ${toolsShortcut}`}
+              </TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </PageHeader>
 

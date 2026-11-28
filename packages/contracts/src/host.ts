@@ -110,6 +110,10 @@ export interface PlatformAdapter {
   importTheme: () => Promise<unknown | null>
   exportTheme: (theme: Theme) => Promise<void>
   openPath: (path: string) => Promise<void>
+  workspaceView?: {
+    read: () => Promise<boolean | null>
+    save: (unified: boolean) => Promise<void>
+  }
   shortcuts?: {
     read: () => Promise<ShortcutPreferences>
     save: (value: ShortcutPreferences) => Promise<void>

@@ -232,6 +232,7 @@ function ConnectedWebApp() {
         <ServicesApp
           registry={registry}
           browser={platform?.browser}
+          workspaceViewStorage={platform?.workspaceView}
           nativeWindow={Boolean(platform)}
           onBootComplete={markBootComplete}
         />

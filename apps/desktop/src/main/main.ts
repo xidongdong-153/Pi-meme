@@ -20,6 +20,7 @@ import { createStorageController } from './storage/controller'
 import { pendingStorageJob } from './storage/preferences'
 import { acquireDesktopHost, type DesktopHostOperation } from './local-host'
 import { createShortcutPreferencesStore } from './shortcut-preferences'
+import { createWorkspaceViewPreference } from './workspace-view-preference'
 import { findHostLoginItem } from './host-login-item'
 import { confirmSessionQuit } from './quit-confirmation'
 import { cancelWindowPreparation, closePreparedWindow, prepareWindowMaintenance } from './window/prepare-window'
@@ -62,6 +63,7 @@ app.on('second-instance', () => {
   window?.focus()
 })
 const desktopShortcuts = createShortcutPreferencesStore(app.getPath('userData'))
+const workspaceView = createWorkspaceViewPreference(app.getPath('userData'))
 const desktopUpdates = createAppUpdateService({
   kind: 'desktop',
   version: app.getVersion(),
@@ -254,6 +256,7 @@ app
       },
       storage.adapter,
       {
+        workspaceView,
         migration: {
           scan: (hostId) => migratePi<PiMigrationScan>(hostId, 'migration:scan'),
           apply: (hostId, input) => migratePi<PiMigrationResult>(hostId, 'migration:apply', input),
@@ -309,6 +312,7 @@ async function quitDesktop() {
   }
   // macOS 可以在窗口已关闭时退出，也可以在关闭窗口的同时按 ⌘Q。
   if (!(await confirm())) return
+  await workspaceView.flush()
   // 先卸载登录项，避免它在自管 Host 释放端口后立即补启 Server。
   pendingLoginItem = loginItem
   await loginItem?.stop()

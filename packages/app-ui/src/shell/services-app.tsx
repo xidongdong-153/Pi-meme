@@ -1,4 +1,5 @@
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
+import type { PlatformAdapter } from '@pi-meme/contracts/host'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { AppearanceProvider } from '@pi-meme/settings/ui/appearance-provider'
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
@@ -7,6 +8,7 @@ import { buildSidebarModel, sidebarManualOrders } from '@pi-meme/workspace/ui/si
 import { SessionSearchDialog } from '@pi-meme/workspace/ui/sidebar/session-search-dialog'
 import { useSidebarManualOrders, useSidebarPreferences } from '@pi-meme/workspace/ui/sidebar/use-sidebar-preferences'
 import { App } from '../app'
+import { ErrorNotice } from '../layout/error-notice'
 import { useSidebarLayout } from '../layout/use-sidebar-layout'
 import { useWorkspaceView } from '../layout/use-workspace-view'
 import { MultiServiceSidebar } from './multi-service-sidebar'
@@ -26,10 +28,12 @@ function ServiceApp({
 export function ServicesApp({
   registry,
   browser,
+  workspaceViewStorage,
   nativeWindow,
   onBootComplete,
 }: {
   browser?: BrowserPlatform
+  workspaceViewStorage?: PlatformAdapter['workspaceView']
   registry: ServiceRegistry
   nativeWindow: boolean
   onBootComplete?: () => void
@@ -37,7 +41,7 @@ export function ServicesApp({
   const [services, setServices] = useState(() => registry.list())
   const [activeId, setActiveId] = useState(registry.localServiceId)
   const sidebarLayout = useSidebarLayout()
-  const workspaceView = useWorkspaceView()
+  const workspaceView = useWorkspaceView(workspaceViewStorage)
   const [, setRevision] = useState(0)
   const [searchOpen, setSearchOpen] = useState(false)
   const {
@@ -229,8 +233,16 @@ export function ServicesApp({
     ),
   )
   const remoteSettings = <RemoteSettings services={services} registry={registry} onRemove={remove} />
+  if (!workspaceView.ready) return null
   return (
     <AppearanceProvider bridge={registry.local.bridge}>
+      {workspaceView.error && (
+        <ErrorNotice
+          message={workspaceView.error}
+          onDismiss={workspaceView.dismissError}
+          onOpenSettings={() => controllers.current.get(activeId)?.openSettings()}
+        />
+      )}
       {services.map((service) => {
         const client = registry.get(service.id)
         return (

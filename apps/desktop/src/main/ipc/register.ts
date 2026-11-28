@@ -24,7 +24,11 @@ export function registerPlatformIpc(
   },
   desktopUpdates: Pick<AppUpdateService, 'getInfo' | 'check'>,
   storage: DesktopStorageAdapter | undefined,
-  preferences: { migration: DesktopPiMigration; shortcuts: NonNullable<PlatformAdapter['shortcuts']> },
+  preferences: {
+    migration: DesktopPiMigration
+    shortcuts: NonNullable<PlatformAdapter['shortcuts']>
+    workspaceView: NonNullable<PlatformAdapter['workspaceView']>
+  },
 ) {
   const handle = (channel: string, action: (...args: unknown[]) => unknown) =>
     ipcMain.handle(channel, (event, ...args: unknown[]) => {
@@ -92,6 +96,11 @@ export function registerPlatformIpc(
   handle('platform:window-command', (command) => executeWindowCommand(getWindow()!, command))
   handle('platform:saved-connections', savedConnections.list)
   handle('platform:connection-error', savedConnections.error)
+  handle('platform:workspace-view-read', preferences.workspaceView.read)
+  handle('platform:workspace-view-save', (unified) => {
+    if (typeof unified !== 'boolean') throw new Error('完整视图开关必须是布尔值')
+    return preferences.workspaceView.save(unified)
+  })
   handle('platform:shortcuts-read', preferences.shortcuts.read)
   handle('platform:shortcuts-save', (value) =>
     preferences.shortcuts.save(value as Parameters<typeof preferences.shortcuts.save>[0]),
@@ -176,6 +185,8 @@ export function registerPlatformIpc(
       'open-project',
       'import-theme',
       'export-theme',
+      'workspace-view-read',
+      'workspace-view-save',
       'shortcuts-read',
       'shortcuts-save',
       'pi-migration-scan',

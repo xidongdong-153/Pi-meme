@@ -449,11 +449,11 @@ body {
 }
 
 .workspace-topbar {
-  --right-toggle-slot: 72px;
+  --right-toggle-slot: 60px;
 }
 
-.workspace-panes[data-view='split'] .workspace-topbar {
-  --right-toggle-slot: 60px;
+.workspace-panes[data-view='unified'] .workspace-topbar {
+  --right-toggle-slot: 44px;
 }
 
 .workspace-topbar > .workspace-main-header {
