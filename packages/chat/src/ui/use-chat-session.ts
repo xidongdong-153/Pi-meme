@@ -40,7 +40,7 @@ function sameBashOutputDetails(before: unknown, after: unknown) {
     keys.length === Object.keys(before).length &&
     keys.every(
       (key) =>
-        (key === 'truncation' || key === 'fullOutputPath') &&
+        (key === 'truncation' || key === 'fullOutputPath' || key === 'fullOutputError') &&
         Object.hasOwn(before, key) &&
         Object.is(Reflect.get(before, key), Reflect.get(after, key)),
     )

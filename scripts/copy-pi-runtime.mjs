@@ -17,6 +17,7 @@ import { build } from 'esbuild'
 import path from 'node:path'
 import { createRequire } from 'node:module'
 import { prepareNodePty } from './prepare-node-pty.mjs'
+import { chordPackagePaths } from '../packages/plugin-devkit/src/chord-package-paths.mjs'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -43,9 +44,7 @@ export async function copyPiRuntime(targetDir) {
   const keyringAbi = process.platform === 'linux' ? '-gnu' : process.platform === 'win32' ? '-msvc' : ''
   const packages = [
     { name: piPackage, filter: piPackageFilter },
-    { name: '@earendil-works/chord', filter: copyFilter },
-    { name: '@earendil-works/pi-schema', filter: copyFilter },
-    { name: '@earendil-works/pi-telemetry', filter: copyFilter },
+    ...chordPackagePaths(sourceRoot).map((name) => ({ name, filter: copyFilter })),
     { name: '@earendil-works/pi-agent-core', filter: copyFilter },
     { name: '@napi-rs/keyring', filter: copyFilter },
     { name: `@napi-rs/keyring-${process.platform}-${process.arch}${keyringAbi}`, filter: copyFilter },

@@ -46,10 +46,10 @@ export async function readLocalPreferences(cwd: string, agentDir: string) {
   return { ...readModelPreferences(settings), steeringMode, followUpMode }
 }
 
-// Pi SDK 1.6.0 的 core/model-resolver.ts。SDK 未导出这张表，升级时同步顺序和模型 ID。
+// Pi SDK 1.7.0 的 core/model-resolver.ts。SDK 未导出这张表，升级时同步顺序和模型 ID。
 const providerDefaults = {
   'amazon-bedrock': 'us.anthropic.claude-opus-5-5',
-  'ant-ling': 'Ring-2.6-1T',
+  'ant-ling': 'Ling-3.1-flash',
   anthropic: 'claude-opus-5-5',
   openai: 'gpt-6.2-sol',
   azure: 'gpt-6.2-sol',
@@ -67,7 +67,7 @@ const providerDefaults = {
   cerebras: 'gpt-oss-120b',
   zai: 'glm-5.3',
   'zai-coding-cn': 'glm-5.3',
-  mistral: 'devstral-medium-latest',
+  mistral: 'mistral-medium-latest',
   minimax: 'MiniMax-M3',
   'minimax-cn': 'MiniMax-M3',
   moonshotai: 'kimi-k2.7-code',
@@ -80,8 +80,8 @@ const providerDefaults = {
   'opencode-go': 'kimi-k3.1-pro',
   'kimi-coding': 'kimi-for-coding',
   meta: 'muse-spark-1.3',
-  'cloudflare-workers-ai': '@cf/moonshotai/kimi-k2.7-code',
-  'cloudflare-ai-gateway': 'workers-ai/@cf/moonshotai/kimi-k2.7-code',
+  'cloudflare-workers-ai': '@cf/zai-org/glm-5.3',
+  'cloudflare-ai-gateway': 'workers-ai/@cf/zai-org/glm-5.3',
   'qwen-token-plan': 'qwen3.8-max',
   'qwen-token-plan-cn': 'qwen3.8-max',
   'qwen-token-plan-individual': 'qwen3.8-max',

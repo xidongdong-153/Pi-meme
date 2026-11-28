@@ -436,6 +436,8 @@ export function observeModelRuntime(runtime: ModelRuntime, options: ContextObser
           responseModel: Model<Api>,
         ) => {
           await originalResponse?.(response, responseModel)
+          // 失败的路由也会触发回调；只有成功响应能说明实际提供回复的模型。
+          if (response.status < 200 || response.status >= 300) return
           try {
             // Only these explicit non-secret routing headers are retained.
             const headers = Object.fromEntries(

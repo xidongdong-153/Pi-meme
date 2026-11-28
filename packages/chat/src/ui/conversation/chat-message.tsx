@@ -64,7 +64,7 @@ export function ChatMessage({
               type: 'tool',
               name: 'bash',
               command: message.command,
-              output: message.output,
+              output: messageText(message),
               status:
                 !message.cancelled && typeof message.exitCode === 'number' && message.exitCode !== 0
                   ? 'error'

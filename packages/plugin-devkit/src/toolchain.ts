@@ -2,6 +2,7 @@ import { access, cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } 
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { build } from 'esbuild'
+import { chordPackagePaths } from './chord-package-paths.mjs'
 import ts from 'typescript'
 
 export const diagnosticHost: ts.FormatDiagnosticsHost = {
@@ -68,9 +69,7 @@ async function prepareToolchain() {
     const packages = [
       'esbuild',
       `@esbuild/${process.platform}-${process.arch}`,
-      '@earendil-works/chord',
-      '@earendil-works/pi-schema',
-      '@earendil-works/pi-telemetry',
+      ...chordPackagePaths(path.join(repo, 'node_modules')),
       'typescript',
       '@types/node',
       '@types/react',

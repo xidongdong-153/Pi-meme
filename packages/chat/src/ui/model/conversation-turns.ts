@@ -1,3 +1,4 @@
+import { messageText } from './message-text'
 import { nestedTools, toolTreeIndex } from './nested-tools'
 import { retainTurns, sameItems } from './stable-turns'
 import type { PiImage, PiMessage, PiRunInterval } from '@pi-meme/contracts/pi'
@@ -320,7 +321,7 @@ export function groupConversationTurns(
           type: 'tool',
           name: 'bash',
           command: msg.command,
-          output: msg.output,
+          output: messageText(msg),
           status: !msg.cancelled && typeof msg.exitCode === 'number' && msg.exitCode !== 0 ? 'error' : 'success',
         },
       })

@@ -25,8 +25,8 @@
   },
   "dependencies": {
     "@pi-meme/windows-native": "workspace:*",
-    "@earendil-works/pi-coding-agent": "1.6.0",
-    "@earendil-works/pi-tui": "1.6.0",
+    "@earendil-works/pi-coding-agent": "1.7.0",
+    "@earendil-works/pi-tui": "1.7.0",
     "@hono/node-server": "2.1.5",
     "@pi-meme/activities": "workspace:*",
     "@pi-meme/chat": "workspace:*",

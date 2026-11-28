@@ -52,6 +52,8 @@ paths:
 
 [config/app.json](../packages/settings/src/server/store.ts)（原 `settings.json`）保存应用外观、主题、侧栏、新会话默认权限和 `defaultAgentPlugins` 等设置；字段见 [DesktopSettings](../packages/contracts/src/settings.ts)。`config/agent/settings.json`（原 `pi/settings.json`）是 SDK 设置文件，与应用设置分开。项目 `.pi/settings.json` 可读，SDK 存储适配器不向项目写回，见 [sdk/settings.ts](../packages/pi-runtime/src/sdk/settings.ts)。
 
+升级至 Pi SDK 1.7.0 后，SDK 读取旧 `showCacheMissNotices` 时，将其作为 `notices.cacheMisses`、`notices.cacheWarming`、`notices.compactionCosts` 和 `notices.reasoningDrops` 的初值。已单独设置的通知沿用各自的值。
+
 “设置 → Agent → 模型”管理 Host 的 `config/agent/models.json`（原 `pi/models.json`）。服务地址和模型声明保存在此文件，API Key、OAuth 与请求头的值由凭据存储管理。配置读取以占位值表示保存的地址和请求头，原样提交会保留已存值。协议与可编辑字段见 [model-config.ts](../packages/contracts/src/model-config.ts)，校验和保存见 [config-store.ts](../packages/models/src/server/config-store.ts)。
 
 同一页可以登录 Pi 自带目录里的服务商。登录或退出后重连 Pi，模型选择器会刷新可用模型。会话正在运行时凭据仍会保存，重连失败时页面会提示稍后再点“重新连接”。通用登录调用 `ModelRuntime.login`，退出调用 `logout`。OpenAI 等登录用的设备标识写在 `config/agent/device-id`（原 `pi/device-id`）。
@@ -64,7 +66,7 @@ Azure OpenAI 在内置服务商列表使用「配置 Azure」或「更新配置�
 
 获取模型列表时，网关可以用 `service_tiers` 中的 `priority` 或 `additional_speed_tiers` 中的 `fast` 声明支持，已有的模型级设置优先。网关仅返回模型 ID 时，可以手动勾选。官方 OpenAI API 和 Codex 订阅按各自的模型目录识别 Fast。请求档位和会话记忆见 [GPT 速度](sessions.md#gpt-速度)。
 
-自定义模型可以逐项勾选思考强度。未提供档位映射时，配置表单默认全选；保存后使用 Pi 的 `thinkingLevelMap` 声明能力，取消勾选的档位写为 `null`。关闭“支持思考”后，会话只提供 `off`。已有映射保留；高级模型参数可填写每档对应的接口参数值。OpenAI 兼容协议的 `xhigh`、`max` 默认同名映射；Google 协议默认映射到 `high`，可按服务文档调整。接口返回 `reasoning` 和 `thinkingLevelMap` 时，模型发现会保留这些字段；仅返回模型 ID 时不推断上游能力。
+自定义模型可以逐项勾选思考强度。未提供档位映射时，配置表单默认全选；保存后使用 Pi 的 `thinkingLevelMap` 声明能力，取消勾选的档位写为 `null`。关闭“支持思考”后，会话只提供 `off`。已有映射保留；高级模型参数可填写每档对应的接口参数值。OpenAI 兼容协议的 `xhigh`、`max` 默认同名映射；自定义 Google 模型缺少映射时，这两档默认使用 `high`。支持原生 `XHIGH` 的模型（如 Gemini 4 Hydrogen 和 Neon）可将 `xhigh` 映射设为 `xhigh`，SDK 会发送 `XHIGH`。接口返回 `reasoning` 和 `thinkingLevelMap` 时，模型发现会保留这些字段；仅返回模型 ID 时不推断上游能力。
 
 原生思考强度选择使用 Pi SDK 返回的模型可用档位；切换模型、恢复会话或设置不支持的强度时，按模型能力调整。未经配置表单保存的旧模型仍遵循 SDK 默认能力：`reasoning: true` 且没有映射时最高为 `high`。全局默认强度保留用户偏好，各会话按所选模型调整。
 
