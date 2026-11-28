@@ -1,5 +1,5 @@
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
-import { useId, useRef, type HTMLAttributes, type ReactNode } from 'react'
+import { useId, useRef, useState, type HTMLAttributes, type ReactNode } from 'react'
 import { ArrowDownUp, ChevronRight, Folder, GripVertical, List, MoreHorizontal, PanelLeft } from 'lucide-react'
 import type { SidebarPreferences, SidebarPreferencesPatch } from '@pi-meme/contracts/settings'
 import * as Dropdown from '@pi-meme/ui/components/ui/dropdown-menu'
@@ -35,8 +35,10 @@ export function SidebarSection({
           <span className="truncate">{title}</span>
           <span
             className={cn(
-              'inline-flex size-3 shrink-0 items-center justify-center opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none group-hover/section-header:opacity-100 group-has-[:focus-visible]/section-header:opacity-100',
-              !collapsed && 'rotate-90',
+              'inline-flex size-3 shrink-0 items-center justify-center transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none',
+              collapsed
+                ? 'opacity-80 group-hover/section-header:opacity-100'
+                : 'rotate-90 opacity-0 group-hover/section-header:opacity-100 group-has-[:focus-visible]/section-header:opacity-100',
             )}
           >
             <ChevronRight aria-hidden="true" className="block size-3" />
@@ -45,7 +47,7 @@ export function SidebarSection({
         {actions && (
           <div
             data-sidebar-section-actions
-            className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-200 ease-out group-hover/section-header:opacity-100"
+            className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-200 ease-out motion-reduce:transition-none group-hover/section-header:opacity-100 group-has-[:focus-visible]/section-header:opacity-100 group-has-[[data-state=open]]/section-header:opacity-100"
           >
             {actions}
           </div>
@@ -82,9 +84,9 @@ export function SidebarPreferencesMenu({
           type="button"
           aria-label="侧边栏显示选项"
           disabled={disabled}
-          className="rounded p-1 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-40"
+          className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-40"
         >
-          <MoreHorizontal className="size-4" />
+          <MoreHorizontal className="size-3.5" />
         </button>
       </Dropdown.DropdownMenuTrigger>
       <Dropdown.DropdownMenuContent
@@ -143,7 +145,7 @@ export function SidebarPreferencesMenu({
 }
 export type SidebarDragProps = Pick<
   HTMLAttributes<HTMLElement>,
-  'draggable' | 'onPointerDownCapture' | 'onDragStart' | 'onKeyDown'
+  'draggable' | 'onPointerDownCapture' | 'onDragStart' | 'onDragEnd' | 'onKeyDown'
 >
 
 export function SidebarSortable({
@@ -162,6 +164,7 @@ export function SidebarSortable({
   children: ReactNode | ((dragProps: SidebarDragProps) => ReactNode)
 }) {
   const dragBlocked = useRef(false)
+  const [dragOver, setDragOver] = useState(false)
   const dragType = `application/x-pi-sidebar-${encodeURIComponent(listKey).toLowerCase()}`
   const move = (key: string, targetKey: string) => {
     const next = reorderSidebarItems(keys, key, targetKey)
@@ -182,6 +185,9 @@ export function SidebarSortable({
       event.dataTransfer.effectAllowed = 'move'
       event.dataTransfer.setData(dragType, JSON.stringify({ listKey, key: itemKey }))
     },
+    onDragEnd: () => {
+      setDragOver(false)
+    },
     onKeyDown: (event) => {
       if (!enabled || (event.target as HTMLElement).closest('[data-sidebar-drag-ignore]')) return
       if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
@@ -194,16 +200,26 @@ export function SidebarSortable({
   }
   return (
     <div
-      className={cn('group/sortable relative min-w-0', enabled && !rowDrag && 'pr-3')}
+      className={cn(
+        'group/sortable relative min-w-0 rounded-lg transition-shadow duration-100',
+        enabled && !rowDrag && 'pr-3',
+        dragOver && 'ring-1 ring-primary/60 bg-primary/5',
+      )}
       data-sidebar-item-key={itemKey}
+      data-drag-over={dragOver || undefined}
       onDragOver={(event) => {
         if (enabled && event.dataTransfer.types.includes(dragType)) {
           event.preventDefault()
           event.stopPropagation()
           event.dataTransfer.dropEffect = 'move'
+          if (!dragOver) setDragOver(true)
         }
       }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOver(false)
+      }}
       onDrop={(event) => {
+        setDragOver(false)
         if (!enabled || !event.dataTransfer.types.includes(dragType)) return
         event.preventDefault()
         event.stopPropagation()

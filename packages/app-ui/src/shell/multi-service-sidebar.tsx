@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { Plus, Search, SquarePen } from 'lucide-react'
 import type { HostService } from '@pi-meme/contracts/host'
 import type { SidebarPreferences, SidebarPreferencesPatch } from '@pi-meme/contracts/settings'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
-import { TooltipHint, Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
+import { Button } from '@pi-meme/ui/components/ui/button'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { ProjectItem } from '@pi-meme/workspace/ui/sidebar/project-item'
+import { recentGroup } from '@pi-meme/workspace/ui/sidebar/recents-section'
 import { SessionItem } from '@pi-meme/workspace/ui/sidebar/session-item'
 import { SidebarMenus } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
 import {
@@ -32,6 +34,7 @@ export function MultiServiceSidebar({
   preferences,
   preferencesLoaded = true,
   preferenceError,
+  sessionsLoading = false,
   onPreferencesChange,
   onSearch,
   onActivate,
@@ -45,6 +48,7 @@ export function MultiServiceSidebar({
   preferences: SidebarPreferences
   preferencesLoaded?: boolean
   preferenceError: string
+  sessionsLoading?: boolean
   onPreferencesChange: (patch: SidebarPreferencesPatch) => void
   onSearch: () => void
   onActivate: (id: string, work: (controller: ServiceController) => Promise<boolean>) => void
@@ -221,9 +225,7 @@ export function MultiServiceSidebar({
     >
       {entry.kind === 'project'
         ? (dragProps) => renderProject(entry, pinned, dragProps)
-        : pinned
-          ? (dragProps) => renderSession(entry, pinned, dragProps)
-          : renderSession(entry, pinned)}
+        : (dragProps) => renderSession(entry, pinned, dragProps)}
     </SidebarSortable>
   )
   const visibleProjects = showAllProjects
@@ -244,6 +246,10 @@ export function MultiServiceSidebar({
   const projectKeys = model.projects.map((entry) => entry.key)
   const pinnedKeys = model.pinned.map((entry) => entry.key)
   const recentKeys = model.recents.map((entry) => entry.key)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const recentGroups = manual ? [] : visibleRecents.map((entry) => recentGroup(entry.session, today))
+  const showInitialLoading = sessionsLoading && !model.pinned.length && !model.projects.length && !model.recents.length
   const toggleSection = (id: keyof SidebarPreferences['collapsed']) =>
     onPreferencesChange({ collapsed: { [id]: !preferences.collapsed[id] } })
 
@@ -257,140 +263,184 @@ export function MultiServiceSidebar({
           <BrandMark size={20} />
           Pi meme
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
+        <TooltipHint content={searchShortcut ? `搜索聊天 · ${searchShortcut}` : '搜索聊天'}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="搜索聊天"
+            onClick={onSearch}
+            className="size-7 text-muted-foreground hover:text-foreground cursor-pointer"
+          >
+            <Search className="size-3.5" />
+          </Button>
+        </TooltipHint>
+      </div>
+      <div className="px-3 py-1.5">
+        <TooltipHint
+          content={
+            activePaused ? '连接已暂停，请先恢复连接' : newChatShortcut ? `新聊天（${newChatShortcut}）` : '新聊天'
+          }
+        >
+          <span className="flex w-full" tabIndex={activePaused ? 0 : undefined}>
             <button
               type="button"
-              aria-label="搜索聊天"
-              onClick={onSearch}
-              className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => onActivate(activeId, (chat) => chat.newSession())}
+              disabled={activePaused}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-xs font-medium text-foreground transition-colors duration-200 ease-out hover:bg-secondary/70 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-left group"
             >
-              <Search className="size-4" />
+              <SquarePen className="size-4 text-foreground/80 shrink-0 group-hover:text-primary transition-colors" />
+              <span>新聊天</span>
             </button>
-          </TooltipTrigger>
-          <TooltipContent>搜索聊天{searchShortcut ? ` · ${searchShortcut}` : ''}</TooltipContent>
-        </Tooltip>
+          </span>
+        </TooltipHint>
       </div>
-      <TooltipHint
-        content={
-          activePaused ? '连接已暂停，请先恢复连接' : newChatShortcut ? `新聊天（${newChatShortcut}）` : '新聊天'
-        }
-      >
-        <button
-          type="button"
-          onClick={() => onActivate(activeId, (chat) => chat.newSession())}
-          disabled={activePaused}
-          className="mx-3 my-1.5 flex items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-secondary"
-        >
-          <SquarePen className="size-4" />
-          新聊天
-        </button>
-      </TooltipHint>
       {preferenceError && (
         <p role="alert" className="px-3 text-xs text-destructive">
           {preferenceError}
         </p>
       )}
-      <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto pl-3 pr-1.5 py-2 [scrollbar-gutter:stable]">
-        {model.pinned.length > 0 && (
-          <SidebarSection
-            id="pinned"
-            title="置顶"
-            collapsed={preferences.collapsed.pinned}
-            onToggle={() => toggleSection('pinned')}
-          >
-            <div className="space-y-1">
-              {model.pinned.map((entry) => renderEntry(entry, 'pinned', pinnedKeys, true))}
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pl-3 pr-1.5 [scrollbar-gutter:stable]">
+        {showInitialLoading ? (
+          <div className="ui-loading-delayed space-y-4 py-3 px-1 animate-pulse">
+            <div className="space-y-2">
+              <div className="h-3 w-10 bg-secondary/80 rounded" />
+              <div className="h-7 w-full bg-secondary/40 rounded-lg" />
             </div>
-          </SidebarSection>
-        )}
-        {preferences.groupMode === 'projects' && (
-          <SidebarSection
-            id="projects"
-            title="项目"
-            collapsed={preferences.collapsed.projects}
-            onToggle={() => toggleSection('projects')}
-            actions={
-              <>
-                <SidebarPreferencesMenu
-                  preferences={preferences}
-                  disabled={!preferencesLoaded}
-                  onChange={onPreferencesChange}
-                />
-                <TooltipHint content={activePaused ? '连接已暂停，请先恢复连接' : '新建项目'}>
-                  <button
-                    type="button"
-                    aria-label="新建项目"
-                    disabled={activePaused}
-                    onClick={() =>
-                      void (active?.openProjectDialog ? active.openProjectDialog() : active?.chooseDirectory())
-                    }
-                    className="rounded p-1 hover:bg-secondary"
-                  >
-                    <Plus className="size-3.5" />
-                  </button>
-                </TooltipHint>
-              </>
-            }
-          >
-            <div className="space-y-1">
-              {visibleProjects.map((entry) => renderEntry(entry, 'projects', projectKeys))}
-              {model.projects.length > 5 && (
-                <button
-                  type="button"
-                  onClick={() => setShowAllProjects((value) => !value)}
-                  className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer rounded transition-colors w-full text-left"
-                >
-                  <span>{showAllProjects ? '收起' : '展开显示'}</span>
-                </button>
-              )}
+            <div className="space-y-2 pt-2">
+              <div className="h-3 w-10 bg-secondary/80 rounded" />
+              <div className="h-7 w-full bg-secondary/40 rounded-lg" />
+              <div className="h-7 w-full bg-secondary/30 rounded-lg" />
+              <div className="h-7 w-full bg-secondary/20 rounded-lg" />
             </div>
-          </SidebarSection>
-        )}
-        <SidebarSection
-          id="recents"
-          title="最近"
-          collapsed={preferences.collapsed.recents}
-          onToggle={() => toggleSection('recents')}
-          actions={
-            preferences.groupMode === 'merged' && (
-              <>
-                <SidebarPreferencesMenu
-                  preferences={preferences}
-                  disabled={!preferencesLoaded}
-                  onChange={onPreferencesChange}
-                />
-                <TooltipHint content={newChatShortcut ? `新聊天（${newChatShortcut}）` : '新聊天'}>
-                  <button
-                    type="button"
-                    aria-label="新聊天"
-                    onClick={() => onActivate(activeId, (chat) => chat.newSession())}
-                    className="rounded p-1 hover:bg-secondary"
-                  >
-                    <SquarePen className="size-3.5" />
-                  </button>
-                </TooltipHint>
-              </>
-            )
-          }
-        >
-          <div className="space-y-1">
-            {visibleRecents.map((entry) => renderEntry(entry, 'recents', recentKeys))}
-            {model.recents.length > 8 && (
-              <button
-                type="button"
-                onClick={() =>
-                  setRecentsLimit((limit) =>
-                    limit >= model.recents.length ? 8 : Math.min(limit + 8, model.recents.length),
-                  )
-                }
-                className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
-              >
-                {recentsLimit >= model.recents.length ? '收起' : '加载更多'}
-              </button>
-            )}
           </div>
-        </SidebarSection>
+        ) : (
+          <div className="space-y-4 py-2 w-full min-w-0">
+            {model.pinned.length > 0 && (
+              <SidebarSection
+                id="pinned"
+                title="置顶"
+                collapsed={preferences.collapsed.pinned}
+                onToggle={() => toggleSection('pinned')}
+              >
+                <div className="space-y-1">
+                  {model.pinned.map((entry) => renderEntry(entry, 'pinned', pinnedKeys, true))}
+                </div>
+              </SidebarSection>
+            )}
+            {preferences.groupMode === 'projects' && (
+              <SidebarSection
+                id="projects"
+                title="项目"
+                collapsed={preferences.collapsed.projects}
+                onToggle={() => toggleSection('projects')}
+                actions={
+                  <>
+                    <SidebarPreferencesMenu
+                      preferences={preferences}
+                      disabled={!preferencesLoaded}
+                      onChange={onPreferencesChange}
+                    />
+                    <TooltipHint content={activePaused ? '连接已暂停，请先恢复连接' : '新建项目'}>
+                      <span className="inline-flex" tabIndex={activePaused ? 0 : undefined}>
+                        <button
+                          type="button"
+                          aria-label="新建项目"
+                          disabled={activePaused}
+                          onClick={() =>
+                            void (active?.openProjectDialog ? active.openProjectDialog() : active?.chooseDirectory())
+                          }
+                          className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors duration-200 ease-out cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        >
+                          <Plus className="size-3.5" />
+                        </button>
+                      </span>
+                    </TooltipHint>
+                  </>
+                }
+              >
+                <div className="space-y-1">
+                  {visibleProjects.map((entry) => renderEntry(entry, 'projects', projectKeys))}
+                  {model.projects.length > 5 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllProjects((value) => !value)}
+                      className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer rounded transition-colors w-full text-left"
+                    >
+                      <span>{showAllProjects ? '收起' : '展开显示'}</span>
+                    </button>
+                  )}
+                </div>
+              </SidebarSection>
+            )}
+            <SidebarSection
+              id="recents"
+              title="最近"
+              collapsed={preferences.collapsed.recents}
+              onToggle={() => toggleSection('recents')}
+              actions={
+                preferences.groupMode === 'merged' && (
+                  <>
+                    <SidebarPreferencesMenu
+                      preferences={preferences}
+                      disabled={!preferencesLoaded}
+                      onChange={onPreferencesChange}
+                    />
+                    <TooltipHint
+                      content={
+                        activePaused
+                          ? '连接已暂停，请先恢复连接'
+                          : newChatShortcut
+                            ? `新聊天（${newChatShortcut}）`
+                            : '新聊天'
+                      }
+                    >
+                      <span className="inline-flex" tabIndex={activePaused ? 0 : undefined}>
+                        <button
+                          type="button"
+                          aria-label="新聊天"
+                          disabled={activePaused}
+                          onClick={() => onActivate(activeId, (chat) => chat.newSession())}
+                          className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors duration-200 ease-out cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        >
+                          <SquarePen className="size-3.5" />
+                        </button>
+                      </span>
+                    </TooltipHint>
+                  </>
+                )
+              }
+            >
+              <div className="space-y-1">
+                {visibleRecents.map((entry, index) => (
+                  <Fragment key={entry.key}>
+                    {recentGroups[index] && recentGroups[index] !== recentGroups[index - 1] && (
+                      <div className="px-2 pb-1 pt-2 text-[0.6875rem] text-muted-foreground/60">
+                        {recentGroups[index]}
+                      </div>
+                    )}
+                    {renderEntry(entry, 'recents', recentKeys)}
+                  </Fragment>
+                ))}
+                {model.recents.length > 8 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRecentsLimit((limit) =>
+                        limit >= model.recents.length ? 8 : Math.min(limit + 8, model.recents.length),
+                      )
+                    }
+                    className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer rounded transition-colors w-full text-left"
+                  >
+                    <span>{recentsLimit >= model.recents.length ? '收起' : '加载更多'}</span>
+                  </button>
+                )}
+                {model.recents.length === 0 && !sessionsLoading && (
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground/60">暂无历史会话</div>
+                )}
+              </div>
+            </SidebarSection>
+          </div>
+        )}
       </div>
     </aside>
   )

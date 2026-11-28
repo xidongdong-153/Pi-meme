@@ -78,13 +78,13 @@ export function ProjectsSection({
         <>
           {menu}
           <TooltipHint content="新建项目">
-            <span className="inline-flex">
+            <span className="inline-flex" tabIndex={!ready ? 0 : undefined}>
               <button
                 type="button"
                 onClick={onDirectory}
                 disabled={!ready}
                 aria-label="新建项目"
-                className="rounded p-1 transition-colors duration-200 ease-out hover:bg-secondary disabled:opacity-50"
+                className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors duration-200 ease-out cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
                 <Plus className="size-3.5" />
               </button>

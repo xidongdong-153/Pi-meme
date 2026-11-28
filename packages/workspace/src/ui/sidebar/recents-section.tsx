@@ -4,7 +4,7 @@ import { SessionItem } from './session-item'
 import type { SidebarProps } from './sidebar'
 import { Fragment, type ReactNode } from 'react'
 
-function recentGroup(session: SidebarSessionEntry['session'], today: Date): string {
+export function recentGroup(session: SidebarSessionEntry['session'], today: Date): string {
   const time = Date.parse(session.completedAt ?? session.created)
   if (time >= today.getTime()) return '今天'
   const yesterday = new Date(today)
@@ -60,15 +60,18 @@ export function RecentsSection({
               <div className="px-2 pb-1 pt-2 text-[0.6875rem] text-muted-foreground/60">{groups[index]}</div>
             )}
             <SidebarSortable itemKey={entry.key} listKey="recents" keys={keys} enabled={sortable} onReorder={onReorder}>
-              <SessionItem
-                session={entry.session}
-                projectName={entry.projectName}
-                variant="recent"
-                isActive={activeSessionId === entry.session.id || activeSessionPath === entry.session.path}
-                onSwitchSession={onSwitchSession}
-                onTogglePin={onTogglePin}
-                onPrefetchSession={onPrefetchSession}
-              />
+              {(dragProps) => (
+                <SessionItem
+                  dragProps={dragProps}
+                  session={entry.session}
+                  projectName={entry.projectName}
+                  variant="recent"
+                  isActive={activeSessionId === entry.session.id || activeSessionPath === entry.session.path}
+                  onSwitchSession={onSwitchSession}
+                  onTogglePin={onTogglePin}
+                  onPrefetchSession={onPrefetchSession}
+                />
+              )}
             </SidebarSortable>
           </Fragment>
         ))}

@@ -2,7 +2,7 @@ import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { SidebarMenus, type SidebarMenuBridge } from './sidebar-menus'
 import type { SettingsBridge, WorkspaceBridge, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
 import { useMemo, useState } from 'react'
-import { Bell, ChevronDown, Search, SquarePen } from 'lucide-react'
+import { ChevronDown, Search, SquarePen } from 'lucide-react'
 import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
@@ -190,18 +190,8 @@ export function Sidebar({
             <ChevronDown className="size-3 text-muted-foreground/60" />
           </button>
           <div className="flex items-center gap-0.5">
-            <TooltipHint content="暂无新通知">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="通知"
-                className="size-7 text-muted-foreground hover:text-foreground cursor-pointer"
-              >
-                <Bell className="size-3.5" />
-              </Button>
-            </TooltipHint>
-            <TooltipHint content={searchShortcutLabel ? `搜索聊天（${searchShortcutLabel}）` : '搜索聊天'}>
-              <span className="inline-flex">
+            <TooltipHint content={searchShortcutLabel ? `搜索聊天 · ${searchShortcutLabel}` : '搜索聊天'}>
+              <span className="inline-flex" tabIndex={!searchEnabled ? 0 : undefined}>
                 <Button
                   variant="ghost"
                   size="icon-sm"
@@ -235,7 +225,7 @@ export function Sidebar({
         <div className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto pl-3 pr-1.5 [scrollbar-gutter:stable]">
           {!ready && !sessionsSnapshot ? (
             status === '连接中' ? (
-              <div className="space-y-4 py-3 px-1 animate-pulse">
+              <div className="ui-loading-delayed space-y-4 py-3 px-1 animate-pulse">
                 <div className="space-y-2">
                   <div className="h-3 w-10 bg-secondary/80 rounded" />
                   <div className="h-7 w-full bg-secondary/40 rounded-lg" />
@@ -331,7 +321,7 @@ export function Sidebar({
                           type="button"
                           aria-label="新聊天"
                           onClick={onNewSession}
-                          className="rounded p-1 transition-colors duration-200 ease-out hover:bg-secondary"
+                          className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors duration-200 ease-out cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                         >
                           <SquarePen className="size-3.5" />
                         </button>

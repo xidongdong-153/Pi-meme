@@ -1,6 +1,7 @@
 import type { MessageConfiguration, PlanDocument, PlanState, TaskMode } from '@pi-meme/contracts/plan'
 import { activePathIds } from '@pi-meme/contracts/session-tree'
-import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
+import type { AgentSummary } from '@pi-meme/contracts/collaboration'
+import type { PiSessionSummary, SelectWorkspace } from '@pi-meme/contracts/sessions'
 import { transferDraft } from '@pi-meme/chat/ui/composer/transfer-draft'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -99,7 +100,12 @@ export function useAppSession(
   const forkNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
   const currentRootAgentId = useRef<string | undefined>(undefined)
-  const currentAgentTree = useRef<import('@pi-meme/contracts/collaboration').AgentSummary[]>([])
+  const currentAgentTree = useRef<AgentSummary[]>([])
+  const [hasRunningSubagent, setHasRunningSubagent] = useState(false)
+  const syncAgentTree = useCallback((agents: AgentSummary[]) => {
+    currentAgentTree.current = agents
+    setHasRunningSubagent(agents.some((agent) => ['running', 'starting'].includes(agent.status) && !agent.isPaused))
+  }, [])
   const [planState, setPlanState] = useState<PlanState>()
   const [planDocuments, setPlanDocuments] = useState<PlanDocument[]>([])
   const current = useRef(connection)
@@ -207,7 +213,7 @@ export function useAppSession(
         thinkingSaveError.current = undefined
       }
       currentRootAgentId.current = snapshot.agent?.rootAgentId ?? snapshot.agent?.agentId
-      currentAgentTree.current = snapshot.agents ?? []
+      syncAgentTree(snapshot.agents ?? [])
       setPlanDocuments(
         snapshot.planState?.document ? [snapshot.planState.document] : (snapshot.planDocuments ?? []).slice(-1),
       )
@@ -655,6 +661,62 @@ export function useAppSession(
       onAttention: receiveAttention,
     },
   )
+  const activePendingPrompt = chat.pendingPrompts.some((prompt) => prompt.sessionKey === connection.sessionKey)
+  const syncedSessions = useMemo(() => {
+    if (
+      !attentionSessions ||
+      switching ||
+      previewing ||
+      loading ||
+      (connection.status !== 'ready' && connection.status !== 'idle')
+    )
+      return attentionSessions
+    const viewedPath = connection.sessionFile ?? connection.sessionKey
+    if (!viewedPath) return attentionSessions
+    const liveRunning = Boolean(chat.chat.running || activePendingPrompt || hasRunningSubagent)
+    const livePaused = Boolean(chat.chat.paused && !liveRunning)
+    const matchesViewed = (entry: PiSessionSummary) =>
+      entry.path === viewedPath || Boolean(connection.sessionKey && entry.id === connection.sessionKey)
+    const patchList = (entries: PiSessionSummary[] | undefined) => {
+      if (!entries) return { entries, changed: false }
+      let changed = false
+      const next = entries.map((entry) => {
+        if (!matchesViewed(entry)) return entry
+        if (Boolean(entry.running) === liveRunning && Boolean(entry.isPaused) === livePaused) return entry
+        changed = true
+        return { ...entry, running: liveRunning, isPaused: livePaused }
+      })
+      return { entries: changed ? next : entries, changed }
+    }
+    const recents = patchList(attentionSessions.recents)
+    const standalone = patchList(attentionSessions.standaloneSessions)
+    let projectsChanged = false
+    const projects = attentionSessions.projects.map((project) => {
+      const patched = patchList(project.sessions)
+      if (!patched.changed) return project
+      projectsChanged = true
+      return { ...project, sessions: patched.entries! }
+    })
+    if (!recents.changed && !standalone.changed && !projectsChanged) return attentionSessions
+    return {
+      ...attentionSessions,
+      recents: recents.entries!,
+      standaloneSessions: standalone.entries,
+      projects: projectsChanged ? projects : attentionSessions.projects,
+    }
+  }, [
+    activePendingPrompt,
+    attentionSessions,
+    chat.chat.paused,
+    chat.chat.running,
+    connection.sessionFile,
+    connection.sessionKey,
+    connection.status,
+    hasRunningSubagent,
+    loading,
+    previewing,
+    switching,
+  ])
 
   useEffect(() => {
     mounted.current = true
@@ -698,7 +760,7 @@ export function useAppSession(
             saveNewChatView(false)
           }
           currentRootAgentId.current = undefined
-          currentAgentTree.current = []
+          syncAgentTree([])
           setPlanDocuments([])
           setPlanState(undefined)
           setForkNotice(null)
@@ -817,8 +879,9 @@ export function useAppSession(
           event.agents.some((agent) => agent.rootSessionKey === current.current.sessionKey) ||
           record.sessionKey === current.current.sessionKey
         ) {
-          currentAgentTree.current = event.agents.filter((agent) => agent.rootSessionKey === current.current.sessionKey)
-          applyCurrent({ ...event, agents: currentAgentTree.current })
+          const nextAgents = event.agents.filter((agent) => agent.rootSessionKey === current.current.sessionKey)
+          syncAgentTree(nextAgents)
+          applyCurrent({ ...event, agents: nextAgents })
         }
         return
       }
@@ -1618,7 +1681,7 @@ export function useAppSession(
         setCommands(next)
     },
     refreshUiPlugins,
-    sessions: attentionSessions,
+    sessions: syncedSessions,
     setReadVisible,
     sessionsLoading,
     refreshMenu: async () => {

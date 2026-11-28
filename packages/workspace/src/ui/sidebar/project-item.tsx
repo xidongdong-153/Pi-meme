@@ -1,7 +1,7 @@
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useRef, type ReactNode } from 'react'
 import { SidebarRowMenu, useSidebarMenus } from './sidebar-menus'
-import { Folder, Globe, MessageCircle, Pin, PinOff, Settings2, SquarePen } from 'lucide-react'
+import { Folder, FolderOpen, Globe, MessageCircle, Pin, PinOff, Settings2, SquarePen } from 'lucide-react'
 import { SidebarHoverCard } from './sidebar-hover-card'
 import type { SidebarSource } from './sidebar-source'
 import { cn } from '@pi-meme/ui/lib/utils'
@@ -135,10 +135,11 @@ export function ProjectItem({
             {...dragProps}
             ref={row}
             className={cn(
-              'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-1.5 text-xs transition-colors duration-150 ease-out cursor-pointer',
+              'group relative flex w-full min-w-0 items-center rounded-lg px-2 py-1 text-xs transition-colors duration-150 ease-out motion-reduce:transition-none cursor-pointer',
               isCurrentCwd
                 ? 'bg-secondary/50 font-medium text-foreground'
                 : 'text-foreground/85 hover:bg-secondary/30 hover:text-foreground',
+              source && !source.connected && 'opacity-65',
               dragProps?.draggable && 'cursor-grab active:cursor-grabbing',
             )}
             data-project-cwd={project.cwd}
@@ -147,47 +148,57 @@ export function ProjectItem({
               type="button"
               onClick={() => (onSelectProject ? onSelectProject(project.cwd) : onToggle())}
               aria-expanded={onSelectProject ? undefined : isExpanded}
-              className={cn(
-                'flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-1.5 pl-2 pr-1 text-left rounded cursor-[inherit] transition-[padding] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                !source && 'group-hover:pr-14 group-focus-within:pr-14',
-              )}
+              className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded cursor-[inherit] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
-              <span className={cn('relative shrink-0', source ? 'size-4' : 'size-3.5')}>
+              {!onSelectProject && isExpanded ? (
+                <FolderOpen
+                  data-project-folder-icon
+                  aria-hidden="true"
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                />
+              ) : (
                 <Folder
                   data-project-folder-icon
                   aria-hidden="true"
-                  className={cn('text-muted-foreground', source ? 'size-4' : 'size-3.5')}
+                  className="size-3.5 shrink-0 text-muted-foreground"
                 />
-                {source && (
-                  <span
-                    role="img"
-                    aria-label={`远程：${source.label}`}
-                    className="absolute -bottom-0.5 -right-1 rounded-full text-primary"
-                  >
-                    <Globe aria-hidden="true" className="size-2.5" />
-                  </span>
-                )}
-              </span>
+              )}
               <SidebarTitle className="font-medium">{project.name}</SidebarTitle>
             </button>
 
             {source && (
               <span
                 data-project-source-label
-                className="ml-1 mr-12 max-w-[76px] shrink-0 truncate text-[0.625rem] font-normal text-muted-foreground"
+                className="ml-1.5 inline-flex max-w-[96px] shrink-0 items-center justify-end gap-1 overflow-hidden text-[0.625rem] font-normal text-muted-foreground pointer-events-none transition-[max-width,opacity,margin] duration-150 ease-out motion-reduce:transition-none group-hover:ml-0 group-hover:max-w-0 group-hover:opacity-0 group-has-[:focus-visible]:ml-0 group-has-[:focus-visible]:max-w-0 group-has-[:focus-visible]:opacity-0 group-has-[[data-state=open]]:ml-0 group-has-[[data-state=open]]:max-w-0 group-has-[[data-state=open]]:opacity-0"
               >
-                {source.label}
+                <span className="truncate">{source.label}</span>
+                <span
+                  role="img"
+                  aria-label={`远程：${source.label}`}
+                  className={cn(
+                    'inline-flex size-4 shrink-0 items-center justify-center',
+                    source.connected ? 'text-primary' : 'text-muted-foreground/70',
+                  )}
+                >
+                  <Globe aria-hidden="true" className="size-3.5" />
+                </span>
               </span>
             )}
 
-            {/* 悬浮操作按钮组：采用绝对定位浮在右侧，hover/focus 时浮现，遮盖在最右侧，不挤压项目名称 */}
+            <span
+              aria-hidden="true"
+              className="w-0 shrink-0 transition-[width] duration-150 ease-out motion-reduce:transition-none group-hover:w-[52px] group-has-[:focus-visible]:w-[52px] group-has-[[data-state=open]]:w-[52px]"
+            />
+
+            {/* 悬浮操作按钮组：采用绝对定位浮在右侧，hover/focus-visible/open 时浮现，遮盖在最右侧，不挤压项目名称 */}
             <div
               data-sidebar-drag-ignore
               draggable={false}
               className={cn(
                 'absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 rounded',
-                'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto',
-                'transition-opacity duration-150 ease-out',
+                'opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 group-has-[[data-state=open]]:opacity-100',
+                'pointer-events-none group-hover:pointer-events-auto group-has-[:focus-visible]:pointer-events-auto group-has-[[data-state=open]]:pointer-events-auto',
+                'transition-opacity duration-150 ease-out motion-reduce:transition-none',
               )}
             >
               <TooltipHint content={source?.disabledReason || '在项目中新建会话'}>
@@ -200,7 +211,7 @@ export function ProjectItem({
                       e.stopPropagation()
                       onNewSessionInProject(project.cwd)
                     }}
-                    className="p-1 hover:text-foreground text-muted-foreground cursor-pointer rounded transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-secondary/70 hover:text-foreground cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   >
                     <SquarePen className="size-3.5" />
                   </button>
@@ -218,11 +229,11 @@ export function ProjectItem({
                       onTogglePin(project.cwd)
                     }}
                     className={cn(
-                      'p-1 hover:text-foreground cursor-pointer rounded transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                      'inline-flex size-6 items-center justify-center rounded hover:bg-secondary/70 hover:text-foreground cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                       isPinned ? 'text-primary' : 'text-muted-foreground',
                     )}
                   >
-                    {isPinned ? <PinOff className="size-3" /> : <Pin className="size-3" />}
+                    {isPinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
                   </button>
                 </span>
               </TooltipHint>
@@ -241,7 +252,7 @@ export function ProjectItem({
           )}
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="space-y-1 py-0.5">
+            <div className="ml-3.5 space-y-0.5 border-l border-border/50 pl-2 py-0.5">
               {visibleSessions.map((session) => (
                 <SidebarSortable
                   key={session.path}
@@ -251,17 +262,20 @@ export function ProjectItem({
                   enabled={sortable?.enabled ?? false}
                   onReorder={(keys) => sortable?.onReorder(keys)}
                 >
-                  <SessionItem
-                    session={session}
-                    variant="project"
-                    projectName={project.name}
-                    source={source}
-                    isActive={activeSessionId === session.id || activeSessionPath === session.path}
-                    isPinned={pinnedSet?.has(session.path) ?? false}
-                    onSwitchSession={onSwitchSession}
-                    onTogglePin={onTogglePin}
-                    onPrefetchSession={onPrefetchSession}
-                  />
+                  {(sessionDragProps) => (
+                    <SessionItem
+                      dragProps={sessionDragProps}
+                      session={session}
+                      variant="project"
+                      projectName={project.name}
+                      source={source}
+                      isActive={activeSessionId === session.id || activeSessionPath === session.path}
+                      isPinned={pinnedSet?.has(session.path) ?? false}
+                      onSwitchSession={onSwitchSession}
+                      onTogglePin={onTogglePin}
+                      onPrefetchSession={onPrefetchSession}
+                    />
+                  )}
                 </SidebarSortable>
               ))}
 
@@ -270,7 +284,7 @@ export function ProjectItem({
                 <button
                   type="button"
                   onClick={() => onToggleItems()}
-                  className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors w-full text-left"
+                  className="flex items-center gap-1.5 rounded px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors w-full text-left"
                 >
                   <span>{isItemsExpandedAll ? '收起' : '展开显示'}</span>
                 </button>

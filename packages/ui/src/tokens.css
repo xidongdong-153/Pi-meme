@@ -367,6 +367,19 @@ textarea {
   animation: ui-loading-enter 120ms ease-out 160ms both;
 }
 
+@keyframes sidebar-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sidebar-spin {
+  animation: sidebar-spin 1s linear infinite;
+}
+
 @keyframes ui-loading-enter {
   from {
     opacity: 0;

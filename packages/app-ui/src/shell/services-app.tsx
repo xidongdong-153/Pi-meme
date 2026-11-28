@@ -196,6 +196,13 @@ export function ServicesApp({
       preferences={preferences}
       preferencesLoaded={preferencesLoaded}
       preferenceError={preferenceError}
+      sessionsLoading={Boolean(
+        services.length &&
+        services.every((service) => !controllers.current.get(service.id)?.sessions && !service.sessions) &&
+        services.some(
+          (service) => service.status === 'connecting' || controllers.current.get(service.id)?.sessionsLoading,
+        ),
+      )}
       onPreferencesChange={(patch) =>
         void savePreferences(
           patch.sortMode === 'manual' ? { ...patch, orders: sidebarManualOrders(model, preferences.orders) } : patch,
